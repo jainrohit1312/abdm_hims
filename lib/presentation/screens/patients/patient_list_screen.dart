@@ -82,7 +82,7 @@ class _PatientListScreenState extends ConsumerState<PatientListScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
@@ -97,9 +97,6 @@ class _PatientListScreenState extends ConsumerState<PatientListScreen> {
                         },
                       )
                     : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
               ),
               onChanged: (value) => setState(() {}),
             ),

@@ -101,6 +101,10 @@ class ApiConstants {
   static const String complianceRemindersTable = 'compliance_reminders';
   static const String complianceAuditLogsTable = 'compliance_audit_logs';
 
+  // Personalized User Tag System (per-user, per-field-context)
+  static const String userTagsTable = 'user_tags';
+  static const String entityTagsTable = 'entity_tags';
+
   // ABDM API Endpoints
   // Base URLs are read from AppConfig at runtime; these constants keep the
   // canonical paths used by AbdmService so screens never hard-code URLs.

@@ -7,6 +7,7 @@ import '../config/app_config.dart';
 import '../core/constants/api_constants.dart';
 import '../core/utils/logger.dart';
 import '../models/compliance_models.dart';
+import '../models/personalized_tag_models.dart';
 import '../services/abdm_service.dart';
 import '../services/auth_service.dart';
 import '../services/background_sync.dart';
@@ -15,6 +16,7 @@ import '../services/compliance_service.dart';
 import '../services/counseling_recording_service.dart';
 import '../services/database_service.dart';
 import '../services/local_db.dart';
+import '../services/personalized_tag_service.dart';
 import '../services/push_notification_service.dart';
 import '../services/storage_service.dart';
 
@@ -2062,6 +2064,82 @@ final complianceDocumentByIdProvider =
       final service = ref.read(complianceServiceProvider);
       final doc = await service.getDocumentById(documentId);
       return doc?.toJson();
+    });
+
+// ---------------------------------------------------------------------------
+// Personalized User Tag System Providers
+// ---------------------------------------------------------------------------
+
+final personalizedTagServiceProvider = Provider<PersonalizedTagService>((ref) {
+  return PersonalizedTagService(ref.watch(supabaseClientProvider));
+});
+
+/// Identifies one per-user tag collection: the logged-in user + the field
+/// context (`patient`, `opd`, `ipd`, `compliance`, ...). `==`/`hashCode` are
+/// overridden so Riverpod can cache per-collection results.
+class UserTagParams {
+  final String userId;
+  final String fieldKey;
+
+  const UserTagParams({required this.userId, required this.fieldKey});
+
+  @override
+  bool operator ==(Object other) =>
+      other is UserTagParams &&
+      other.userId == userId &&
+      other.fieldKey == fieldKey;
+
+  @override
+  int get hashCode => Object.hash(userId, fieldKey);
+}
+
+/// The logged-in user's personal tag collection for one field context,
+/// ordered by usage frequency (most-used first). The tag field widget uses
+/// this to render "Based on your history..." suggestions.
+final userTagsProvider =
+    FutureProvider.family<List<PersonalizedTag>, UserTagParams>((
+      ref,
+      params,
+    ) {
+      return ref
+          .read(personalizedTagServiceProvider)
+          .getUserTags(params.userId, params.fieldKey);
+    });
+
+/// Identifies the tags attached to one record (patient, OPD registration,
+/// IPD admission, ...) by the current user.
+class EntityTagParams {
+  final String userId;
+  final String entityType;
+  final String entityId;
+
+  const EntityTagParams({
+    required this.userId,
+    required this.entityType,
+    required this.entityId,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is EntityTagParams &&
+      other.userId == userId &&
+      other.entityType == entityType &&
+      other.entityId == entityId;
+
+  @override
+  int get hashCode => Object.hash(userId, entityType, entityId);
+}
+
+/// Tags currently applied to one record by the current user. Used to
+/// pre-populate the tag field when editing an existing record.
+final entityTagsProvider =
+    FutureProvider.family<List<PersonalizedTag>, EntityTagParams>((
+      ref,
+      params,
+    ) {
+      return ref
+          .read(personalizedTagServiceProvider)
+          .getEntityTags(params.userId, params.entityType, params.entityId);
     });
 
 // ---------------------------------------------------------------------------

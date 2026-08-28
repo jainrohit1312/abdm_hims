@@ -429,8 +429,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                 labelText: 'ABHA Health ID',
                 hintText: 'e.g. 91-1234-5678-9012',
                 prefixIcon: Icon(Icons.credit_card),
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -442,8 +441,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                 hintText: 'OTP if ABHA app asked for verification',
                 counterText: '',
                 prefixIcon: Icon(Icons.security),
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
           ] else if (_searchMode == _SearchMode.mobile) ...[
             TextField(
@@ -455,8 +453,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                 hintText: '10-digit mobile linked to ABHA',
                 counterText: '',
                 prefixText: '+91 ',
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
           ] else ...[
             TextField(
@@ -465,8 +462,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                 labelText: 'ABHA Address',
                 hintText: 'e.g. rahul9012@abdm',
                 prefixIcon: Icon(Icons.alternate_email),
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
           ],
           const SizedBox(height: 16),
@@ -603,8 +599,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
               labelText: 'Patient ID',
               hintText: 'HIMS patient UUID',
               prefixIcon: Icon(Icons.person_search),
-              border: OutlineInputBorder(),
-            ),
+                          ),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),
@@ -614,16 +609,14 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
               labelText: 'Patient ABHA ID',
               hintText: 'e.g. 91-1234-5678-9012',
               prefixIcon: Icon(Icons.fingerprint),
-              border: OutlineInputBorder(),
-            ),
+                          ),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue: _recordType,
             decoration: const InputDecoration(
               labelText: 'Record Type',
-              border: OutlineInputBorder(),
-            ),
+                          ),
             items: const [
               DropdownMenuItem(value: 'opd_visit', child: Text('OPD Visit')),
               DropdownMenuItem(value: 'ipd_admission', child: Text('IPD Admission')),
@@ -647,8 +640,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
               labelText: 'Record ID',
               hintText: 'OPD/IPD/lab/prescription record id',
               prefixIcon: Icon(Icons.link),
-              border: OutlineInputBorder(),
-            ),
+                          ),
           ),
           const SizedBox(height: 16),
           SizedBox(
@@ -738,8 +730,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
             decoration: const InputDecoration(
               labelText: 'Patient ID',
               prefixIcon: Icon(Icons.person_search),
-              border: OutlineInputBorder(),
-            ),
+                          ),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),
@@ -748,8 +739,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
             decoration: const InputDecoration(
               labelText: 'Patient ABHA ID',
               prefixIcon: Icon(Icons.fingerprint),
-              border: OutlineInputBorder(),
-            ),
+                          ),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -757,8 +747,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
             decoration: const InputDecoration(
               labelText: 'Purpose',
               prefixIcon: Icon(Icons.assignment),
-              border: OutlineInputBorder(),
-            ),
+                          ),
           ),
           const SizedBox(height: 12),
           Row(
@@ -885,8 +874,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
             decoration: const InputDecoration(
               labelText: 'Patient ID',
               prefixIcon: Icon(Icons.person_search),
-              border: OutlineInputBorder(),
-            ),
+                          ),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 16),
@@ -1023,8 +1011,7 @@ class _DateField extends StatelessWidget {
       child: InputDecorator(
         decoration: InputDecoration(
           labelText: label,
-          border: const OutlineInputBorder(),
-          suffixIcon: const Icon(Icons.calendar_today),
+                    suffixIcon: const Icon(Icons.calendar_today),
         ),
         child: Text(value?.toDateString ?? 'Select date'),
       ),

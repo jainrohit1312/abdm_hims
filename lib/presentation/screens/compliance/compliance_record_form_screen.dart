@@ -433,9 +433,6 @@ class _ComplianceRecordFormScreenState
                     ? 'Update Record'
                     : 'Save & Upload',
               ),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
             ),
           ],
         ),

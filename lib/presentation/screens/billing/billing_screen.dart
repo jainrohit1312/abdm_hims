@@ -221,11 +221,7 @@ class _BillListTabState extends ConsumerState<_BillListTab> {
                   ),
             isDense: true,
             filled: true,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-          ),
+                      ),
         ),
       ),
     );

@@ -408,11 +408,7 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
                     filled: true,
                     fillColor: theme.colorScheme.surfaceContainerHighest
                         .withValues(alpha: 0.3),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
+                                      ),
                   onChanged: _onSearchChanged,
                 ),
                 const SizedBox(height: 8),

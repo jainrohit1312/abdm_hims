@@ -478,8 +478,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : null,
-            border: const OutlineInputBorder(),
-          ),
+                      ),
         ),
         if (_resolvingPatient)
           const Padding(
@@ -538,16 +537,14 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
               controller: _walkInFirstNameController,
               decoration: const InputDecoration(
                 labelText: 'Patient Name *',
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _walkInLastNameController,
               decoration: const InputDecoration(
                 labelText: 'Last Name (optional)',
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -557,8 +554,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
               decoration: const InputDecoration(
                 labelText: 'Mobile Number *',
                 counterText: '',
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -691,8 +687,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
           initialValue: _urgency,
           decoration: const InputDecoration(
             labelText: 'Order Type',
-            border: OutlineInputBorder(),
-          ),
+                      ),
           items: const [
             DropdownMenuItem(value: 'routine', child: Text('Routine')),
             DropdownMenuItem(value: 'urgent', child: Text('Urgent')),
@@ -707,8 +702,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
           decoration: const InputDecoration(
             labelText: 'Order Date',
             prefixIcon: Icon(Icons.calendar_today_outlined),
-            border: OutlineInputBorder(),
-          ),
+                      ),
         ),
       ],
     );
@@ -735,8 +729,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
           initialValue: _paymentMode,
           decoration: const InputDecoration(
             labelText: 'Payment Mode',
-            border: OutlineInputBorder(),
-          ),
+                      ),
           items: const [
             DropdownMenuItem(value: 'cash', child: Text('Cash')),
             DropdownMenuItem(value: 'card', child: Text('Card')),
@@ -753,8 +746,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
           decoration: InputDecoration(
             labelText: 'Paid Amount (₹)',
             prefixText: '₹ ',
-            border: const OutlineInputBorder(),
-            helperText:
+                        helperText:
                 balance >= 0 ? 'Balance: ₹ ${balance.toStringAsFixed(2)}' : '',
             suffixIcon: IconButton(
               tooltip: 'Full amount',
@@ -830,8 +822,7 @@ class _TestPickerDialogState extends State<_TestPickerDialog> {
               decoration: const InputDecoration(
                 hintText: 'Search test name or code',
                 prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
-              ),
+                              ),
               onChanged: (value) => setState(() => _query = value),
             ),
             const SizedBox(height: 12),
@@ -839,8 +830,7 @@ class _TestPickerDialogState extends State<_TestPickerDialog> {
               initialValue: _category,
               decoration: const InputDecoration(
                 labelText: 'Category',
-                border: OutlineInputBorder(),
-              ),
+                              ),
               items: const [
                 DropdownMenuItem(value: 'all', child: Text('All Categories')),
                 DropdownMenuItem(value: 'pathology', child: Text('Pathology')),

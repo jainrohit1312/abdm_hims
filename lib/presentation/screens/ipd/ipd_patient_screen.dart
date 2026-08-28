@@ -1950,8 +1950,7 @@ class _VitalsFormSheetState extends ConsumerState<_VitalsFormSheet> {
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-      ),
+              ),
       validator: _validateNumber,
     );
   }
@@ -2140,10 +2139,7 @@ class _ProgressNoteFormSheetState
                   labelText: 'Note Date *',
                   prefixIcon: const Icon(Icons.calendar_today),
                   suffixIcon: const Icon(Icons.arrow_drop_down),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                                  ),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -2154,10 +2150,7 @@ class _ProgressNoteFormSheetState
                   labelText: 'Progress Note *',
                   hintText: 'e.g. Patient is stable, fever reduced...',
                   alignLabelWithHint: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                                  ),
                 validator: (value) =>
                     value?.trim().isEmpty == true ? 'Note is required' : null,
               ),
@@ -2354,10 +2347,7 @@ class _MedicationFormSheetState extends ConsumerState<_MedicationFormSheet> {
                 decoration: InputDecoration(
                   labelText: 'Medicine Name *',
                   prefixIcon: const Icon(Icons.medication),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                                  ),
                 validator: (value) => value?.trim().isEmpty == true
                     ? 'Medicine name is required'
                     : null,
@@ -2369,10 +2359,7 @@ class _MedicationFormSheetState extends ConsumerState<_MedicationFormSheet> {
                   labelText: 'Dosage',
                   hintText: 'e.g. 500 mg',
                   prefixIcon: const Icon(Icons.straighten),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                                  ),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -2381,10 +2368,7 @@ class _MedicationFormSheetState extends ConsumerState<_MedicationFormSheet> {
                   labelText: 'Frequency',
                   hintText: 'e.g. TDS / BD / OD',
                   prefixIcon: const Icon(Icons.schedule),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                                  ),
               ),
               const SizedBox(height: 12),
               Row(
@@ -2446,8 +2430,7 @@ class _MedicationFormSheetState extends ConsumerState<_MedicationFormSheet> {
         labelText: label,
         prefixIcon: const Icon(Icons.calendar_today),
         suffixIcon: const Icon(Icons.arrow_drop_down),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-      ),
+              ),
     );
   }
 
@@ -2615,10 +2598,7 @@ class _ReportFormSheetState extends ConsumerState<_ReportFormSheet> {
                   labelText: 'Report Type *',
                   hintText: 'e.g. CBC, X-Ray Chest, MRI',
                   prefixIcon: const Icon(Icons.description_outlined),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                                  ),
                 validator: (value) => value?.trim().isEmpty == true
                     ? 'Report type is required'
                     : null,
@@ -2632,10 +2612,7 @@ class _ReportFormSheetState extends ConsumerState<_ReportFormSheet> {
                   labelText: 'Report Date *',
                   prefixIcon: const Icon(Icons.calendar_today),
                   suffixIcon: const Icon(Icons.arrow_drop_down),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                                  ),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -2645,10 +2622,7 @@ class _ReportFormSheetState extends ConsumerState<_ReportFormSheet> {
                   labelText: 'Report File URL (optional)',
                   hintText: 'https://...',
                   prefixIcon: const Icon(Icons.link),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                                  ),
               ),
               const SizedBox(height: 20),
               SizedBox(

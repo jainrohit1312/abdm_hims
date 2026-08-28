@@ -437,8 +437,7 @@ class PrescriptionHistoryFields extends StatelessWidget {
           labelText: label,
           hintText: hint,
           isDense: true,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        ),
+                  ),
       ),
     );
   }
@@ -637,6 +636,5 @@ InputDecoration _fieldDecoration(String label, {String? hint}) {
   return InputDecoration(
     labelText: label,
     hintText: hint,
-    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-  );
+      );
 }

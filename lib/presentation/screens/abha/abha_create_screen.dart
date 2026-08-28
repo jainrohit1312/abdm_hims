@@ -310,8 +310,7 @@ class _ABHACreateScreenState extends ConsumerState<ABHACreateScreen> {
                     prefixIcon: Icon(
                       _isDrivingLicenceMode ? Icons.badge : Icons.credit_card,
                     ),
-                    border: const OutlineInputBorder(),
-                  ),
+                                      ),
                 ),
                 if (_maskedMobile != null) ...[
                   const SizedBox(height: 8),
@@ -344,8 +343,7 @@ class _ABHACreateScreenState extends ConsumerState<ABHACreateScreen> {
                     hintText: 'Enter 6-digit OTP',
                     counterText: '',
                     prefixIcon: Icon(Icons.security),
-                    border: OutlineInputBorder(),
-                  ),
+                                      ),
                 ),
               ],
             ),
@@ -362,8 +360,7 @@ class _ABHACreateScreenState extends ConsumerState<ABHACreateScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Full Name (as per Aadhaar)',
                     prefixIcon: Icon(Icons.person),
-                    border: OutlineInputBorder(),
-                  ),
+                                      ),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -372,16 +369,14 @@ class _ABHACreateScreenState extends ConsumerState<ABHACreateScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Mobile Number',
                     prefixIcon: Icon(Icons.phone),
-                    border: OutlineInputBorder(),
-                  ),
+                                      ),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _selectedGender,
                   decoration: const InputDecoration(
                     labelText: 'Gender',
-                    border: OutlineInputBorder(),
-                  ),
+                                      ),
                   items: ['Male', 'Female', 'Other']
                       .map((g) => DropdownMenuItem(value: g, child: Text(g)))
                       .toList(),
@@ -394,8 +389,7 @@ class _ABHACreateScreenState extends ConsumerState<ABHACreateScreen> {
                     labelText: 'Preferred ABHA Number (optional)',
                     hintText: 'e.g. 91-1234-5678-9012',
                     prefixIcon: Icon(Icons.fingerprint),
-                    border: OutlineInputBorder(),
-                  ),
+                                      ),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -404,8 +398,7 @@ class _ABHACreateScreenState extends ConsumerState<ABHACreateScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Email (optional)',
                     prefixIcon: Icon(Icons.email),
-                    border: OutlineInputBorder(),
-                  ),
+                                      ),
                 ),
                 const SizedBox(height: 16),
                 Card(

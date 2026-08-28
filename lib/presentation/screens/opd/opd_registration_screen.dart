@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/providers.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../models/personalized_tag_models.dart';
+import '../../widgets/app_ui.dart';
+import '../../widgets/personalized_tag_field.dart';
 import '../../widgets/smart_navigation.dart';
 import 'opd_slip_print.dart';
 
@@ -47,6 +50,9 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
   bool _isSubmitting = false;
   bool _isLoadingPatient = false;
   String _selectedBloodGroup = 'O+';
+
+  /// Personalized (AI-flavoured) tag field for this OPD visit.
+  final _tagsKey = GlobalKey<PersonalizedTagFieldState>();
 
   // Smart OPD Payment
   static const _paymentModes = ['Cash', 'Card', 'UPI', 'Insurance'];
@@ -376,6 +382,23 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
 
       final opdId = created['id']?.toString() ?? '';
 
+      // Personalized tags — per logged-in user (best-effort; tag failure
+      // must never block OPD registration).
+      final visitTags = _tagsKey.currentState?.selectedTags ?? const <String>[];
+      if (opdId.isNotEmpty && visitTags.isNotEmpty) {
+        try {
+          await ref.read(personalizedTagServiceProvider).setEntityTags(
+            userId: createdById,
+            fieldKey: PersonalizedTagFields.opd,
+            entityType: PersonalizedTagEntityTypes.opdRegistration,
+            entityId: opdId,
+            names: visitTags,
+          );
+        } catch (e) {
+          debugPrint('OPD tags save failed (non-blocking): $e');
+        }
+      }
+
       // Registration ke time payment collect -> slip generate -> paid.
       // Returned row mein patients ka naam/uhid embedded hota hai jo slip
       // print karne ke kaam aata hai.
@@ -538,94 +561,62 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
                     ),
                   )
                 else ...[
-                  Row(
+                  AppFieldRow(
                     children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _ageController,
-                          decoration: const InputDecoration(
-                            labelText: 'Age',
-                            hintText: 'Auto-calculated from DOB',
-                          ),
-                          keyboardType: TextInputType.number,
-                          validator: (v) {
-                            if (v?.isEmpty == true) return 'Required';
-                            final age = int.tryParse(v!);
-                            if (age == null || age < 0 || age > 150) {
-                              return 'Enter valid age';
-                            }
-                            return null;
-                          },
+                      TextFormField(
+                        controller: _ageController,
+                        decoration: const InputDecoration(
+                          labelText: 'Age',
+                          hintText: 'Auto-calculated from DOB',
                         ),
+                        keyboardType: TextInputType.number,
+                        validator: (v) {
+                          if (v?.isEmpty == true) return 'Required';
+                          final age = int.tryParse(v!);
+                          if (age == null || age < 0 || age > 150) {
+                            return 'Enter valid age';
+                          }
+                          return null;
+                        },
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _selectedBloodGroup,
-                          decoration: const InputDecoration(
-                            labelText: 'Blood Group',
-                          ),
-                          items:
-                              ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
-                                  .map(
-                                    (bg) => DropdownMenuItem(
-                                      value: bg,
-                                      child: Text(bg),
-                                    ),
-                                  )
-                                  .toList(),
-                          onChanged: (v) =>
-                              setState(() => _selectedBloodGroup = v!),
+                      DropdownButtonFormField<String>(
+                        initialValue: _selectedBloodGroup,
+                        decoration: const InputDecoration(
+                          labelText: 'Blood Group',
                         ),
+                        items:
+                            ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+                                .map(
+                                  (bg) => DropdownMenuItem(
+                                    value: bg,
+                                    child: Text(bg),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: (v) =>
+                            setState(() => _selectedBloodGroup = v!),
                       ),
                     ],
                   ),
                 ],
                 const SizedBox(height: 24),
               ] else ...[
-                Card(
-                  color: theme.colorScheme.errorContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          Icons.warning_amber_rounded,
-                          color: theme.colorScheme.onErrorContainer,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'No patient selected. Please register a patient first.',
-                                style: TextStyle(
-                                  color: theme.colorScheme.onErrorContainer,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              InkWell(
-                                onTap: () => context.push('/patients/register'),
-                                child: const Text(
-                                  'Click here to register a new patient',
-                                  style: TextStyle(
-                                    color: Colors.blue,
-                                    fontWeight: FontWeight.w600,
-                                    decoration: TextDecoration.underline,
-                                    decorationColor: Colors.blue,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                AppInfoBanner(
+                  message:
+                      'No patient selected. Please register a patient first.',
+                  tone: AppBannerTone.error,
+                  padding: const EdgeInsets.all(14),
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => context.push('/patients/register'),
+                    icon: const Icon(Icons.person_add, size: 18),
+                    label: const Text('Register a new patient'),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 12),
               ],
               Text(
                 'Vitals',
@@ -634,54 +625,44 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              Row(
+              AppFieldRow(
                 children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _vitalsBPController,
-                      decoration: const InputDecoration(
-                        labelText: 'BP (mmHg)',
-                        hintText: '120/80',
-                      ),
-                      keyboardType: TextInputType.text,
+                  TextFormField(
+                    controller: _vitalsBPController,
+                    decoration: const InputDecoration(
+                      labelText: 'BP (mmHg)',
+                      hintText: '120/80',
                     ),
+                    keyboardType: TextInputType.text,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _vitalsPulseController,
-                      decoration: const InputDecoration(
-                        labelText: 'Pulse (bpm)',
-                        hintText: '72',
-                      ),
-                      keyboardType: TextInputType.number,
+                  TextFormField(
+                    controller: _vitalsPulseController,
+                    decoration: const InputDecoration(
+                      labelText: 'Pulse (bpm)',
+                      hintText: '72',
                     ),
+                    keyboardType: TextInputType.number,
                   ),
                 ],
               ),
               const SizedBox(height: 16),
-              Row(
+              AppFieldRow(
                 children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _vitalsTempController,
-                      decoration: const InputDecoration(
-                        labelText: 'Temp (°F)',
-                        hintText: '98.6',
-                      ),
-                      keyboardType: TextInputType.number,
+                  TextFormField(
+                    controller: _vitalsTempController,
+                    decoration: const InputDecoration(
+                      labelText: 'Temp (°F)',
+                      hintText: '98.6',
                     ),
+                    keyboardType: TextInputType.number,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _vitalsSpO2Controller,
-                      decoration: const InputDecoration(
-                        labelText: 'SpO2 (%)',
-                        hintText: '98',
-                      ),
-                      keyboardType: TextInputType.number,
+                  TextFormField(
+                    controller: _vitalsSpO2Controller,
+                    decoration: const InputDecoration(
+                      labelText: 'SpO2 (%)',
+                      hintText: '98',
                     ),
+                    keyboardType: TextInputType.number,
                   ),
                 ],
               ),
@@ -750,11 +731,7 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
                   prefixText: '₹ ',
                   filled: true,
                   fillColor: Colors.grey[50],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey[300]!),
-                  ),
-                ),
+                                  ),
                 keyboardType: TextInputType.number,
                 onChanged: (val) {
                   final newFee = double.tryParse(val);
@@ -776,11 +753,7 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
                   prefixText: '₹ ',
                   filled: true,
                   fillColor: Colors.grey[50],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey[300]!),
-                  ),
-                ),
+                                  ),
                 keyboardType: TextInputType.number,
                 onChanged: (val) {
                   final newDiscount = double.tryParse(val);
@@ -841,10 +814,7 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
                 decoration: InputDecoration(
                   labelText: 'Payment Mode',
                   prefixIcon: const Icon(Icons.payments_outlined),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                                  ),
                 items: _paymentModes
                     .map(
                       (mode) =>
@@ -886,6 +856,16 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
                 },
                 contentPadding: EdgeInsets.zero,
                 secondary: const Icon(Icons.chat_outlined),
+              ),
+              const SizedBox(height: 16),
+
+              // Personalized tags — per logged-in user, context-aware (opd).
+              PersonalizedTagField(
+                key: _tagsKey,
+                fieldKey: PersonalizedTagFields.opd,
+                entityType: PersonalizedTagEntityTypes.opdRegistration,
+                label: 'Visit Tags',
+                hint: 'e.g. Review, High BP, Insurance...',
               ),
               const SizedBox(height: 24),
               SizedBox(

@@ -173,8 +173,7 @@ class _BillCreateScreenState extends ConsumerState<BillCreateScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Search patient by name / UHID / mobile',
                   prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder(),
-                ),
+                                  ),
                 onChanged: (value) => setState(() => _patientQuery = value),
               ),
               if (searchAsync != null)
@@ -276,8 +275,7 @@ class _BillCreateScreenState extends ConsumerState<BillCreateScreen> {
               initialValue: _itemType,
               decoration: const InputDecoration(
                 labelText: 'Item Type',
-                border: OutlineInputBorder(),
-              ),
+                              ),
               items: _itemTypes
                   .map(
                     (entry) => DropdownMenuItem(
@@ -294,8 +292,7 @@ class _BillCreateScreenState extends ConsumerState<BillCreateScreen> {
               controller: _itemNameController,
               decoration: const InputDecoration(
                 labelText: 'Item name',
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
             const SizedBox(height: 12),
             Row(
@@ -306,8 +303,7 @@ class _BillCreateScreenState extends ConsumerState<BillCreateScreen> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
                       labelText: 'Quantity',
-                      border: OutlineInputBorder(),
-                    ),
+                                          ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -317,8 +313,7 @@ class _BillCreateScreenState extends ConsumerState<BillCreateScreen> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
                       labelText: 'Unit Price (₹)',
-                      border: OutlineInputBorder(),
-                    ),
+                                          ),
                   ),
                 ),
               ],
@@ -370,8 +365,7 @@ class _BillCreateScreenState extends ConsumerState<BillCreateScreen> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
                       labelText: 'Discount (₹)',
-                      border: OutlineInputBorder(),
-                    ),
+                                          ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -381,8 +375,7 @@ class _BillCreateScreenState extends ConsumerState<BillCreateScreen> {
                     controller: _discountReasonController,
                     decoration: const InputDecoration(
                       labelText: 'Discount reason',
-                      border: OutlineInputBorder(),
-                    ),
+                                          ),
                   ),
                 ),
               ],
@@ -393,8 +386,7 @@ class _BillCreateScreenState extends ConsumerState<BillCreateScreen> {
               maxLines: 2,
               decoration: const InputDecoration(
                 labelText: 'Notes',
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
           ],
         ),
@@ -434,8 +426,7 @@ class _BillCreateScreenState extends ConsumerState<BillCreateScreen> {
               decoration: const InputDecoration(
                 labelText: 'Paid Amount (₹)',
                 prefixIcon: Icon(Icons.payments_outlined),
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
             const SizedBox(height: 12),
             Row(
@@ -445,8 +436,7 @@ class _BillCreateScreenState extends ConsumerState<BillCreateScreen> {
                     initialValue: _paymentMode,
                     decoration: const InputDecoration(
                       labelText: 'Payment Mode',
-                      border: OutlineInputBorder(),
-                    ),
+                                          ),
                     items: ['cash', 'card', 'upi', 'online', 'cheque']
                         .map(
                           (mode) => DropdownMenuItem(
@@ -465,8 +455,7 @@ class _BillCreateScreenState extends ConsumerState<BillCreateScreen> {
                     controller: _transactionRefController,
                     decoration: const InputDecoration(
                       labelText: 'Transaction Ref (optional)',
-                      border: OutlineInputBorder(),
-                    ),
+                                          ),
                   ),
                 ),
               ],

@@ -142,8 +142,7 @@ class _ComplianceDocumentsScreenState
                       },
                     ),
               isDense: true,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            ),
+                          ),
           ),
           const SizedBox(height: 8),
           SingleChildScrollView(

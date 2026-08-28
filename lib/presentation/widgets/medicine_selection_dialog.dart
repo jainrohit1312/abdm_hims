@@ -484,10 +484,7 @@ class _MedicineSelectionDialogState
                 );
               },
             ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
+                      ),
         );
       },
       optionsViewBuilder: (context, onSelected, options) {
@@ -773,10 +770,7 @@ class _MedicineSelectionDialogState
                     decoration: InputDecoration(
                       labelText: 'Dosage',
                       hintText: '1-0-1',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                                          ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -788,10 +782,7 @@ class _MedicineSelectionDialogState
                         : 'Custom',
                     decoration: InputDecoration(
                       labelText: 'Duration',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                                          ),
                     items: medicineDurationOptions
                         .map(
                           (duration) => DropdownMenuItem(
@@ -819,10 +810,7 @@ class _MedicineSelectionDialogState
                 decoration: InputDecoration(
                   labelText: 'Custom Duration',
                   hintText: 'e.g. 21 Days / 2 Weeks / 6 Months',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
+                                  ),
               ),
             ],
             const SizedBox(height: 10),
@@ -831,10 +819,7 @@ class _MedicineSelectionDialogState
               initialValue: _route,
               decoration: InputDecoration(
                 labelText: 'Route',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+                              ),
               items: medicineRouteOptions
                   .map(
                     (route) => DropdownMenuItem(
@@ -856,10 +841,7 @@ class _MedicineSelectionDialogState
                 labelText: 'Instructions',
                 hintText: 'e.g. With water, After food',
                 alignLabelWithHint: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+                              ),
             ),
           ],
         ),

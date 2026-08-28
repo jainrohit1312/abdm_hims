@@ -319,8 +319,7 @@ class _BillEditScreenState extends ConsumerState<BillEditScreen> {
               maxLines: 2,
               decoration: const InputDecoration(
                 labelText: 'Bill notes (visible on bill)',
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -328,8 +327,7 @@ class _BillEditScreenState extends ConsumerState<BillEditScreen> {
               maxLines: 2,
               decoration: const InputDecoration(
                 labelText: 'Internal notes (not visible on bill)',
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
             const SizedBox(height: 12),
             Align(
@@ -452,8 +450,7 @@ class _BillEditScreenState extends ConsumerState<BillEditScreen> {
                   : 'unpaid',
               decoration: const InputDecoration(
                 labelText: 'Payment Status',
-                border: OutlineInputBorder(),
-              ),
+                              ),
               items: const [
                 DropdownMenuItem(value: 'unpaid', child: Text('Unpaid')),
                 DropdownMenuItem(
@@ -570,8 +567,7 @@ class _BillEditScreenState extends ConsumerState<BillEditScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Discount (₹)',
                       prefixIcon: Icon(Icons.percent),
-                      border: OutlineInputBorder(),
-                    ),
+                                          ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -581,8 +577,7 @@ class _BillEditScreenState extends ConsumerState<BillEditScreen> {
                     controller: _discountReasonController,
                     decoration: const InputDecoration(
                       labelText: 'Discount reason',
-                      border: OutlineInputBorder(),
-                    ),
+                                          ),
                   ),
                 ),
               ],
@@ -1319,16 +1314,14 @@ class _RecordPaymentSheetState extends ConsumerState<_RecordPaymentSheet> {
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
               labelText: 'Amount (₹)',
-              border: OutlineInputBorder(),
-            ),
+                          ),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue: _mode,
             decoration: const InputDecoration(
               labelText: 'Payment Mode',
-              border: OutlineInputBorder(),
-            ),
+                          ),
             items: const [
               DropdownMenuItem(value: 'cash', child: Text('Cash')),
               DropdownMenuItem(value: 'card', child: Text('Card')),
@@ -1343,8 +1336,7 @@ class _RecordPaymentSheetState extends ConsumerState<_RecordPaymentSheet> {
             controller: _paidByController,
             decoration: const InputDecoration(
               labelText: 'Paid By (optional)',
-              border: OutlineInputBorder(),
-            ),
+                          ),
           ),
           const SizedBox(height: 16),
           SizedBox(
@@ -1459,8 +1451,7 @@ class _AddItemSheetState extends ConsumerState<_AddItemSheet> {
               initialValue: _itemType,
               decoration: const InputDecoration(
                 labelText: 'Item Type',
-                border: OutlineInputBorder(),
-              ),
+                              ),
               items: _itemTypes
                   .map(
                     (entry) => DropdownMenuItem(
@@ -1476,8 +1467,7 @@ class _AddItemSheetState extends ConsumerState<_AddItemSheet> {
               controller: _nameController,
               decoration: const InputDecoration(
                 labelText: 'Item name',
-                border: OutlineInputBorder(),
-              ),
+                              ),
             ),
             const SizedBox(height: 12),
             Row(
@@ -1488,8 +1478,7 @@ class _AddItemSheetState extends ConsumerState<_AddItemSheet> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
                       labelText: 'Quantity',
-                      border: OutlineInputBorder(),
-                    ),
+                                          ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1499,8 +1488,7 @@ class _AddItemSheetState extends ConsumerState<_AddItemSheet> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
                       labelText: 'Unit Price (₹)',
-                      border: OutlineInputBorder(),
-                    ),
+                                          ),
                   ),
                 ),
               ],
@@ -1522,8 +1510,7 @@ class _AddItemSheetState extends ConsumerState<_AddItemSheet> {
                 initialValue: null,
                 decoration: const InputDecoration(
                   labelText: 'Select a lab test',
-                  border: OutlineInputBorder(),
-                ),
+                                  ),
                 items: [
                   const DropdownMenuItem<String>(
                     value: null,
@@ -1571,8 +1558,7 @@ class _AddItemSheetState extends ConsumerState<_AddItemSheet> {
               onChanged: (value) => setState(() => _medicineQuery = value),
               decoration: const InputDecoration(
                 labelText: 'Search medicine',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.search),
+                                prefixIcon: Icon(Icons.search),
               ),
             ),
             if (medicinesAsync != null)

@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../app/providers.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../widgets/app_ui.dart';
 
 /// Hospital Registration screen (`/register`).
 ///
@@ -217,74 +218,64 @@ class _HospitalRegistrationScreenState
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
+                AppFieldRow(
                   children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _cityController,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: const InputDecoration(labelText: 'City *'),
-                        validator: (value) => value == null || value.trim().isEmpty
-                            ? 'City is required'
-                            : null,
-                      ),
+                    TextFormField(
+                      controller: _cityController,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(labelText: 'City *'),
+                      validator: (value) => value == null || value.trim().isEmpty
+                          ? 'City is required'
+                          : null,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _stateController,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: const InputDecoration(labelText: 'State *'),
-                        validator: (value) => value == null || value.trim().isEmpty
-                            ? 'State is required'
-                            : null,
-                      ),
+                    TextFormField(
+                      controller: _stateController,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(labelText: 'State *'),
+                      validator: (value) => value == null || value.trim().isEmpty
+                          ? 'State is required'
+                          : null,
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                Row(
+                AppFieldRow(
                   children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _pincodeController,
-                        keyboardType: TextInputType.number,
-                        maxLength: 6,
-                        decoration: const InputDecoration(
-                          labelText: 'Pincode *',
-                          counterText: '',
-                          prefixIcon: Icon(Icons.pin_drop_outlined),
-                        ),
-                        validator: (value) {
-                          final v = value?.trim() ?? '';
-                          if (v.isEmpty) return 'Pincode is required';
-                          if (!RegExp(r'^\d{6}$').hasMatch(v)) {
-                            return 'Enter a valid 6-digit pincode';
-                          }
-                          return null;
-                        },
+                    TextFormField(
+                      controller: _pincodeController,
+                      keyboardType: TextInputType.number,
+                      maxLength: 6,
+                      decoration: const InputDecoration(
+                        labelText: 'Pincode *',
+                        counterText: '',
+                        prefixIcon: Icon(Icons.pin_drop_outlined),
                       ),
+                      validator: (value) {
+                        final v = value?.trim() ?? '';
+                        if (v.isEmpty) return 'Pincode is required';
+                        if (!RegExp(r'^\d{6}$').hasMatch(v)) {
+                          return 'Enter a valid 6-digit pincode';
+                        }
+                        return null;
+                      },
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _phoneController,
-                        keyboardType: TextInputType.phone,
-                        maxLength: 10,
-                        decoration: const InputDecoration(
-                          labelText: 'Phone Number *',
-                          counterText: '',
-                          prefixIcon: Icon(Icons.phone_outlined),
-                        ),
-                        validator: (value) {
-                          final v = value?.trim() ?? '';
-                          if (v.isEmpty) return 'Phone is required';
-                          if (!RegExp(r'^\d{10}$').hasMatch(v)) {
-                            return 'Enter a valid 10-digit number';
-                          }
-                          return null;
-                        },
+                    TextFormField(
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      maxLength: 10,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone Number *',
+                        counterText: '',
+                        prefixIcon: Icon(Icons.phone_outlined),
                       ),
+                      validator: (value) {
+                        final v = value?.trim() ?? '';
+                        if (v.isEmpty) return 'Phone is required';
+                        if (!RegExp(r'^\d{10}$').hasMatch(v)) {
+                          return 'Enter a valid 10-digit number';
+                        }
+                        return null;
+                      },
                     ),
                   ],
                 ),
@@ -321,31 +312,26 @@ class _HospitalRegistrationScreenState
                 const SizedBox(height: 24),
                 _sectionHeader(theme, 'Admin User Creation'),
                 const SizedBox(height: 12),
-                Row(
+                AppFieldRow(
                   children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _adminFirstNameController,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: const InputDecoration(
-                          labelText: 'First Name *',
-                          prefixIcon: Icon(Icons.person_outline),
-                        ),
-                        validator: (value) =>
-                            value == null || value.trim().isEmpty
-                            ? 'First name is required'
-                            : null,
+                    TextFormField(
+                      controller: _adminFirstNameController,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(
+                        labelText: 'First Name *',
+                        prefixIcon: Icon(Icons.person_outline),
                       ),
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                          ? 'First name is required'
+                          : null,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _adminLastNameController,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: const InputDecoration(
-                          labelText: 'Last Name',
-                          prefixIcon: Icon(Icons.person_outline),
-                        ),
+                    TextFormField(
+                      controller: _adminLastNameController,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(
+                        labelText: 'Last Name',
+                        prefixIcon: Icon(Icons.person_outline),
                       ),
                     ),
                   ],
@@ -366,45 +352,40 @@ class _HospitalRegistrationScreenState
                   },
                 ),
                 const SizedBox(height: 12),
-                Row(
+                AppFieldRow(
                   children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _adminPasswordController,
-                        obscureText: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Password *',
-                          prefixIcon: Icon(Icons.lock_outline),
-                        ),
-                        validator: (value) {
-                          final v = value ?? '';
-                          if (v.isEmpty) return 'Password is required';
-                          if (v.length < 6) {
-                            return 'Minimum 6 characters';
-                          }
-                          return null;
-                        },
+                    TextFormField(
+                      controller: _adminPasswordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Password *',
+                        prefixIcon: Icon(Icons.lock_outline),
                       ),
+                      validator: (value) {
+                        final v = value ?? '';
+                        if (v.isEmpty) return 'Password is required';
+                        if (v.length < 6) {
+                          return 'Minimum 6 characters';
+                        }
+                        return null;
+                      },
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _adminConfirmPasswordController,
-                        obscureText: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Confirm Password *',
-                          prefixIcon: Icon(Icons.lock_outline),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Confirm password';
-                          }
-                          if (value != _adminPasswordController.text) {
-                            return 'Passwords do not match';
-                          }
-                          return null;
-                        },
+                    TextFormField(
+                      controller: _adminConfirmPasswordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Confirm Password *',
+                        prefixIcon: Icon(Icons.lock_outline),
                       ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Confirm password';
+                        }
+                        if (value != _adminPasswordController.text) {
+                          return 'Passwords do not match';
+                        }
+                        return null;
+                      },
                     ),
                   ],
                 ),

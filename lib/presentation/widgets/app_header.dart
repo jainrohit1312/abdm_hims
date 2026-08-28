@@ -7,7 +7,7 @@ import 'smart_navigation.dart';
 
 /// Height of the header content. The system status-bar inset is added on top
 /// of this value by the [Scaffold] when [AppHeader] is used as its `appBar`.
-const double kAppHeaderHeight = 60;
+const double kAppHeaderHeight = 56;
 
 /// Width below which the horizontal desktop header collapses into a compact
 /// bar with a hamburger button that opens [AppNavDrawer].
@@ -289,45 +289,44 @@ class _Brand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return InkWell(
       onTap: () => context.go('/dashboard'),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(7),
               decoration: BoxDecoration(
                 color: colorScheme.primary,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
                 Icons.local_hospital,
-                size: 20,
+                size: 18,
                 color: colorScheme.onPrimary,
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'HIMS',
-                  style: TextStyle(
-                    fontSize: 16,
+                  style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w800,
-                    letterSpacing: 0.5,
+                    letterSpacing: 0.4,
                     color: colorScheme.onSurface,
                   ),
                 ),
                 if (showSubtitle)
                   Text(
                     'Hospital Management',
-                    style: TextStyle(
-                      fontSize: 11,
+                    style: theme.textTheme.labelSmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),
                   ),
@@ -357,6 +356,7 @@ class _NavButton extends StatelessWidget {
     final foreground = active
         ? colorScheme.primary
         : colorScheme.onSurfaceVariant;
+    final theme = Theme.of(context);
 
     return InkWell(
       onTap: () => context.go(destination.route),
@@ -364,7 +364,7 @@ class _NavButton extends StatelessWidget {
       hoverColor: colorScheme.primary.withValues(alpha: 0.06),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           color: active
               ? colorScheme.primaryContainer.withValues(alpha: 0.45)
@@ -380,12 +380,11 @@ class _NavButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(destination.icon, size: 20, color: foreground),
+            Icon(destination.icon, size: 18, color: foreground),
             const SizedBox(width: 6),
             Text(
               destination.label,
-              style: TextStyle(
-                fontSize: 14,
+              style: theme.textTheme.labelMedium?.copyWith(
                 fontWeight: active ? FontWeight.w700 : FontWeight.w500,
                 color: foreground,
               ),
@@ -409,67 +408,100 @@ class AppNavDrawer extends ConsumerWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Drawer(
+      width: 300,
       child: SafeArea(
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       color: colorScheme.primary,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
                       Icons.local_hospital,
+                      size: 20,
                       color: colorScheme.onPrimary,
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Text(
-                    'HIMS',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: colorScheme.onSurface,
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'HIMS',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: colorScheme.onSurface,
+                        ),
+                      ),
+                      Text(
+                        'Hospital Management',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
             const Divider(height: 1),
+            const SizedBox(height: 8),
             for (final destination in _navDestinations)
-              ListTile(
-                leading: Icon(
-                  destination.icon,
-                  color: _isActive(currentPath, destination)
-                      ? colorScheme.primary
-                      : colorScheme.onSurfaceVariant,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(
+                    destination.icon,
+                    size: 20,
+                    color: _isActive(currentPath, destination)
+                        ? colorScheme.primary
+                        : colorScheme.onSurfaceVariant,
+                  ),
+                  title: Text(
+                    destination.label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: _isActive(currentPath, destination)
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                    ),
+                  ),
+                  selected: _isActive(currentPath, destination),
+                  selectedTileColor: colorScheme.primaryContainer.withValues(
+                    alpha: 0.35,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    context.go(destination.route);
+                  },
                 ),
-                title: Text(destination.label),
-                selected: _isActive(currentPath, destination),
-                selectedTileColor: colorScheme.primaryContainer.withValues(
-                  alpha: 0.35,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  context.go(destination.route);
-                },
               ),
             const Spacer(),
             const Divider(height: 1),
-            ListTile(
-              leading: Icon(Icons.logout, color: colorScheme.error),
-              title: Text('Logout', style: TextStyle(color: colorScheme.error)),
-              onTap: () {
-                Navigator.pop(context);
-                _confirmLogout(context, ref);
-              },
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              child: ListTile(
+                dense: true,
+                leading: Icon(Icons.logout, size: 20, color: colorScheme.error),
+                title: Text(
+                  'Logout',
+                  style: TextStyle(color: colorScheme.error, fontSize: 14),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  _confirmLogout(context, ref);
+                },
+              ),
             ),
           ],
         ),

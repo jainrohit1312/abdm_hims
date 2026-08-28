@@ -451,11 +451,13 @@ class _CampaignComposerDialogState
       whatsappAudienceProvider(widget.hospitalId),
     );
 
+    final dialogHeight = MediaQuery.sizeOf(context).height * 0.8;
+
     return AlertDialog(
       title: const Text('New Campaign'),
       content: SizedBox(
         width: 640,
-        height: 560,
+        height: dialogHeight.clamp(320.0, 560.0),
         child: Column(
           children: [
             Expanded(

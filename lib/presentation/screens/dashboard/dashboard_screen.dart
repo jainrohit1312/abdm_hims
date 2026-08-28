@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../../../app/providers.dart';
 import '../../widgets/app_refresh_button.dart';
+import '../../widgets/app_ui.dart';
 import '../../widgets/smart_navigation.dart';
 import '../../../services/background_sync.dart';
 
@@ -149,6 +150,29 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Widget _buildQuickActions(BuildContext context) {
+    final actions = [
+      (
+        Icons.person_add,
+        'New Patient',
+        () => context.push('/patients/register'),
+      ),
+      (
+        Icons.calendar_today,
+        'OPD Visit',
+        () => context.push('/opd/register'),
+      ),
+      (
+        Icons.local_hotel,
+        'Admit IPD',
+        () => context.push('/ipd/admit'),
+      ),
+      (
+        Icons.receipt_long,
+        'Billing',
+        () => context.push('/billing'),
+      ),
+    ];
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -162,34 +186,19 @@ class DashboardScreen extends ConsumerWidget {
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _quickActionButton(
+            AppResponsiveGrid(
+              itemCount: actions.length,
+              minItemWidth: 96,
+              childAspectRatio: 1.05,
+              itemBuilder: (context, index) {
+                final action = actions[index];
+                return _quickActionButton(
                   context,
-                  Icons.person_add,
-                  'New Patient',
-                  () => context.push('/patients/register'),
-                ),
-                _quickActionButton(
-                  context,
-                  Icons.calendar_today,
-                  'OPD Visit',
-                  () => context.push('/opd/register'),
-                ),
-                _quickActionButton(
-                  context,
-                  Icons.local_hotel,
-                  'Admit IPD',
-                  () => context.push('/ipd/admit'),
-                ),
-                _quickActionButton(
-                  context,
-                  Icons.receipt_long,
-                  'Billing',
-                  () => context.push('/billing'),
-                ),
-              ],
+                  action.$1,
+                  action.$2,
+                  action.$3,
+                );
+              },
             ),
           ],
         ),
@@ -203,27 +212,33 @@ class DashboardScreen extends ConsumerWidget {
     String label,
     VoidCallback onTap,
   ) {
+    final colorScheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
-      child: Padding(
+      child: Container(
         padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: colorScheme.primaryContainer.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: colorScheme.primary.withValues(alpha: 0.18),
+          ),
+        ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                icon,
-                color: Theme.of(context).colorScheme.onPrimaryContainer,
-              ),
+            Icon(icon, color: colorScheme.primary, size: 26),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 4),
-            Text(label, style: const TextStyle(fontSize: 12)),
           ],
         ),
       ),
@@ -359,17 +374,19 @@ class DashboardScreen extends ConsumerWidget {
   ) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: color, size: 24),
+            Icon(icon, color: color, size: 22),
             const SizedBox(height: 8),
             Text(
               value,
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 4),
             Text(label, style: theme.textTheme.bodySmall),
@@ -459,16 +476,10 @@ class DashboardScreen extends ConsumerWidget {
           ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 4,
-            childAspectRatio: 0.85,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-          ),
+        AppResponsiveGrid(
           itemCount: modules.length,
+          minItemWidth: 140,
+          childAspectRatio: 0.92,
           itemBuilder: (context, index) {
             final module = modules[index];
             return _moduleCard(
@@ -496,24 +507,25 @@ class DashboardScreen extends ConsumerWidget {
       borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
+          color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.3)),
+          border: Border.all(color: color.withValues(alpha: 0.28)),
         ),
         padding: const EdgeInsets.all(12),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: color, size: 28),
+            Icon(icon, color: color, size: 26),
             const SizedBox(height: 8),
             Text(
               label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: color,
-              ),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
               textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),

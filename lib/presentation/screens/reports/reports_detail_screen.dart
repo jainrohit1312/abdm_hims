@@ -13,6 +13,7 @@ import '../../../app/providers.dart';
 import '../../../core/utils/pdf_font_helper.dart';
 import '../../../core/utils/share_utils.dart';
 import '../../widgets/app_refresh_button.dart';
+import '../../widgets/app_ui.dart';
 import '../../widgets/smart_navigation.dart';
 import 'widgets/report_card.dart';
 import 'widgets/share_options_sheet.dart';
@@ -488,16 +489,11 @@ class _ReportDetailBody extends StatelessWidget {
                   color: theme.colorScheme.secondary,
                 ),
                 const SizedBox(height: 8),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: 1.7,
-                  ),
+                AppResponsiveGrid(
                   itemCount: summaryEntries.length,
+                  minItemWidth: 150,
+                  childAspectRatio: 1.7,
+                  spacing: 10,
                   itemBuilder: (context, index) {
                     final entry = summaryEntries[index];
                     return _StatCard(label: entry.key, value: entry.value);

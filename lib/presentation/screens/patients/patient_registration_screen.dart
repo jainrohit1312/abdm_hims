@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/extensions/datetime_extensions.dart';
 import '../../../app/providers.dart';
+import '../../../models/personalized_tag_models.dart';
 import '../../../services/abdm_service.dart';
+import '../../widgets/app_ui.dart';
+import '../../widgets/personalized_tag_field.dart';
 import '../../widgets/smart_navigation.dart';
 
 enum RegistrationMethod { abha, direct }
@@ -30,6 +33,9 @@ class _PatientRegistrationScreenState
   final _abhaController = TextEditingController();
   final _abhaAddressController = TextEditingController();
   final _phoneSearchController = TextEditingController();
+
+  /// Personalized (AI-flavoured) tag field for this patient.
+  final _tagsKey = GlobalKey<PersonalizedTagFieldState>();
 
   String _selectedGender = 'Male';
   bool _isSubmitting = false;
@@ -296,7 +302,7 @@ class _PatientRegistrationScreenState
                 child: Text(
                   'New Patient? Click here to enter details manually',
                   style: TextStyle(
-                    color: Colors.blue[700],
+                    color: theme.colorScheme.primary,
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
                     decoration: TextDecoration.underline,
@@ -315,55 +321,33 @@ class _PatientRegistrationScreenState
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'ABHA Option',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey,
-                        fontWeight: FontWeight.w500,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        color: Colors.grey[200],
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text(
-                            'I have ABHA ID',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                              color: Colors.black,
-                            ),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment(
+                            value: true,
+                            label: Text('I have ABHA ID'),
+                            icon: Icon(Icons.fingerprint, size: 18),
                           ),
-                          const SizedBox(width: 12),
-                          Switch(
-                            value: _hasExistingAbha,
-                            onChanged: (val) {
-                              setState(() => _hasExistingAbha = val);
-                            },
-                            activeTrackColor: Colors.blue,
-                            inactiveTrackColor: Colors.blue,
-                            thumbColor: WidgetStateProperty.all(Colors.white),
-                          ),
-                          const SizedBox(width: 12),
-                          const Text(
-                            'Create via Aadhaar/DL',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                              color: Colors.black,
-                            ),
+                          ButtonSegment(
+                            value: false,
+                            label: Text('Create via Aadhaar/DL'),
+                            icon: Icon(Icons.add_card, size: 18),
                           ),
                         ],
+                        selected: {_hasExistingAbha},
+                        onSelectionChanged: (selection) {
+                          setState(() => _hasExistingAbha = selection.first);
+                        },
                       ),
                     ),
                   ],
@@ -493,32 +477,27 @@ class _PatientRegistrationScreenState
               ),
               const SizedBox(height: 16),
 
-              Row(
+              AppFieldRow(
                 children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _firstNameController,
-                      decoration: const InputDecoration(
-                        labelText: 'First Name *',
-                      ),
-                      validator:
-                          _registrationMethod == RegistrationMethod.direct
-                          ? (v) => v?.isEmpty == true ? 'Required' : null
-                          : null,
+                  TextFormField(
+                    controller: _firstNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'First Name *',
                     ),
+                    validator:
+                        _registrationMethod == RegistrationMethod.direct
+                        ? (v) => v?.isEmpty == true ? 'Required' : null
+                        : null,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _lastNameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Last Name *',
-                      ),
-                      validator:
-                          _registrationMethod == RegistrationMethod.direct
-                          ? (v) => v?.isEmpty == true ? 'Required' : null
-                          : null,
+                  TextFormField(
+                    controller: _lastNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Last Name *',
                     ),
+                    validator:
+                        _registrationMethod == RegistrationMethod.direct
+                        ? (v) => v?.isEmpty == true ? 'Required' : null
+                        : null,
                   ),
                 ],
               ),
@@ -575,28 +554,23 @@ class _PatientRegistrationScreenState
                 maxLines: 3,
                 decoration: const InputDecoration(labelText: 'Address'),
               ),
+              const SizedBox(height: 20),
+
+              // Personalized tags — stored per logged-in user, not per hospital.
+              PersonalizedTagField(
+                key: _tagsKey,
+                fieldKey: PersonalizedTagFields.patient,
+                entityType: PersonalizedTagEntityTypes.patient,
+                label: 'Patient Tags',
+                hint: 'e.g. VIP, Diabetic, Follow-up...',
+              ),
               const SizedBox(height: 24),
 
               // Submit button
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton(
-                  onPressed: _isSubmitting ? null : _submitForm,
-                  child: _isSubmitting
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text(
-                          'Submit',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                ),
+              AppSubmitButton(
+                label: 'Submit',
+                loading: _isSubmitting,
+                onPressed: _submitForm,
               ),
               const SizedBox(height: 32),
             ],
@@ -656,62 +630,39 @@ class _PatientRegistrationScreenState
   }
 
   Widget _buildRegistrationMethodSelector(ThemeData theme) {
-    final isAbha = _registrationMethod == RegistrationMethod.abha;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Select Registration Method',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey,
-            fontWeight: FontWeight.w500,
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: Colors.grey[200],
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text(
-                'Direct',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                  color: Colors.black,
-                ),
+        SizedBox(
+          width: double.infinity,
+          child: SegmentedButton<RegistrationMethod>(
+            segments: const [
+              ButtonSegment(
+                value: RegistrationMethod.direct,
+                label: Text('Direct'),
+                icon: Icon(Icons.edit_note, size: 18),
               ),
-              const SizedBox(width: 12),
-              Switch(
-                value: isAbha,
-                onChanged: (val) {
-                  setState(() {
-                    _registrationMethod = val
-                        ? RegistrationMethod.abha
-                        : RegistrationMethod.direct;
-                    _isAbhaVerified = false;
-                  });
-                },
-                activeTrackColor: Colors.blue,
-                inactiveTrackColor: Colors.blue,
-                thumbColor: WidgetStateProperty.all(Colors.white),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'ABHA',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                  color: Colors.black,
-                ),
+              ButtonSegment(
+                value: RegistrationMethod.abha,
+                label: Text('ABHA'),
+                icon: Icon(Icons.fingerprint, size: 18),
               ),
             ],
+            selected: {_registrationMethod},
+            onSelectionChanged: (selection) {
+              setState(() {
+                _registrationMethod = selection.first;
+                _isAbhaVerified = false;
+              });
+            },
           ),
         ),
       ],
@@ -719,61 +670,36 @@ class _PatientRegistrationScreenState
   }
 
   Widget _buildAdmissionTypeSelector(ThemeData theme) {
-    final isIpd = _admissionType == AdmissionType.ipd;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Select Admission Type',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey,
-            fontWeight: FontWeight.w500,
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: Colors.grey[200],
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text(
-                'OPD',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                  color: Colors.black,
-                ),
+        SizedBox(
+          width: double.infinity,
+          child: SegmentedButton<AdmissionType>(
+            segments: const [
+              ButtonSegment(
+                value: AdmissionType.opd,
+                label: Text('OPD'),
+                icon: Icon(Icons.local_hospital_outlined, size: 18),
               ),
-              const SizedBox(width: 12),
-              Switch(
-                value: isIpd,
-                onChanged: (val) {
-                  setState(() {
-                    _admissionType = val
-                        ? AdmissionType.ipd
-                        : AdmissionType.opd;
-                  });
-                },
-                activeTrackColor: Colors.green,
-                inactiveTrackColor: Colors.green,
-                thumbColor: WidgetStateProperty.all(Colors.white),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'IPD',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                  color: Colors.black,
-                ),
+              ButtonSegment(
+                value: AdmissionType.ipd,
+                label: Text('IPD'),
+                icon: Icon(Icons.local_hotel_outlined, size: 18),
               ),
             ],
+            selected: {_admissionType},
+            onSelectionChanged: (selection) {
+              setState(() => _admissionType = selection.first);
+            },
           ),
         ),
       ],
@@ -814,7 +740,6 @@ class _PatientRegistrationScreenState
                       hintText: 'Enter 10-digit number',
                       prefixText: '+91 ',
                       counterText: '',
-                      border: OutlineInputBorder(),
                     ),
                   ),
                 ),
@@ -851,25 +776,10 @@ class _PatientRegistrationScreenState
 
   Widget _buildSearchResults(ThemeData theme) {
     if (_isManualEntry) {
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.orange[50],
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.orange[200]!),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'No patient found with this number. You can enter details manually below.',
-                style: TextStyle(color: Colors.orange[800], fontSize: 13),
-              ),
-            ),
-          ],
-        ),
+      return const AppInfoBanner(
+        message:
+            'No patient found with this number. You can enter details manually below.',
+        tone: AppBannerTone.warning,
       );
     }
 
@@ -879,27 +789,26 @@ class _PatientRegistrationScreenState
           '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'.trim();
       final uhid = patient['uhid'] as String? ?? '';
 
-      return Container(
+      return AppSectionCard(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
         padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.blue[50],
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.blue[200]!),
-        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(Icons.person, color: Colors.blue[700], size: 20),
+                Icon(
+                  Icons.person,
+                  color: theme.colorScheme.primary,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     name,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                      color: Colors.blue[900],
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: theme.colorScheme.onSurface,
                     ),
                   ),
                 ),
@@ -908,19 +817,17 @@ class _PatientRegistrationScreenState
             const SizedBox(height: 4),
             Text(
               'UHID: $uhid',
-              style: TextStyle(fontSize: 13, color: Colors.blue[700]),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton.icon(
+              child: FilledButton.icon(
                 onPressed: () => _selectPatient(patient),
                 icon: const Icon(Icons.check_circle, size: 18),
                 label: const Text('Select This Patient'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue[700],
-                  foregroundColor: Colors.white,
-                ),
               ),
             ),
           ],
@@ -947,8 +854,11 @@ class _PatientRegistrationScreenState
             margin: const EdgeInsets.only(bottom: 8),
             child: ListTile(
               leading: CircleAvatar(
-                backgroundColor: Colors.blue[100],
-                child: Icon(Icons.person, color: Colors.blue[700]),
+                backgroundColor: theme.colorScheme.primaryContainer,
+                child: Icon(
+                  Icons.person,
+                  color: theme.colorScheme.onPrimaryContainer,
+                ),
               ),
               title: Text(
                 name,
@@ -1015,6 +925,28 @@ class _PatientRegistrationScreenState
       ref.invalidate(patientListProvider);
 
       final patientId = result['id'] as String;
+
+      // ---------------------------------------------------------------------
+      // Personalized tags — store per logged-in user (best-effort; a tag
+      // failure must never block the patient registration).
+      // ---------------------------------------------------------------------
+      final patientTags = _tagsKey.currentState?.selectedTags ?? const <String>[];
+      if (patientTags.isNotEmpty) {
+        try {
+          final userId = await dbService.getCurrentUsersTableId();
+          if (userId != null) {
+            await ref.read(personalizedTagServiceProvider).setEntityTags(
+              userId: userId,
+              fieldKey: PersonalizedTagFields.patient,
+              entityType: PersonalizedTagEntityTypes.patient,
+              entityId: patientId,
+              names: patientTags,
+            );
+          }
+        } catch (e) {
+          debugPrint('Patient tags save failed (non-blocking): $e');
+        }
+      }
 
       // ---------------------------------------------------------------------
       // ABDM (M1 + M2): persist ABHA profile and link the first care context

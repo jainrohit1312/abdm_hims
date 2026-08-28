@@ -629,8 +629,7 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                   maxLines: 3,
                   decoration: const InputDecoration(
                     labelText: 'Findings',
-                    border: OutlineInputBorder(),
-                  ),
+                                      ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -638,8 +637,7 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                   maxLines: 3,
                   decoration: const InputDecoration(
                     labelText: 'Impression',
-                    border: OutlineInputBorder(),
-                  ),
+                                      ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -647,8 +645,7 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                   maxLines: 2,
                   decoration: const InputDecoration(
                     labelText: 'Recommendations',
-                    border: OutlineInputBorder(),
-                  ),
+                                      ),
                 ),
               ] else if (isCardiology) ...[
                 TextField(
@@ -657,8 +654,7 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                   decoration: const InputDecoration(
                     labelText: 'Interpretation',
                     hintText: 'e.g. Normal sinus rhythm',
-                    border: OutlineInputBorder(),
-                  ),
+                                      ),
                 ),
               ] else ...[
                 TextField(
@@ -666,8 +662,7 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                   maxLines: 2,
                   decoration: const InputDecoration(
                     labelText: 'Result Value',
-                    border: OutlineInputBorder(),
-                  ),
+                                      ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -675,8 +670,7 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                   maxLines: 2,
                   decoration: const InputDecoration(
                     labelText: 'Findings / Notes',
-                    border: OutlineInputBorder(),
-                  ),
+                                      ),
                 ),
               ],
               if (_showImageUpload) ...[
@@ -688,8 +682,7 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                 initialValue: _status,
                 decoration: const InputDecoration(
                   labelText: 'Status',
-                  border: OutlineInputBorder(),
-                ),
+                                  ),
                 items: const [
                   DropdownMenuItem(value: 'draft', child: Text('Draft')),
                   DropdownMenuItem(value: 'final', child: Text('Final')),
@@ -704,8 +697,7 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                 decoration: const InputDecoration(
                   labelText: 'Result Date (auto)',
                   prefixIcon: Icon(Icons.event_outlined),
-                  border: OutlineInputBorder(),
-                ),
+                                  ),
               ),
             ],
           ),

@@ -169,7 +169,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     children: [
                       Icon(
                         Icons.local_hospital,
-                        size: 80,
+                        size: 56,
                         color: theme.colorScheme.primary,
                       ),
                       const SizedBox(height: 16),
@@ -184,11 +184,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       Text(
                         'Sign in to continue',
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyLarge?.copyWith(
+                        style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
-                      const SizedBox(height: 48),
+                      const SizedBox(height: 24),
 
                       // ---------------------------------------------------------
                       // Lockout banner — account 15 min ke liye locked hai.
@@ -381,15 +381,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         onPressed: (authState.isLoading || isLocked)
                             ? null
                             : _handleLogin,
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          textStyle: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
                         child: authState.isLoading
                             ? const SizedBox(
                                 height: 20,
@@ -403,7 +394,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
                         onPressed: () => context.push('/register'),
-                        icon: const Icon(Icons.local_hospital_outlined),
+                        icon: const Icon(Icons.local_hospital_outlined, size: 18),
                         label: const Text('New Registration'),
                       ),
                     ],

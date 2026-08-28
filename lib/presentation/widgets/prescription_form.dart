@@ -843,10 +843,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
                     decoration: InputDecoration(
                       labelText: 'Dosage',
                       hintText: '1-0-1',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                                          ),
                     onChanged: (value) {
                       widget.medicine.dosage = value.trim();
                       widget.onChanged();
@@ -862,10 +859,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
                     initialValue: _durationDropdownValue,
                     decoration: InputDecoration(
                       labelText: 'Duration',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
+                                          ),
                     items: medicineDurationOptions
                         .map(
                           (duration) => DropdownMenuItem(
@@ -900,10 +894,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
                 decoration: InputDecoration(
                   labelText: 'Custom Duration',
                   hintText: 'e.g. 21 Days / 2 Weeks / 6 Months',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
+                                  ),
                 onChanged: (value) {
                   widget.medicine.duration = value.trim();
                   widget.onChanged();
@@ -923,10 +914,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
                 controller: _nameController,
                 decoration: InputDecoration(
                   labelText: 'Medicine Name',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
+                                  ),
                 onChanged: (value) {
                   widget.medicine.medicineName = value.trim();
                   widget.onChanged();
@@ -938,10 +926,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
                 decoration: InputDecoration(
                   labelText: 'Strength',
                   hintText: 'e.g. 500mg',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
+                                  ),
                 onChanged: (value) {
                   widget.medicine.strength = value.trim().isEmpty
                       ? null
@@ -957,10 +942,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
                     : 'Other',
                 decoration: InputDecoration(
                   labelText: 'Route',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
+                                  ),
                 items: medicineRouteOptions
                     .map(
                       (route) => DropdownMenuItem(
@@ -983,10 +965,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
                   labelText: 'Instructions',
                   hintText: 'e.g. With water, After food',
                   alignLabelWithHint: true,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
+                                  ),
                 onChanged: (value) {
                   widget.medicine.instructions = value.trim();
                   widget.onChanged();

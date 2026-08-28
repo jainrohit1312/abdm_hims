@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/providers.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../models/personalized_tag_models.dart';
 import '../../../services/database_service.dart';
+import '../../widgets/personalized_tag_field.dart';
 import '../../widgets/smart_navigation.dart';
 
 class IPDAdmissionScreen extends ConsumerStatefulWidget {
@@ -40,6 +42,9 @@ class _IPDAdmissionScreenState extends ConsumerState<IPDAdmissionScreen> {
   bool _isEmergency = true;
   bool _whatsappOptIn = false;
   bool _isLoading = false;
+
+  /// Personalized (AI-flavoured) tag field for this admission.
+  final _tagsKey = GlobalKey<PersonalizedTagFieldState>();
 
   @override
   void initState() {
@@ -563,10 +568,7 @@ class _IPDAdmissionScreenState extends ConsumerState<IPDAdmissionScreen> {
                                   decoration: InputDecoration(
                                     labelText: 'Select Bed',
                                     suffixIcon: const Icon(Icons.bed),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
+                                                                      ),
                                   child: Text(
                                     _selectedBedId == null
                                         ? 'Tap to select a bed'
@@ -590,6 +592,16 @@ class _IPDAdmissionScreenState extends ConsumerState<IPDAdmissionScreen> {
                   labelText: 'Remarks',
                   hintText: 'Any additional notes...',
                 ),
+              ),
+              const SizedBox(height: 20),
+
+              // Personalized tags — per logged-in user, context-aware (ipd).
+              PersonalizedTagField(
+                key: _tagsKey,
+                fieldKey: PersonalizedTagFields.ipd,
+                entityType: PersonalizedTagEntityTypes.ipdAdmission,
+                label: 'Admission Tags',
+                hint: 'e.g. Critical, Post-op, Insurance...',
               ),
               const SizedBox(height: 24),
               SizedBox(
@@ -976,6 +988,28 @@ class _IPDAdmissionScreenState extends ConsumerState<IPDAdmissionScreen> {
       };
 
       final admission = await dbService.admitIPDPatient(admissionData);
+
+      // Personalized tags — per logged-in user (best-effort; tag failure
+      // must never block the admission).
+      final admissionId = admission['id']?.toString() ?? '';
+      final admissionTags =
+          _tagsKey.currentState?.selectedTags ?? const <String>[];
+      if (admissionId.isNotEmpty && admissionTags.isNotEmpty) {
+        try {
+          final userId = await dbService.getCurrentUsersTableId();
+          if (userId != null) {
+            await ref.read(personalizedTagServiceProvider).setEntityTags(
+              userId: userId,
+              fieldKey: PersonalizedTagFields.ipd,
+              entityType: PersonalizedTagEntityTypes.ipdAdmission,
+              entityId: admissionId,
+              names: admissionTags,
+            );
+          }
+        } catch (e) {
+          debugPrint('IPD tags save failed (non-blocking): $e');
+        }
+      }
 
       // ✅ Bed ko occupied mark karo
       await dbService.updateBedStatus(_selectedBedId!, 'occupied');
