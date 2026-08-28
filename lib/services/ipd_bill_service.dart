@@ -4,6 +4,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../core/utils/pdf_font_helper.dart';
+
 /// Generates and prints the IPD Final Bill PDF.
 ///
 /// This is a **financial document** only. It contains the itemized charges,
@@ -25,6 +27,8 @@ class IPDBillService {
     required double balanceAmount,
     required String paymentStatus,
   }) async {
+    await PDFFontHelper.loadFonts();
+
     final pdf = pw.Document();
 
     final rows = <List<String>>[
@@ -56,35 +60,29 @@ class IPDBillService {
               ),
               child: pw.Column(
                 children: [
-                  pw.Text(
+                  PDFFontHelper.text(
                     hospitalName,
                     textAlign: pw.TextAlign.center,
-                    style: pw.TextStyle(
-                      fontSize: 20,
-                      fontWeight: pw.FontWeight.bold,
-                      color: PdfColors.green900,
-                    ),
+                    fontSize: 20,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.green900,
                   ),
                   if (hospitalAddress != null && hospitalAddress.isNotEmpty) ...[
                     pw.SizedBox(height: 2),
-                    pw.Text(
+                    PDFFontHelper.text(
                       hospitalAddress,
                       textAlign: pw.TextAlign.center,
-                      style: const pw.TextStyle(
-                        fontSize: 9,
-                        color: PdfColors.grey700,
-                      ),
+                      fontSize: 9,
+                      color: PdfColors.grey700,
                     ),
                   ],
                   if (hospitalPhone != null && hospitalPhone.isNotEmpty) ...[
                     pw.SizedBox(height: 2),
-                    pw.Text(
+                    PDFFontHelper.text(
                       'Phone: $hospitalPhone',
                       textAlign: pw.TextAlign.center,
-                      style: const pw.TextStyle(
-                        fontSize: 9,
-                        color: PdfColors.grey700,
-                      ),
+                      fontSize: 9,
+                      color: PdfColors.grey700,
                     ),
                   ],
                   pw.SizedBox(height: 8),
@@ -92,15 +90,13 @@ class IPDBillService {
                     width: double.infinity,
                     padding: const pw.EdgeInsets.symmetric(vertical: 5),
                     color: PdfColors.green50,
-                    child: pw.Text(
+                    child: PDFFontHelper.text(
                       'IPD FINAL BILL',
                       textAlign: pw.TextAlign.center,
-                      style: pw.TextStyle(
-                        fontSize: 14,
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.green800,
-                        letterSpacing: 1.2,
-                      ),
+                      fontSize: 14,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.green800,
+                      letterSpacing: 1.2,
                     ),
                   ),
                 ],
@@ -123,14 +119,14 @@ class IPDBillService {
                 ['Payment Status', _paymentStatusLabel(paymentStatus)],
               ],
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-              headerStyle: pw.TextStyle(
+              headerStyle: PDFFontHelper.textStyle(
                 fontWeight: pw.FontWeight.bold,
                 color: PdfColors.white,
               ),
               headerDecoration: const pw.BoxDecoration(
                 color: PdfColors.green800,
               ),
-              cellStyle: const pw.TextStyle(fontSize: 10),
+              cellStyle: PDFFontHelper.bodyStyle(fontSize: 10),
               cellPadding: const pw.EdgeInsets.symmetric(
                 horizontal: 6,
                 vertical: 4,
@@ -150,14 +146,14 @@ class IPDBillService {
               headers: const ['#', 'Description', 'Qty', 'Rate', 'Amount'],
               data: rows,
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-              headerStyle: pw.TextStyle(
+              headerStyle: PDFFontHelper.textStyle(
                 fontWeight: pw.FontWeight.bold,
                 color: PdfColors.white,
               ),
               headerDecoration: const pw.BoxDecoration(
                 color: PdfColors.green800,
               ),
-              cellStyle: const pw.TextStyle(fontSize: 10),
+              cellStyle: PDFFontHelper.bodyStyle(fontSize: 10),
               cellPadding: const pw.EdgeInsets.symmetric(
                 horizontal: 6,
                 vertical: 4,
@@ -194,14 +190,14 @@ class IPDBillService {
                   color: PdfColors.grey400,
                   width: 0.5,
                 ),
-                headerStyle: pw.TextStyle(
+                headerStyle: PDFFontHelper.textStyle(
                   fontWeight: pw.FontWeight.bold,
                   color: PdfColors.white,
                 ),
                 headerDecoration: const pw.BoxDecoration(
                   color: PdfColors.green800,
                 ),
-                cellStyle: const pw.TextStyle(fontSize: 10),
+                cellStyle: PDFFontHelper.bodyStyle(fontSize: 10),
                 cellPadding: const pw.EdgeInsets.symmetric(
                   horizontal: 8,
                   vertical: 4,
@@ -219,13 +215,11 @@ class IPDBillService {
             pw.SizedBox(height: 8),
             pw.Align(
               alignment: pw.Alignment.centerRight,
-              child: pw.Text(
+              child: PDFFontHelper.text(
                 'Payment Status: ${_paymentStatusLabel(paymentStatus)}',
-                style: pw.TextStyle(
-                  fontSize: 11,
-                  fontWeight: pw.FontWeight.bold,
-                  color: _paymentStatusColor(paymentStatus),
-                ),
+                fontSize: 11,
+                fontWeight: pw.FontWeight.bold,
+                color: _paymentStatusColor(paymentStatus),
               ),
             ),
             pw.SizedBox(height: 24),
@@ -240,35 +234,31 @@ class IPDBillService {
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text(
+                    PDFFontHelper.text(
                       'Generated on: ${_now()}',
-                      style: const pw.TextStyle(fontSize: 9),
+                      fontSize: 9,
                     ),
                     pw.SizedBox(height: 4),
-                    pw.Text(
+                    PDFFontHelper.text(
                       'This is a computer-generated bill and is valid for '
                       'payment and insurance purposes.',
-                      style: const pw.TextStyle(
-                        fontSize: 8,
-                        color: PdfColors.grey600,
-                      ),
+                      fontSize: 8,
+                      color: PdfColors.grey600,
                     ),
                   ],
                 ),
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.end,
                   children: [
-                    pw.Text(
+                    PDFFontHelper.text(
                       'Authorized Signatory',
-                      style: pw.TextStyle(
-                        fontSize: 10,
-                        fontWeight: pw.FontWeight.bold,
-                      ),
+                      fontSize: 10,
+                      fontWeight: pw.FontWeight.bold,
                     ),
                     pw.SizedBox(height: 28),
-                    pw.Text(
+                    PDFFontHelper.text(
                       'Accounts Department',
-                      style: const pw.TextStyle(fontSize: 8),
+                      fontSize: 8,
                     ),
                   ],
                 ),
@@ -305,9 +295,10 @@ class IPDBillService {
   static pw.Widget _sectionLabel(String title) {
     return pw.Padding(
       padding: const pw.EdgeInsets.only(bottom: 4),
-      child: pw.Text(
+      child: PDFFontHelper.text(
         title,
-        style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+        fontSize: 11,
+        fontWeight: pw.FontWeight.bold,
       ),
     );
   }
@@ -318,8 +309,7 @@ class IPDBillService {
   }
 
   static String _inr(dynamic value) {
-    final amount = _toDouble(value);
-    return '₹ ${amount.toStringAsFixed(2)}';
+    return PDFFontHelper.formatCurrency(_toDouble(value));
   }
 
   static String _paymentStatusLabel(String status) {

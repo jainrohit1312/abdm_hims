@@ -4,6 +4,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../core/utils/pdf_font_helper.dart';
+
 /// Generates and prints the IPD Discharge Summary PDF.
 ///
 /// This is a **clinical document** only. It contains the patient's medical
@@ -30,6 +32,8 @@ class DischargeSummaryService {
     String? bedNumber,
     String? lengthOfStay,
   }) async {
+    await PDFFontHelper.loadFonts();
+
     final pdf = pw.Document();
 
     final patientRows = <List<String>>[
@@ -66,35 +70,29 @@ class DischargeSummaryService {
               ),
               child: pw.Column(
                 children: [
-                  pw.Text(
+                  PDFFontHelper.text(
                     hospitalName,
                     textAlign: pw.TextAlign.center,
-                    style: pw.TextStyle(
-                      fontSize: 20,
-                      fontWeight: pw.FontWeight.bold,
-                      color: PdfColors.blue900,
-                    ),
+                    fontSize: 20,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.blue900,
                   ),
                   if (hospitalAddress != null && hospitalAddress.isNotEmpty) ...[
                     pw.SizedBox(height: 2),
-                    pw.Text(
+                    PDFFontHelper.text(
                       hospitalAddress,
                       textAlign: pw.TextAlign.center,
-                      style: const pw.TextStyle(
-                        fontSize: 9,
-                        color: PdfColors.grey700,
-                      ),
+                      fontSize: 9,
+                      color: PdfColors.grey700,
                     ),
                   ],
                   if (hospitalPhone != null && hospitalPhone.isNotEmpty) ...[
                     pw.SizedBox(height: 2),
-                    pw.Text(
+                    PDFFontHelper.text(
                       'Phone: $hospitalPhone',
                       textAlign: pw.TextAlign.center,
-                      style: const pw.TextStyle(
-                        fontSize: 9,
-                        color: PdfColors.grey700,
-                      ),
+                      fontSize: 9,
+                      color: PdfColors.grey700,
                     ),
                   ],
                   pw.SizedBox(height: 8),
@@ -102,15 +100,13 @@ class DischargeSummaryService {
                     width: double.infinity,
                     padding: const pw.EdgeInsets.symmetric(vertical: 5),
                     color: PdfColors.blue50,
-                    child: pw.Text(
+                    child: PDFFontHelper.text(
                       'IPD DISCHARGE SUMMARY',
                       textAlign: pw.TextAlign.center,
-                      style: pw.TextStyle(
-                        fontSize: 14,
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.blue800,
-                        letterSpacing: 1.2,
-                      ),
+                      fontSize: 14,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.blue800,
+                      letterSpacing: 1.2,
                     ),
                   ),
                 ],
@@ -126,14 +122,14 @@ class DischargeSummaryService {
               headers: ['Particulars', 'Details'],
               data: patientRows,
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-              headerStyle: pw.TextStyle(
+              headerStyle: PDFFontHelper.textStyle(
                 fontWeight: pw.FontWeight.bold,
                 color: PdfColors.white,
               ),
               headerDecoration: const pw.BoxDecoration(
                 color: PdfColors.blue700,
               ),
-              cellStyle: const pw.TextStyle(fontSize: 10),
+              cellStyle: PDFFontHelper.bodyStyle(fontSize: 10),
               cellPadding: const pw.EdgeInsets.symmetric(
                 horizontal: 6,
                 vertical: 4,
@@ -168,42 +164,36 @@ class DischargeSummaryService {
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text(
+                    PDFFontHelper.text(
                       'Generated on: ${_now()}',
-                      style: const pw.TextStyle(fontSize: 9),
+                      fontSize: 9,
                     ),
                     pw.SizedBox(height: 4),
-                    pw.Text(
+                    PDFFontHelper.text(
                       'This is a computer-generated clinical document for '
                       'patient medical records.',
-                      style: const pw.TextStyle(
-                        fontSize: 8,
-                        color: PdfColors.grey600,
-                      ),
+                      fontSize: 8,
+                      color: PdfColors.grey600,
                     ),
                   ],
                 ),
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.end,
                   children: [
-                    pw.Text(
+                    PDFFontHelper.text(
                       'Doctor\'s Signature',
-                      style: pw.TextStyle(
-                        fontSize: 10,
-                        fontWeight: pw.FontWeight.bold,
-                      ),
+                      fontSize: 10,
+                      fontWeight: pw.FontWeight.bold,
                     ),
                     pw.SizedBox(height: 28),
-                    pw.Text(
+                    PDFFontHelper.text(
                       doctorName ?? 'N/A',
-                      style: const pw.TextStyle(
-                        fontSize: 10,
-                        fontWeight: pw.FontWeight.bold,
-                      ),
+                      fontSize: 10,
+                      fontWeight: pw.FontWeight.bold,
                     ),
-                    pw.Text(
+                    PDFFontHelper.text(
                       'Consultant In-Charge',
-                      style: const pw.TextStyle(fontSize: 8),
+                      fontSize: 8,
                     ),
                   ],
                 ),
@@ -249,9 +239,10 @@ class DischargeSummaryService {
   static pw.Widget _sectionLabel(String title) {
     return pw.Padding(
       padding: const pw.EdgeInsets.only(bottom: 4),
-      child: pw.Text(
+      child: PDFFontHelper.text(
         title,
-        style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+        fontSize: 11,
+        fontWeight: pw.FontWeight.bold,
       ),
     );
   }
@@ -263,9 +254,10 @@ class DischargeSummaryService {
       decoration: pw.BoxDecoration(
         border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
       ),
-      child: pw.Text(
+      child: PDFFontHelper.text(
         text,
-        style: const pw.TextStyle(fontSize: 10, lineSpacing: 2),
+        fontSize: 10,
+        lineSpacing: 2,
       ),
     );
   }

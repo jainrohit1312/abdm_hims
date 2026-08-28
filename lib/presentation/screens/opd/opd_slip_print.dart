@@ -7,6 +7,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../../app/providers.dart';
+import '../../../core/utils/pdf_font_helper.dart';
 import '../../widgets/smart_navigation.dart';
 
 /// OPD payment slip PDF generator + printer.
@@ -27,6 +28,8 @@ class OPDSlipPrintService {
     required DateTime date,
     required String slipNumber,
   }) async {
+    await PDFFontHelper.loadFonts();
+
     final pdf = pw.Document();
 
     pdf.addPage(
@@ -38,24 +41,17 @@ class OPDSlipPrintService {
               level: 0,
               child: pw.Column(
                 children: [
-                  pw.Text(
+                  PDFFontHelper.text(
                     hospitalName,
-                    style: pw.TextStyle(
-                      fontSize: 20,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
+                    fontSize: 20,
+                    fontWeight: pw.FontWeight.bold,
                   ),
-                  pw.Text(
-                    hospitalAddress,
-                    style: const pw.TextStyle(fontSize: 10),
-                  ),
+                  PDFFontHelper.text(hospitalAddress, fontSize: 10),
                   pw.Divider(),
-                  pw.Text(
+                  PDFFontHelper.text(
                     'OPD PAYMENT SLIP',
-                    style: pw.TextStyle(
-                      fontSize: 16,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
+                    fontSize: 16,
+                    fontWeight: pw.FontWeight.bold,
                   ),
                 ],
               ),
@@ -70,12 +66,12 @@ class OPDSlipPrintService {
                 ['UHID', uhid],
                 ['Department', department],
                 ['Doctor', doctorName],
-                ['Payment Amount', '₹ ${paymentAmount.toStringAsFixed(0)}'],
+                ['Payment Amount', PDFFontHelper.formatCurrency(paymentAmount, decimals: 0)],
                 ['Payment Mode', paymentMode],
                 ['Payment Status', paymentStatus],
               ],
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 1),
-              headerStyle: pw.TextStyle(
+              headerStyle: PDFFontHelper.textStyle(
                 fontWeight: pw.FontWeight.bold,
                 color: PdfColors.white,
               ),
@@ -86,9 +82,9 @@ class OPDSlipPrintService {
             pw.SizedBox(height: 30),
             pw.Align(
               alignment: pw.Alignment.centerRight,
-              child: pw.Text(
+              child: PDFFontHelper.text(
                 'Authorized Signature',
-                style: const pw.TextStyle(fontSize: 12),
+                fontSize: 12,
               ),
             ),
           ];

@@ -4,6 +4,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../core/utils/pdf_font_helper.dart';
+
 /// Generates and prints the diagnostic test receipt.
 ///
 /// This is the cash receipt handed to the patient when a test order is cut
@@ -25,8 +27,9 @@ class DiagnosticReceiptService {
     required double balanceAmount,
     required String paymentMode,
   }) async {
+    await PDFFontHelper.loadFonts();
+
     final pdf = pw.Document();
-    String currency(double v) => '₹ ${v.toStringAsFixed(2)}';
 
     pdf.addPage(
       pw.MultiPage(
@@ -38,28 +41,24 @@ class DiagnosticReceiptService {
               level: 0,
               child: pw.Column(
                 children: [
-                  pw.Text(
+                  PDFFontHelper.text(
                     hospitalName,
                     textAlign: pw.TextAlign.center,
-                    style: pw.TextStyle(
-                      fontSize: 18,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
+                    fontSize: 18,
+                    fontWeight: pw.FontWeight.bold,
                   ),
                   if (hospitalAddress.trim().isNotEmpty)
-                    pw.Text(
+                    PDFFontHelper.text(
                       hospitalAddress,
                       textAlign: pw.TextAlign.center,
-                      style: const pw.TextStyle(fontSize: 9),
+                      fontSize: 9,
                     ),
                   pw.Divider(),
-                  pw.Text(
+                  PDFFontHelper.text(
                     'DIAGNOSTIC TEST RECEIPT',
                     textAlign: pw.TextAlign.center,
-                    style: pw.TextStyle(
-                      fontSize: 14,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
+                    fontSize: 14,
+                    fontWeight: pw.FontWeight.bold,
                   ),
                 ],
               ),
@@ -78,13 +77,13 @@ class DiagnosticReceiptService {
                 ['Payment Mode', paymentMode.toUpperCase()],
               ],
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-              headerStyle: pw.TextStyle(
+              headerStyle: PDFFontHelper.textStyle(
                 fontWeight: pw.FontWeight.bold,
                 color: PdfColors.white,
                 fontSize: 9,
               ),
               headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
-              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellStyle: PDFFontHelper.bodyStyle(fontSize: 9),
               columnWidths: const {
                 0: pw.FixedColumnWidth(90),
                 1: pw.FlexColumnWidth(1),
@@ -100,22 +99,22 @@ class DiagnosticReceiptService {
                   [
                     '${i + 1}',
                     tests[i]['test_name']?.toString() ?? '-',
-                    currency(
+                    PDFFontHelper.formatCurrency(
                       double.tryParse(tests[i]['price']?.toString() ?? '') ?? 0,
                     ),
                   ],
-                ['', 'TOTAL', currency(totalAmount)],
-                ['', 'PAID', currency(paidAmount)],
-                ['', 'BALANCE', currency(balanceAmount)],
+                ['', 'TOTAL', PDFFontHelper.formatCurrency(totalAmount)],
+                ['', 'PAID', PDFFontHelper.formatCurrency(paidAmount)],
+                ['', 'BALANCE', PDFFontHelper.formatCurrency(balanceAmount)],
               ],
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-              headerStyle: pw.TextStyle(
+              headerStyle: PDFFontHelper.textStyle(
                 fontWeight: pw.FontWeight.bold,
                 color: PdfColors.white,
                 fontSize: 9,
               ),
               headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
-              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellStyle: PDFFontHelper.bodyStyle(fontSize: 9),
               columnWidths: const {
                 0: pw.FixedColumnWidth(20),
                 1: pw.FlexColumnWidth(3),
@@ -128,14 +127,15 @@ class DiagnosticReceiptService {
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.end,
                 children: [
-                  pw.Text(
+                  PDFFontHelper.text(
                     'Authorized Signature',
-                    style: const pw.TextStyle(fontSize: 10),
+                    fontSize: 10,
                   ),
                   pw.SizedBox(height: 20),
-                  pw.Text(
+                  PDFFontHelper.text(
                     'Keep this receipt for test collection & reports.',
-                    style: pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+                    fontSize: 8,
+                    color: PdfColors.grey600,
                   ),
                 ],
               ),

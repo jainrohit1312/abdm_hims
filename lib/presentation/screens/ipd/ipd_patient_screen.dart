@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../app/providers.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../core/extensions/datetime_extensions.dart';
+import '../../../core/utils/pdf_font_helper.dart';
 import '../../../core/utils/share_utils.dart';
 import '../../../services/print_prescription.dart';
 import '../../widgets/counseling_visit_history_list.dart';
@@ -1299,27 +1300,31 @@ class _IPDPatientScreenState extends ConsumerState<IPDPatientScreen> {
     required String fileName,
   }) async {
     try {
+      await PDFFontHelper.loadFonts();
+
       final pdf = pw.Document();
       pdf.addPage(
         pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(24),
           build: (context) => [
-            pw.Text(
+            PDFFontHelper.text(
               'HIMS — IPD Patient Dashboard',
-              style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+              fontSize: 9,
+              color: PdfColors.grey700,
             ),
             pw.SizedBox(height: 4),
-            pw.Text(
+            PDFFontHelper.text(
               title,
-              style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+              fontSize: 14,
+              fontWeight: pw.FontWeight.bold,
             ),
             pw.SizedBox(height: 10),
             pw.TableHelper.fromTextArray(
               headers: headers,
               data: rows,
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-              headerStyle: const pw.TextStyle(
+              headerStyle: PDFFontHelper.textStyle(
                 fontWeight: pw.FontWeight.bold,
                 color: PdfColors.white,
                 fontSize: 8,
@@ -1327,7 +1332,7 @@ class _IPDPatientScreenState extends ConsumerState<IPDPatientScreen> {
               headerDecoration: const pw.BoxDecoration(
                 color: PdfColors.blue800,
               ),
-              cellStyle: const pw.TextStyle(fontSize: 8),
+              cellStyle: PDFFontHelper.bodyStyle(fontSize: 8),
               cellAlignment: pw.Alignment.topLeft,
               headerAlignment: pw.Alignment.centerLeft,
             ),

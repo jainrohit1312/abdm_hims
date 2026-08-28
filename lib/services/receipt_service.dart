@@ -3,6 +3,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../core/utils/pdf_font_helper.dart';
+
 class ReceiptService {
   static Future<Uint8List> generateOPDReceipt({
     required String hospitalName,
@@ -15,6 +17,8 @@ class ReceiptService {
     required DateTime date,
     required String receiptNumber,
   }) async {
+    await PDFFontHelper.loadFonts();
+
     final pdf = pw.Document();
 
     pdf.addPage(
@@ -26,24 +30,17 @@ class ReceiptService {
               level: 0,
               child: pw.Column(
                 children: [
-                  pw.Text(
+                  PDFFontHelper.text(
                     hospitalName,
-                    style: pw.TextStyle(
-                      fontSize: 20,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
+                    fontSize: 20,
+                    fontWeight: pw.FontWeight.bold,
                   ),
-                  pw.Text(
-                    hospitalAddress,
-                    style: const pw.TextStyle(fontSize: 10),
-                  ),
+                  PDFFontHelper.text(hospitalAddress, fontSize: 10),
                   pw.Divider(),
-                  pw.Text(
+                  PDFFontHelper.text(
                     'OPD RECEIPT',
-                    style: pw.TextStyle(
-                      fontSize: 16,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
+                    fontSize: 16,
+                    fontWeight: pw.FontWeight.bold,
                   ),
                 ],
               ),
@@ -59,10 +56,10 @@ class ReceiptService {
                 ['UHID', uhid],
                 ['Department', department],
                 ['Doctor', doctorName],
-                ['Consultation Fee', '₹ $fee'],
+                ['Consultation Fee', PDFFontHelper.formatCurrency(fee)],
               ],
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 1),
-              headerStyle: pw.TextStyle(
+              headerStyle: PDFFontHelper.textStyle(
                 fontWeight: pw.FontWeight.bold,
                 color: PdfColors.white,
               ),
@@ -73,9 +70,9 @@ class ReceiptService {
             pw.SizedBox(height: 30),
             pw.Align(
               alignment: pw.Alignment.centerRight,
-              child: pw.Text(
+              child: PDFFontHelper.text(
                 'Authorized Signature',
-                style: const pw.TextStyle(fontSize: 12),
+                fontSize: 12,
               ),
             ),
           ];

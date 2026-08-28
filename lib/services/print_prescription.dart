@@ -6,6 +6,7 @@ import 'package:printing/printing.dart';
 
 import '../core/constants/api_constants.dart';
 import '../core/utils/logger.dart';
+import '../core/utils/pdf_font_helper.dart';
 import 'database_service.dart';
 
 /// Generates and prints a doctor e-prescription PDF.
@@ -36,6 +37,8 @@ class PrescriptionPrintService {
       investigations: investigations,
       advice: advice,
     );
+    await PDFFontHelper.loadFonts();
+
     final pdf = pw.Document();
 
     pdf.addPage(
@@ -54,28 +57,24 @@ class PrescriptionPrintService {
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text(
+                      PDFFontHelper.text(
                         hospitalName,
-                        style: pw.TextStyle(
-                          fontSize: 18,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
+                        fontSize: 18,
+                        fontWeight: pw.FontWeight.bold,
                       ),
                       if (hospitalAddress.trim().isNotEmpty)
-                        pw.Text(
+                        PDFFontHelper.text(
                           hospitalAddress,
-                          style: const pw.TextStyle(fontSize: 10),
+                          fontSize: 10,
                         ),
                     ],
                   ),
                 ),
-                pw.Text(
+                PDFFontHelper.text(
                   'PRESCRIPTION',
-                  style: pw.TextStyle(
-                    fontSize: 14,
-                    fontWeight: pw.FontWeight.bold,
-                    color: PdfColors.blue800,
-                  ),
+                  fontSize: 14,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.blue800,
                 ),
               ],
             ),
@@ -130,25 +129,24 @@ class PrescriptionPrintService {
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.end,
                 children: [
-                  pw.Text(
+                  PDFFontHelper.text(
                     doctorName,
-                    style: pw.TextStyle(
-                      fontWeight: pw.FontWeight.bold,
-                      fontSize: 11,
-                    ),
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.bold,
                   ),
                   pw.SizedBox(height: 24),
-                  pw.Text(
+                  PDFFontHelper.text(
                     'Doctor Signature',
-                    style: const pw.TextStyle(fontSize: 10),
+                    fontSize: 10,
                   ),
                 ],
               ),
             ),
             pw.SizedBox(height: 20),
-            pw.Text(
+            PDFFontHelper.text(
               'This is a computer generated e-prescription.',
-              style: pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+              fontSize: 8,
+              color: PdfColors.grey600,
             ),
           ];
         },
@@ -406,13 +404,11 @@ class PrescriptionPrintService {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Text(
+        PDFFontHelper.text(
           title,
-          style: pw.TextStyle(
-            fontSize: 11,
-            fontWeight: pw.FontWeight.bold,
-            color: PdfColors.blue900,
-          ),
+          fontSize: 11,
+          fontWeight: pw.FontWeight.bold,
+          color: PdfColors.blue900,
         ),
         pw.SizedBox(height: 4),
         for (final entry in values.entries)
@@ -423,18 +419,16 @@ class PrescriptionPrintService {
               children: [
                 pw.SizedBox(
                   width: 90,
-                  child: pw.Text(
+                  child: PDFFontHelper.text(
                     entry.key,
-                    style: const pw.TextStyle(
-                      fontSize: 10,
-                      color: PdfColors.grey700,
-                    ),
+                    fontSize: 10,
+                    color: PdfColors.grey700,
                   ),
                 ),
                 pw.Expanded(
-                  child: pw.Text(
+                  child: PDFFontHelper.text(
                     entry.value,
-                    style: const pw.TextStyle(fontSize: 10),
+                    fontSize: 10,
                   ),
                 ),
               ],
@@ -451,12 +445,13 @@ class PrescriptionPrintService {
     if (text.isEmpty) return const <pw.Widget>[];
     return <pw.Widget>[
       pw.SizedBox(height: 12),
-      pw.Text(
+      PDFFontHelper.text(
         title,
-        style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+        fontSize: 12,
+        fontWeight: pw.FontWeight.bold,
       ),
       pw.SizedBox(height: 4),
-      pw.Text(text, style: const pw.TextStyle(fontSize: 10)),
+      PDFFontHelper.text(text, fontSize: 10),
     ];
   }
 
@@ -466,9 +461,10 @@ class PrescriptionPrintService {
     if (medicines.isEmpty) return const <pw.Widget>[];
     return <pw.Widget>[
       pw.SizedBox(height: 12),
-      pw.Text(
+      PDFFontHelper.text(
         'Treatment (Rx)',
-        style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+        fontSize: 12,
+        fontWeight: pw.FontWeight.bold,
       ),
       pw.SizedBox(height: 6),
       pw.TableHelper.fromTextArray(
@@ -484,13 +480,13 @@ class PrescriptionPrintService {
         ],
         data: _buildTableRows(medicines),
         border: pw.TableBorder.all(color: PdfColors.grey500, width: 0.5),
-        headerStyle: pw.TextStyle(
+        headerStyle: PDFFontHelper.textStyle(
           fontWeight: pw.FontWeight.bold,
           color: PdfColors.white,
           fontSize: 9,
         ),
         headerDecoration: const pw.BoxDecoration(color: PdfColors.blue800),
-        cellStyle: const pw.TextStyle(fontSize: 9),
+        cellStyle: PDFFontHelper.bodyStyle(fontSize: 9),
         cellAlignment: pw.Alignment.topLeft,
         headerAlignment: pw.Alignment.centerLeft,
         columnWidths: {

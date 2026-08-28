@@ -9,6 +9,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:signature/signature.dart';
 
+import '../../../../core/utils/pdf_font_helper.dart';
 import '../../../../services/counseling_recording_service.dart';
 
 /// Consent management bottom sheet.
@@ -305,6 +306,8 @@ class _ConsentSheetState extends ConsumerState<_ConsentSheet> {
   }
 
   Future<Uint8List> _buildConsentPdf() async {
+    await PDFFontHelper.loadFonts();
+
     final pdf = pw.Document();
     final dateLabel = DateFormat('dd MMM yyyy').format(consent.generatedAt);
 
@@ -317,24 +320,20 @@ class _ConsentSheetState extends ConsumerState<_ConsentSheet> {
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Center(
-                child: pw.Text(
+                child: PDFFontHelper.text(
                   consent.hospitalName.isEmpty
                       ? 'Hospital'
                       : consent.hospitalName,
-                  style: pw.TextStyle(
-                    fontSize: 20,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
+                  fontSize: 20,
+                  fontWeight: pw.FontWeight.bold,
                 ),
               ),
               pw.SizedBox(height: 8),
               pw.Center(
-                child: pw.Text(
+                child: PDFFontHelper.text(
                   'INFORMED CONSENT FOR AUDIO/VIDEO COUNSELING RECORDING',
-                  style: pw.TextStyle(
-                    fontSize: 13,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
+                  fontSize: 13,
+                  fontWeight: pw.FontWeight.bold,
                 ),
               ),
               pw.SizedBox(height: 24),
@@ -344,37 +343,31 @@ class _ConsentSheetState extends ConsumerState<_ConsentSheet> {
               _pdfField('Doctor', consent.doctorName),
               _pdfField('Date', dateLabel),
               pw.SizedBox(height: 24),
-              pw.Text(
+              PDFFontHelper.text(
                 'The patient has been informed that this counseling session '
                 'may be recorded (audio and/or video), that the recording is '
                 'stored securely and used only for clinical documentation, and '
                 'that GPS location is captured for session verification.',
-                style: const pw.TextStyle(fontSize: 11),
+                fontSize: 11,
               ),
               pw.SizedBox(height: 40),
-              pw.Text(
+              PDFFontHelper.text(
                 'Patient / Guardian Signature: ___________________________',
-                style: pw.TextStyle(
-                  fontSize: 11,
-                  fontWeight: pw.FontWeight.bold,
-                ),
+                fontSize: 11,
+                fontWeight: pw.FontWeight.bold,
               ),
               pw.SizedBox(height: 24),
-              pw.Text(
+              PDFFontHelper.text(
                 'Doctor Signature: ___________________________    Date: _____________',
-                style: pw.TextStyle(
-                  fontSize: 11,
-                  fontWeight: pw.FontWeight.bold,
-                ),
+                fontSize: 11,
+                fontWeight: pw.FontWeight.bold,
               ),
               pw.SizedBox(height: 24),
               if (consent.signaturePng != null) ...[
-                pw.Text(
+                PDFFontHelper.text(
                   'Digital Signature (v${consent.version}):',
-                  style: pw.TextStyle(
-                    fontSize: 10,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
+                  fontSize: 10,
+                  fontWeight: pw.FontWeight.bold,
                 ),
                 pw.SizedBox(height: 8),
                 pw.Image(pw.MemoryImage(consent.signaturePng!), height: 90),
@@ -396,15 +389,16 @@ class _ConsentSheetState extends ConsumerState<_ConsentSheet> {
         children: [
           pw.SizedBox(
             width: 120,
-            child: pw.Text(
+            child: PDFFontHelper.text(
               '$label:',
-              style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+              fontSize: 11,
+              fontWeight: pw.FontWeight.bold,
             ),
           ),
           pw.Expanded(
-            child: pw.Text(
+            child: PDFFontHelper.text(
               value.isEmpty ? 'N/A' : value,
-              style: const pw.TextStyle(fontSize: 11),
+              fontSize: 11,
             ),
           ),
         ],
