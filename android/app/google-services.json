@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "212987202846",
+    "project_id": "himsabdm",
+    "storage_bucket": "himsabdm.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:212987202846:android:18135c94282a4c9cf18d0f",
+        "android_client_info": {
+          "package_name": "com.example.abdm_hims"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBP89z7EOcsKgtfAgCBXE5TBkAKoarnFIA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
