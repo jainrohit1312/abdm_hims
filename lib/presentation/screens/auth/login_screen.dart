@@ -17,7 +17,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _obscurePassword = true;
-  bool _rememberMe = false;
 
   Timer? _lockoutTicker;
   Timer? _emailDebounce;
@@ -305,17 +304,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 12),
                       Row(
                         children: [
-                          Checkbox(
-                            value: _rememberMe,
-                            onChanged: isLocked
-                                ? null
-                                : (value) {
-                                    setState(
-                                      () => _rememberMe = value ?? false,
-                                    );
-                                  },
-                          ),
-                          const Text('Remember me'),
                           const Spacer(),
                           TextButton(
                             onPressed: isLocked
@@ -394,7 +382,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
                         onPressed: () => context.push('/register'),
-                        icon: const Icon(Icons.local_hospital_outlined, size: 18),
+                        icon: const Icon(
+                          Icons.local_hospital_outlined,
+                          size: 18,
+                        ),
                         label: const Text('New Registration'),
                       ),
                     ],

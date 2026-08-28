@@ -82,29 +82,35 @@ final routerProvider = Provider<GoRouter>((ref) {
       final path = state.uri.path;
       final auth = ref.read(authStateProvider);
 
+      // Bootstrap abhi chal raha hai — abhi redirect mat karo, warna restored
+      // session se pehle hi galat route lock ho jayega.
+      if (!auth.hasCheckedAuth) return null;
+
       // The subscription screen is the only place an expired hospital may go.
       if (path == '/subscription') {
-        if (auth.hasCheckedAuth && !auth.isAuthenticated) return '/login';
+        if (!auth.isAuthenticated) return '/login';
         return null;
       }
 
-      // Authentication Security: unauthenticated users ko sirf /login,
-      // /register aur /subscription accessible hain. Session timeout ke baad
-      // bhi yahi guard har protected route par wapas login le aata hai.
-      if (auth.hasCheckedAuth &&
-          !auth.isAuthenticated &&
-          path != '/login' &&
-          path != '/register' &&
-          path != '/subscription') {
-        return '/login';
-      }
+      if (auth.isAuthenticated) {
+        // Logged-in users ko public auth pages par nahi rehna chahiye —
+        // persistent session restore hone par seedha dashboard (ya renewal)
+        // kholo.
+        if (path == '/' || path == '/login' || path == '/register') {
+          return auth.subscriptionExpired ? '/subscription' : '/dashboard';
+        }
 
-      // Expired subscription => every module bounces to /subscription until
-      // the hospital renews.
-      if (auth.hasCheckedAuth &&
-          auth.isAuthenticated &&
-          auth.subscriptionExpired) {
-        return '/subscription';
+        // Expired subscription => every module bounces to /subscription until
+        // the hospital renews.
+        if (auth.subscriptionExpired) return '/subscription';
+      } else {
+        // Authentication Security: unauthenticated users ko sirf /login,
+        // /register aur /subscription accessible hain.
+        if (path != '/login' &&
+            path != '/register' &&
+            path != '/subscription') {
+          return '/login';
+        }
       }
       return null;
     },

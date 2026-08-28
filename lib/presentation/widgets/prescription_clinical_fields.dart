@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../models/personalized_tag_models.dart';
+import 'personalized_tag_field.dart';
+
 /// Prescription ke clinical sections (History / Investigations / Advice) ka
 /// shared controller.
 ///
@@ -39,36 +42,18 @@ class PrescriptionClinicalController {
   final radiologyOther = TextEditingController();
   final otherInvestigations = TextEditingController();
 
-  final Set<String> labTests = <String>{};
-  final Set<String> radiology = <String>{};
+  /// Personalized tag selections for the three investigation fields. The tag
+  /// widget keeps these in sync via `onChanged`; [toUnifiedJson] merges them
+  /// with the legacy comma-separated controllers (if anything sets those).
+  final List<String> labOtherTags = <String>[];
+  final List<String> radiologyOtherTags = <String>[];
+  final List<String> otherInvestigationTags = <String>[];
 
   // -- Advice --------------------------------------------------------------
   final followUpDate = TextEditingController();
   final dietaryAdvice = TextEditingController();
   final activityAdvice = TextEditingController();
   final otherAdvice = TextEditingController();
-
-  static const List<String> labTestOptions = [
-    'CBC',
-    'Blood Sugar',
-    'HbA1c',
-    'LFT',
-    'KFT',
-    'Lipid Profile',
-    'Thyroid',
-    'Urine Routine',
-    'CRP',
-    'ESR',
-  ];
-
-  static const List<String> radiologyInvestigationOptions = [
-    'X-Ray',
-    'USG',
-    'CT Scan',
-    'MRI',
-    'ECG',
-    'Echo',
-  ];
 
   /// True jab koi bhi clinical detail bhari ho (OPD validation ke liye).
   bool get hasClinicalData {
@@ -130,24 +115,41 @@ class PrescriptionClinicalController {
   Map<String, dynamic> _investigationsToJson() {
     final investigations = <String, dynamic>{};
 
-    final labs = <String>[...labTests];
+    final labs = <String>[...labOtherTags];
     final labOtherText = labOther.text.trim();
     if (labOtherText.isNotEmpty) {
       labs.addAll(_splitCommaSeparated(labOtherText));
     }
-    if (labs.isNotEmpty) investigations['lab_tests'] = labs;
+    if (labs.isNotEmpty) investigations['lab_tests'] = _dedupe(labs);
 
-    final imaging = <String>[...radiology];
+    final imaging = <String>[...radiologyOtherTags];
     final radiologyOtherText = radiologyOther.text.trim();
     if (radiologyOtherText.isNotEmpty) {
       imaging.addAll(_splitCommaSeparated(radiologyOtherText));
     }
-    if (imaging.isNotEmpty) investigations['radiology'] = imaging;
+    if (imaging.isNotEmpty) investigations['radiology'] = _dedupe(imaging);
 
-    final others = _splitCommaSeparated(otherInvestigations.text.trim());
-    if (others.isNotEmpty) investigations['other_investigations'] = others;
+    final others = <String>[
+      ...otherInvestigationTags,
+      ..._splitCommaSeparated(otherInvestigations.text.trim()),
+    ];
+    if (others.isNotEmpty) {
+      investigations['other_investigations'] = _dedupe(others);
+    }
 
     return investigations;
+  }
+
+  /// Keeps insertion order but drops duplicate (case-insensitive) entries.
+  List<String> _dedupe(List<String> values) {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final value in values) {
+      final clean = value.trim();
+      if (clean.isEmpty) continue;
+      if (seen.add(clean.toLowerCase())) result.add(clean);
+    }
+    return result;
   }
 
   Map<String, dynamic> _adviceToJson() {
@@ -504,7 +506,9 @@ class PrescriptionAdviceFollowUpFields extends StatelessWidget {
   }
 }
 
-/// Investigations section (lab + radiology chips + other investigations).
+/// Investigations section — personalized tag fields for lab tests, radiology
+/// and other investigations. No hardcoded options; suggestions come from the
+/// logged-in user's own tag history and new tags are saved per user.
 class PrescriptionInvestigationsFields extends StatefulWidget {
   final PrescriptionClinicalController controller;
 
@@ -522,7 +526,6 @@ class _PrescriptionInvestigationsFieldsState
     extends State<PrescriptionInvestigationsFields> {
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final controller = widget.controller;
 
     return Column(
@@ -531,27 +534,17 @@ class _PrescriptionInvestigationsFieldsState
         Card(
           child: Padding(
             padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Lab Tests Advised',
-                  style: theme.textTheme.titleSmall,
-                ),
-                const SizedBox(height: 8),
-                _buildChips(
-                  controller.labTests,
-                  PrescriptionClinicalController.labTestOptions,
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: controller.labOther,
-                  decoration: _fieldDecoration(
-                    'Other lab tests',
-                    hint: 'Any other test... (comma separated)',
-                  ),
-                ),
-              ],
+            child: PersonalizedTagField(
+              fieldKey: PersonalizedTagFields.opdLab,
+              entityType: PersonalizedTagEntityTypes.prescription,
+              label: 'Lab Tests Advised',
+              hint: 'Type a test name and press Enter...',
+              recordUsageOnAdd: true,
+              onChanged: (tags) {
+                controller.labOtherTags
+                  ..clear()
+                  ..addAll(tags);
+              },
             ),
           ),
         ),
@@ -559,27 +552,17 @@ class _PrescriptionInvestigationsFieldsState
         Card(
           child: Padding(
             padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Radiology / Imaging Advised',
-                  style: theme.textTheme.titleSmall,
-                ),
-                const SizedBox(height: 8),
-                _buildChips(
-                  controller.radiology,
-                  PrescriptionClinicalController.radiologyInvestigationOptions,
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: controller.radiologyOther,
-                  decoration: _fieldDecoration(
-                    'Other radiology / imaging',
-                    hint: 'Any other imaging... (comma separated)',
-                  ),
-                ),
-              ],
+            child: PersonalizedTagField(
+              fieldKey: PersonalizedTagFields.opdRadiology,
+              entityType: PersonalizedTagEntityTypes.prescription,
+              label: 'Radiology / Imaging Advised',
+              hint: 'Type an imaging name and press Enter...',
+              recordUsageOnAdd: true,
+              onChanged: (tags) {
+                controller.radiologyOtherTags
+                  ..clear()
+                  ..addAll(tags);
+              },
             ),
           ),
         ),
@@ -587,23 +570,17 @@ class _PrescriptionInvestigationsFieldsState
         Card(
           child: Padding(
             padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Other Investigations',
-                  style: theme.textTheme.titleSmall,
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: controller.otherInvestigations,
-                  maxLines: 2,
-                  decoration: _fieldDecoration(
-                    'Other investigations',
-                    hint: 'e.g. PFT, EEG, biopsy — comma separated',
-                  ),
-                ),
-              ],
+            child: PersonalizedTagField(
+              fieldKey: PersonalizedTagFields.opdOtherInvestigations,
+              entityType: PersonalizedTagEntityTypes.prescription,
+              label: 'Other Investigations',
+              hint: 'e.g. PFT, EEG, biopsy — press Enter after each',
+              recordUsageOnAdd: true,
+              onChanged: (tags) {
+                controller.otherInvestigationTags
+                  ..clear()
+                  ..addAll(tags);
+              },
             ),
           ),
         ),
@@ -611,25 +588,6 @@ class _PrescriptionInvestigationsFieldsState
     );
   }
 
-  Widget _buildChips(Set<String> selected, List<String> options) {
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: [
-        for (final option in options)
-          FilterChip(
-            label: Text(option),
-            selected: selected.contains(option),
-            onSelected: (_) {
-              setState(() {
-                if (!selected.remove(option)) selected.add(option);
-              });
-            },
-            visualDensity: VisualDensity.compact,
-          ),
-      ],
-    );
-  }
 }
 
 InputDecoration _fieldDecoration(String label, {String? hint}) {

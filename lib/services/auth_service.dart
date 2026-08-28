@@ -89,6 +89,8 @@ class AuthService {
   // Secure storage keys (JWT + rate limiting + session timeout).
   static const String _kAccessToken = 'auth_access_token';
   static const String _kRefreshToken = 'auth_refresh_token';
+  static const String _kSessionJson = 'auth_session_json';
+  static const String _kUserRecord = 'auth_user_record';
   static const String _kSessionExpiresAt = 'auth_session_expires_at';
   static const String _kSessionTimeoutMinutes = 'auth_session_timeout_minutes';
   static const String _kLastActivityAt = 'auth_last_activity_at';
@@ -115,13 +117,18 @@ class AuthService {
   ///
   /// Supabase ka apna session bhi [SecureLocalStorage] (secure storage) mein
   /// rehta hai; yahan explicit keys isliye rakhi gayi hain taaki AuthService
-  /// ko refresh/restore ke liye seedha access mile.
+  /// ko refresh/restore ke liye seedha access mile. Saath hi full session JSON
+  /// bhi save hota hai taaki app restart/browser refresh par bina network ke
+  /// session restore ho sake.
   Future<void> _persistSession(Session? session) async {
     if (session == null) {
       await clearStoredSession();
       return;
     }
-    await _storage.write(key: _kAccessToken, value: session.accessToken);
+    await Future.wait([
+      _storage.write(key: _kAccessToken, value: session.accessToken),
+      _storage.write(key: _kSessionJson, value: jsonEncode(session.toJson())),
+    ]);
     final refreshToken = session.refreshToken;
     if (refreshToken != null && refreshToken.isNotEmpty) {
       await _storage.write(key: _kRefreshToken, value: refreshToken);
@@ -141,23 +148,56 @@ class AuthService {
   /// Returns the refresh token stored in secure storage (if any).
   Future<String?> getStoredRefreshToken() => _storage.read(key: _kRefreshToken);
 
-  /// Deletes the JWT tokens from secure storage. Called on every logout and
-  /// session timeout so no token survives the session.
+  /// Deletes the JWT tokens from secure storage. Called on logout and when the
+  /// server confirms a stored token is invalid/revoked. A transient network
+  /// failure must NOT call this — the stored session has to survive restarts.
   Future<void> clearStoredSession() async {
     await Future.wait([
       _storage.delete(key: _kAccessToken),
       _storage.delete(key: _kRefreshToken),
+      _storage.delete(key: _kSessionJson),
       _storage.delete(key: _kSessionExpiresAt),
+      _storage.delete(key: _kUserRecord),
     ]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public user-record cache (offline session restore)
+  // ---------------------------------------------------------------------------
+
+  /// Caches the public `users` record (`id`, `auth_id`, `role`, `hospital_id`)
+  /// so the hospital context can be restored even when the first restore
+  /// happens offline (Supabase project paused / no connectivity).
+  Future<void> cacheUserRecord(Map<String, dynamic> record) async {
+    try {
+      await _storage.write(key: _kUserRecord, value: jsonEncode(record));
+    } catch (e) {
+      AppLogger.w('Could not cache user record: $e');
+    }
+  }
+
+  /// Returns the cached public `users` record (if any).
+  Future<Map<String, dynamic>?> getCachedUserRecord() async {
+    try {
+      final raw = await _storage.read(key: _kUserRecord);
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return null;
+    } catch (e) {
+      AppLogger.w('Could not read cached user record: $e');
+      return null;
+    }
   }
 
   /// Restores the Supabase session from secure storage when the in-memory
   /// session is missing. Returns true when a session could be restored.
+  ///
+  /// Restoration is offline-first: the full session JSON is replayed into the
+  /// Supabase client with `setInitialSession` (no network), so an app restart
+  /// or browser refresh never depends on the network being available.
   Future<bool> restoreSessionFromSecureStorage() async {
     try {
-      final refreshToken = await getStoredRefreshToken();
-      if (refreshToken == null || refreshToken.isEmpty) return false;
-
       final current = _client.auth.currentSession;
       if (current != null) {
         // In-memory session already available — make sure secure storage is
@@ -167,23 +207,49 @@ class AuthService {
         return true;
       }
 
-      // `setSession` with a valid refresh token fetches a fresh JWT pair.
-      final response = await _client.auth.setSession(refreshToken);
-      if (response.session != null) {
-        await _persistSession(response.session);
-        await _touchLastActivity();
-        return true;
+      // Primary path: replay the full session JSON we persisted at login time.
+      // This works offline and does not need the Supabase project to be awake.
+      final sessionJson = await _storage.read(key: _kSessionJson);
+      if (sessionJson != null && sessionJson.isNotEmpty) {
+        try {
+          await _client.auth.setInitialSession(sessionJson);
+          if (_client.auth.currentSession != null) return true;
+        } catch (e) {
+          AppLogger.w('Could not restore session from stored JSON: $e');
+        }
       }
+
+      // Legacy fallback for installs that only have the explicit tokens.
+      final refreshToken = await getStoredRefreshToken();
+      if (refreshToken == null || refreshToken.isEmpty) return false;
+
+      final response = await _client.auth.setSession(refreshToken);
+      if (response.session != null) return true;
+      return false;
+    } on AuthRetryableFetchException catch (e) {
+      // Temporary network failure — keep the stored session for a later retry.
+      AppLogger.w('Session restore hit a temporary network problem: $e');
+      return false;
+    } on AuthException catch (e) {
+      // Server-confirmed invalid/revoked token. The session is truly dead and
+      // the stored copy must be removed so the next launch starts clean.
+      AppLogger.e('Stored session is invalid or revoked', e);
+      await clearStoredSession();
       return false;
     } catch (e) {
       AppLogger.e('Could not restore session from secure storage', e);
-      await clearStoredSession();
       return false;
     }
   }
 
   /// Returns a fresh (non-expired) session, restoring from secure storage and
   /// refreshing the token when necessary.
+  ///
+  /// IMPORTANT (persistent login): a temporary refresh failure (offline,
+  /// Supabase paused, timeout) does NOT log the user out. The stored session is
+  /// kept and the expired in-memory session is returned so the Supabase client
+  /// can auto-refresh it in the background as soon as connectivity returns.
+  /// Only a server-confirmed invalid/revoked token clears the session here.
   Future<Session?> ensureFreshSession() async {
     var session = _client.auth.currentSession;
 
@@ -195,13 +261,30 @@ class AuthService {
     if (session != null && session.isExpired) {
       try {
         final response = await refreshSession();
-        session = response.session;
-      } catch (e) {
-        AppLogger.e('Session refresh failed inside ensureFreshSession', e);
-        // Refresh fail matlab session recover nahi ho sakta — login screen
-        // dikhane ke liye null return karo.
+        session = response.session ?? session;
+      } on AuthRetryableFetchException catch (e) {
+        AppLogger.w(
+          'Session refresh failed during restore (network). '
+          'Keeping stored session — the client will auto-refresh later. $e',
+        );
+        session = _client.auth.currentSession ?? session;
+      } on AuthException catch (e) {
+        AppLogger.e(
+          'Session refresh failed with an auth error during restore',
+          e,
+        );
         await clearStoredSession();
+        try {
+          await _client.auth.signOut(scope: SignOutScope.local);
+        } catch (_) {
+          // Local sign-out is best-effort; storage cleanup already happened.
+        }
         return null;
+      } catch (e) {
+        AppLogger.w(
+          'Session refresh failed during restore. Keeping stored session. $e',
+        );
+        session = _client.auth.currentSession ?? session;
       }
     }
 
@@ -214,6 +297,12 @@ class AuthService {
 
   // ===========================================================================
   // 2. SESSION TIMEOUT
+  // ---------------------------------------------------------------------------
+  // NOTE: Persistent-login requirement ke tahat inactivity auto-logout DISABLED
+  // hai — sirf deliberate logout hi session khatam karta hai. Neeche ke methods
+  // API compatibility ke liye rakhe gaye hain; AuthNotifier inhe start nahi
+  // karta. Inhe dobara enable karna ho toh AuthNotifier.bootstrap/login mein
+  // `startSessionTimeoutMonitor` call add karein.
   // ===========================================================================
 
   /// Sets the inactivity session timeout and resets the last-activity clock.
@@ -819,7 +908,10 @@ class AuthService {
 
   Future<AuthResponse> refreshSession() async {
     try {
-      final response = await _client.auth.refreshSession();
+      final response = await _withAuthRetry(
+        'Supabase session refresh',
+        () => _client.auth.refreshSession(),
+      );
       await _persistSession(response.session);
       await _touchLastActivity();
       return response;

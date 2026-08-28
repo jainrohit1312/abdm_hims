@@ -1410,16 +1410,32 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return;
     }
 
-    // Session timeout monitor chalu karo — restored session bhi inactivity
-    // timeout ke rules follow karta hai.
-    _authService.startSessionTimeoutMonitor(onTimeout: _handleSessionTimeout);
+    // NOTE: Persistent-login requirement — inactivity timeout monitor is NOT
+    // started here. Sirf deliberate logout session khatam karta hai.
 
-    // Prefer the full public record so `userRole` is restored as well;
-    // fall back to the hospital-id-only lookup for legacy users rows.
-    final userRecord = await _dbService.getCurrentUserRecord();
-    final hospitalId =
-        userRecord?['hospital_id'] as String? ??
-        await _dbService.getHospitalIdForUser(session.user.id);
+    // Prefer the full public record so `userRole` is restored as well. Jab
+    // network available na ho (offline restore), secure storage mein cached
+    // public user record use karo — isse hospital context bhi offline milta hai.
+    var userRecord = await _dbService.getCurrentUserRecord();
+    userRecord ??= await _authService.getCachedUserRecord();
+
+    var hospitalId = userRecord?['hospital_id'] as String?;
+    if (hospitalId == null || hospitalId.isEmpty) {
+      try {
+        hospitalId = await _dbService.getHospitalIdForUser(session.user.id);
+      } catch (e) {
+        AppLogger.e('Could not fetch hospital id during restore', e);
+      }
+    }
+
+    // Fresh network record mile toh cache update kar do taaki agla offline
+    // restore bhi latest hospital context use kare.
+    if (userRecord != null) {
+      if (hospitalId != null && hospitalId.isNotEmpty) {
+        userRecord = {...userRecord, 'hospital_id': hospitalId};
+      }
+      await _authService.cacheUserRecord(userRecord);
+    }
     if (hospitalId == null || hospitalId.isEmpty) {
       state = AuthState(
         isAuthenticated: true,
@@ -1499,6 +1515,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
         userRecord = await _dbService.getCurrentUserRecord();
       }
 
+      // Offline fallback: secure storage ka cached public user record use
+      // karo jab network fetch fail ho jaye.
+      userRecord ??= await _authService.getCachedUserRecord();
+      if (userRecord != null &&
+          (userRecord['hospital_id'] as String?)?.isEmpty == true) {
+        final cached = await _authService.getCachedUserRecord();
+        if (cached != null &&
+            (cached['hospital_id'] as String?)?.isNotEmpty == true) {
+          userRecord = cached;
+        }
+      }
+
       if (userRecord == null) {
         // Handle userRecord == null gracefully: keep the user authenticated
         // but leave hospitalId null. The UI can then prompt the user to be
@@ -1539,6 +1567,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         return;
       }
 
+      await _authService.cacheUserRecord(userRecord);
       _applyUserRecord(userRecord, authUserId: session.user.id);
       await _refreshSubscriptionBlocked(hospitalId);
     } catch (e) {
@@ -1595,13 +1624,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
         email: email,
         password: password,
       );
+      // Offline restore ke liye public user record cache kar lo.
+      await _authService.cacheUserRecord(userRecord);
       _applyUserRecord(userRecord);
       final hospitalId = userRecord['hospital_id'] as String?;
       if (hospitalId != null && hospitalId.isNotEmpty) {
         await _refreshSubscriptionBlocked(hospitalId);
       }
-      // Session timeout monitor: login success ke baad inactivity timer start.
-      _authService.startSessionTimeoutMonitor(onTimeout: _handleSessionTimeout);
+      // NOTE: Persistent-login requirement — inactivity auto-logout timer is
+      // not started. Sirf deliberate logout session khatam karta hai.
       return true;
     } on AccountLockedException catch (e) {
       state = state.copyWith(
@@ -1645,20 +1676,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Session timeout monitor callback — auth state clear karta hai taaki
-  /// [MainApp] listener user ko /login par le ja sake.
-  void _handleSessionTimeout() {
-    _authService.stopSessionTimeoutMonitor();
-    state = const AuthState(
-      isAuthenticated: false,
-      isLoading: false,
-      hasCheckedAuth: true,
-      error:
-          'Session timed out due to inactivity. Please login again.\n'
-          'निष्क्रियता के कारण सत्र समाप्त हो गया। कृपया पुनः लॉगिन करें।',
-    );
-  }
-
+  /// Deliberate logout only — persistent login requirement ke tahat session
+  /// sirf yahin (user action) khatam hota hai.
   Future<void> logout() async {
     try {
       await _authService.signOut();
@@ -1666,7 +1685,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       AppLogger.e('Logout error (continuing with local cleanup)', e);
     } finally {
       _authService.stopSessionTimeoutMonitor();
-      state = const AuthState();
+      // `hasCheckedAuth: true` keeps the router guard active after logout so
+      // a back-button / manual URL can't re-enter a protected route.
+      state = const AuthState(hasCheckedAuth: true);
     }
   }
 }
@@ -2097,10 +2118,7 @@ class UserTagParams {
 /// ordered by usage frequency (most-used first). The tag field widget uses
 /// this to render "Based on your history..." suggestions.
 final userTagsProvider =
-    FutureProvider.family<List<PersonalizedTag>, UserTagParams>((
-      ref,
-      params,
-    ) {
+    FutureProvider.family<List<PersonalizedTag>, UserTagParams>((ref, params) {
       return ref
           .read(personalizedTagServiceProvider)
           .getUserTags(params.userId, params.fieldKey);

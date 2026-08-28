@@ -19,8 +19,21 @@ class PersonalizedTagFields {
   static const String ipd = 'ipd';
   static const String compliance = 'compliance';
 
+  // OPD Consultation → Investigations tab "other" fields.
+  static const String opdLab = 'opd_lab';
+  static const String opdRadiology = 'opd_radiology';
+  static const String opdOtherInvestigations = 'opd_other_investigations';
+
   /// All known field contexts. Add new contexts here as more forms adopt tags.
-  static const List<String> all = [patient, opd, ipd, compliance];
+  static const List<String> all = [
+    patient,
+    opd,
+    ipd,
+    compliance,
+    opdLab,
+    opdRadiology,
+    opdOtherInvestigations,
+  ];
 
   /// Validates a context value coming from a form so an unknown string never
   /// reaches the database.
@@ -36,6 +49,10 @@ class PersonalizedTagEntityTypes {
   static const String patient = 'patient';
   static const String opdRegistration = 'opd_registration';
   static const String ipdAdmission = 'ipd_admission';
+
+  /// Generic kind used by prescription/consultation fields where tags are part
+  /// of the payload rather than linked to one record id.
+  static const String prescription = 'prescription';
 }
 
 /// One tag in a user's personal collection (`user_tags` row).

@@ -13,14 +13,34 @@ class MainApp extends ConsumerWidget {
     final router = ref.watch(routerProvider);
     final themeMode = ref.watch(themeModeProvider);
 
-    // Session timeout / forced logout par authenticated user ko wapas
-    // /login bhejo (session timeout monitor isi listener ke through
-    // navigation trigger karta hai).
+    // Auth state route ke saath sync rakho:
+    //  * Restored session ke saath /login par refresh hua hai -> /dashboard
+    //    (ya /subscription) le jao.
+    //  * Deliberate logout / session invalidation -> /login le jao.
+    // Persistent login ka matlab hai ki in-memory auth state restore hote hi
+    // UI bhi sahi route par pahunch jaye.
     ref.listen<AuthState>(authStateProvider, (previous, next) {
-      if (previous?.isAuthenticated == true &&
-          !next.isAuthenticated &&
-          next.hasCheckedAuth) {
-        ref.read(routerProvider).go('/login');
+      if (!next.hasCheckedAuth) return;
+
+      final router = ref.read(routerProvider);
+      final currentPath = router.routerDelegate.currentConfiguration.uri.path;
+      final isPublicPath =
+          currentPath == '/' ||
+          currentPath == '/login' ||
+          currentPath == '/register';
+
+      if (!next.isAuthenticated) {
+        if (previous?.isAuthenticated == true && !isPublicPath) {
+          router.go('/login');
+        }
+        return;
+      }
+
+      // Authenticated state restored/changed.
+      if (next.subscriptionExpired) {
+        if (currentPath != '/subscription') router.go('/subscription');
+      } else if (isPublicPath) {
+        router.go('/dashboard');
       }
     });
 

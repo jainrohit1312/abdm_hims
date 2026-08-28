@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -45,6 +47,7 @@ class PersonalizedTagField extends ConsumerStatefulWidget {
     this.enabled = true,
     this.maxTags = PersonalizedTagService.maxTagsPerEntity,
     this.onChanged,
+    this.recordUsageOnAdd = false,
   });
 
   /// Field context — separates per-user tag vocabularies. Use
@@ -68,6 +71,13 @@ class PersonalizedTagField extends ConsumerStatefulWidget {
   /// Called with the current list of tag names whenever the selection changes.
   final ValueChanged<List<String>>? onChanged;
 
+  /// When true, adding a tag immediately records it in the user's personal
+  /// collection (`user_tags`) so suggestions learn right away — useful for
+  /// fields that are not linked to a saved record id (e.g. prescription
+  /// investigation fields). Defaults to false; forms that persist entity
+  /// links on save get the usage bump from [PersonalizedTagService.setEntityTags].
+  final bool recordUsageOnAdd;
+
   @override
   ConsumerState<PersonalizedTagField> createState() =>
       PersonalizedTagFieldState();
@@ -89,6 +99,19 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
   /// suggestion panel so the overlay itself never calls `ref.watch`.
   List<PersonalizedTag> _historyTags = const [];
 
+  /// Public `users.id` of the logged-in user, resolved during [build] and used
+  /// by [recordUsageOnAdd] callbacks that fire outside the build phase.
+  String? _currentUserId;
+
+  /// True while a blur event is waiting to convert leftover typed text into a
+  /// tag. Tapping a suggestion cancels it so the chosen tag wins over the raw
+  /// query text.
+  bool _pendingBlurConvert = false;
+
+  /// Maps selected tag name (lowercase) → `user_tags.id`. Used so the ✕ delete
+  /// button can remove the tag from the database as well as from the UI.
+  final Map<String, String> _selectedTagIds = <String, String>{};
+
   /// Current selection (normalized, de-duplicated). The owning form reads
   /// this before persisting the record.
   List<String> get selectedTags => List.unmodifiable(_selectedNames);
@@ -96,6 +119,7 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
   /// Replaces the selection. Useful for forms that need to reset or set tags
   /// programmatically.
   void setSelectedTags(List<String> names) {
+    _selectedTagIds.clear();
     _selectedNames
       ..clear()
       ..addAll(_normalizeList(names));
@@ -104,8 +128,10 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     if (mounted) setState(() {});
   }
 
-  /// Removes all selected tags.
+  /// Removes all selected tags (UI only — database cleanup is done per-tag via
+  /// the ✕ button so an accidental `clear()` doesn't wipe the user's history).
   void clear() {
+    _selectedTagIds.clear();
     _selectedNames.clear();
     _notifyChanged();
     if (mounted) setState(() {});
@@ -128,9 +154,19 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
 
   void _handleFocusChange() {
     if (_focusNode.hasFocus) {
+      // A pending blur-conversion is no longer needed — the user is back.
+      _pendingBlurConvert = false;
       _openDropdown();
     } else {
-      // Let taps on dropdown items land before the overlay is removed.
+      // Let taps on dropdown items land before the overlay is removed, and
+      // convert any leftover typed text into a tag once we know the user did
+      // not tap a suggestion (which cancels this conversion).
+      _pendingBlurConvert = true;
+      Future.microtask(() {
+        if (!mounted || !_pendingBlurConvert) return;
+        _pendingBlurConvert = false;
+        _convertTypedTextToTag();
+      });
       Future.microtask(_closeDropdown);
     }
   }
@@ -149,12 +185,35 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     return _selectedNames.any((n) => n.toLowerCase() == target);
   }
 
-  void _addName(String name) {
+  void _addName(String name) => _commitName(name);
+
+  /// Adds a tag that already exists in the database (suggestion tap), so the
+  /// widget remembers its id for the ✕ delete flow.
+  void _addExistingTag(PersonalizedTag tag) {
+    _commitName(tag.name, tagId: tag.id);
+  }
+
+  /// Converts whatever is still sitting in the search field into a tag when
+  /// the field loses focus (so "type + move on" also creates a tag). Does not
+  /// yank focus back.
+  void _convertTypedTextToTag() {
+    final text = _searchController.text;
+    if (PersonalizedTagService.normalizeTagName(text).isEmpty) return;
+    _commitName(text, refocus: false);
+  }
+
+  void _commitName(String name, {bool refocus = true, String? tagId}) {
+    if (!mounted) return;
+    // Any explicit selection wins over the pending blur-conversion.
+    _pendingBlurConvert = false;
     final clean = PersonalizedTagService.normalizeTagName(name);
     if (clean.isEmpty) return;
     if (_containsName(clean)) {
+      if (tagId != null) {
+        _selectedTagIds[clean.toLowerCase()] = tagId;
+      }
       _searchController.clear();
-      _refreshDropdown();
+      if (refocus) _refreshDropdown();
       return;
     }
     if (_selectedNames.length >= widget.maxTags) {
@@ -167,19 +226,96 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     }
     setState(() {
       _selectedNames.add(clean);
+      if (tagId != null) {
+        _selectedTagIds[clean.toLowerCase()] = tagId;
+      }
       _searchController.clear();
     });
     _notifyChanged();
-    _refreshDropdown();
-    _focusNode.requestFocus();
+    if (widget.recordUsageOnAdd) unawaited(_recordUsage(clean));
+    if (refocus) {
+      _refreshDropdown();
+      _focusNode.requestFocus();
+    }
   }
 
+  /// Records a tag into the user's personal collection immediately so
+  /// "Based on your history..." starts suggesting it on the next visit. The
+  /// returned DB id is stored so a later ✕ tap can delete the row as well.
+  Future<void> _recordUsage(String name) async {
+    final userId = _currentUserId;
+    if (userId == null || userId.isEmpty) return;
+    try {
+      final tag = await ref
+          .read(personalizedTagServiceProvider)
+          .ensureTag(userId, widget.fieldKey, name);
+      if (!mounted) return;
+      if (_containsName(name)) {
+        setState(() {
+          _selectedTagIds[name.toLowerCase()] = tag.id;
+        });
+      } else {
+        // User removed the chip before the DB write finished — delete the row
+        // we just ensured so the database always matches the UI.
+        try {
+          await ref.read(personalizedTagServiceProvider).deleteTag(tag.id);
+        } catch (e) {
+          debugPrint('Cleanup of unused tag failed (non-blocking): $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('Tag usage record failed (non-blocking): $e');
+    }
+  }
+
+  /// Removes a tag from the UI and — when the tag already exists in the
+  /// database — deletes its `user_tags` row as well (entity links cascade).
   void _removeName(String name) {
+    final key = name.toLowerCase();
+    final tagId = _selectedTagIds.remove(key);
     setState(() {
-      _selectedNames.removeWhere((n) => n == name);
+      _selectedNames.removeWhere((n) => n.toLowerCase() == key);
     });
     _notifyChanged();
     _closeDropdown();
+
+    if (tagId != null) {
+      unawaited(_deleteTagFromDatabase(tagId));
+    }
+  }
+
+  Future<void> _deleteTagFromDatabase(String tagId) async {
+    try {
+      await ref.read(personalizedTagServiceProvider).deleteTag(tagId);
+      if (!mounted) return;
+      _invalidateTagProviders();
+    } catch (e) {
+      debugPrint('Tag delete failed (non-blocking): $e');
+    }
+  }
+
+  /// Refreshes the user's history list (and the entity link list, if this
+  /// field is bound to an existing record) after a DB change.
+  void _invalidateTagProviders() {
+    final userId = _currentUserId;
+    if (userId == null || userId.isEmpty) return;
+    ref.invalidate(
+      userTagsProvider(
+        UserTagParams(userId: userId, fieldKey: widget.fieldKey),
+      ),
+    );
+    final entityId = widget.entityId;
+    if (entityId != null && entityId.isNotEmpty) {
+      ref.invalidate(
+        entityTagsProvider(
+          EntityTagParams(
+            userId: userId,
+            entityType: widget.entityType,
+            entityId: entityId,
+          ),
+        ),
+      );
+    }
   }
 
   List<String> _normalizeList(List<String> names) {
@@ -317,7 +453,7 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
                 icon: Icons.sell_outlined,
                 title: tag.name,
                 subtitle: tag.usageLabel,
-                onTap: () => _addName(tag.name),
+                onTap: () => _addExistingTag(tag),
               ),
           ],
           if (showCreateRow) ...[
@@ -372,6 +508,10 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     _selectedNames
       ..clear()
       ..addAll(_normalizeList(tags.map((t) => t.name).toList()));
+    _selectedTagIds.clear();
+    for (final tag in tags) {
+      _selectedTagIds[tag.name.toLowerCase()] = tag.id;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -385,6 +525,7 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     // Load the user's personal tag history during build (the only place
     // `ref.watch` may be used) and cache it for the overlay panel.
     final userId = ref.watch(currentPublicUserIdProvider).valueOrNull;
+    _currentUserId = userId;
     if (userId != null && userId.isNotEmpty) {
       _historyTags =
           ref
