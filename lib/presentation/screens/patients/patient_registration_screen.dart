@@ -13,6 +13,28 @@ enum RegistrationMethod { abha, direct }
 
 enum AdmissionType { opd, ipd }
 
+/// Family relationship labels offered during registration and tagging.
+/// The order is also used for the family-tree grouping.
+const List<String> kFamilyRelationships = [
+  'Self',
+  'Father',
+  'Mother',
+  'Wife',
+  'Husband',
+  'Son',
+  'Daughter',
+  'Brother',
+  'Sister',
+  'Grandfather',
+  'Grandmother',
+  'Grandson',
+  'Granddaughter',
+  'Other',
+];
+
+/// Sentinel returned by the relationship tagging sheet to clear a tag.
+const String _kClearRelationship = '__clear_relationship__';
+
 class PatientRegistrationScreen extends ConsumerStatefulWidget {
   const PatientRegistrationScreen({super.key});
 
@@ -32,7 +54,6 @@ class _PatientRegistrationScreenState
   final _addressController = TextEditingController();
   final _abhaController = TextEditingController();
   final _abhaAddressController = TextEditingController();
-  final _phoneSearchController = TextEditingController();
 
   /// Personalized (AI-flavoured) tag field for this patient.
   final _tagsKey = GlobalKey<PersonalizedTagFieldState>();
@@ -43,12 +64,29 @@ class _PatientRegistrationScreenState
   bool _isAbhaVerified = false;
   bool _hasExistingAbha =
       false; // sub-option within ABHA method (left = I have ABHA ID)
-  bool _isSearchingPatient = false;
-  bool _isManualEntry = false;
-  List<Map<String, dynamic>> _searchResults = [];
+
+  // ---------------------------------------------------------------------------
+  // Mobile verification + family linking state (Step 1)
+  // ---------------------------------------------------------------------------
+  bool _isVerifyingMobile = false;
+
+  /// The 10-digit number that was successfully verified in Step 1. Until this
+  /// is set the registration form stays hidden.
+  String? _verifiedMobile;
+
+  /// All patients sharing [_verifiedMobile] (the family group).
+  List<Map<String, dynamic>> _familyMembers = [];
+
+  /// Whether the registration form is currently expanded.
+  bool _showRegistrationForm = false;
+
+  /// Relationship selected for the patient being registered.
+  String? _selectedRelationship;
 
   RegistrationMethod _registrationMethod = RegistrationMethod.direct;
   AdmissionType _admissionType = AdmissionType.opd;
+
+  bool get _hasFamily => _familyMembers.isNotEmpty;
 
   @override
   void dispose() {
@@ -60,28 +98,38 @@ class _PatientRegistrationScreenState
     _addressController.dispose();
     _abhaController.dispose();
     _abhaAddressController.dispose();
-    _phoneSearchController.dispose();
     super.dispose();
   }
 
+  /// Invalidates the verification whenever the user edits the mobile number so
+  /// the registration form always matches the verified number.
   void _onMobileChanged(String value) {
-    // This is kept for the mobile field; phone search has its own field
-    debugPrint('Mobile number entered: $value');
+    final trimmed = value.trim();
+    if (_verifiedMobile != null && trimmed != _verifiedMobile) {
+      setState(() {
+        _verifiedMobile = null;
+        _familyMembers = [];
+        _showRegistrationForm = false;
+        _selectedRelationship = null;
+      });
+    }
   }
 
-  Future<void> _searchPatientByPhone() async {
-    final phone = _phoneSearchController.text.trim();
+  Future<void> _verifyMobileNumber({bool silent = false}) async {
+    final phone = _mobileController.text.trim();
     if (phone.length != 10) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid 10-digit phone number')),
-      );
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Enter a valid 10-digit mobile number')),
+        );
+      }
       return;
     }
 
     setState(() {
-      _isSearchingPatient = true;
-      _searchResults = [];
-      _isManualEntry = false;
+      _isVerifyingMobile = true;
+      _familyMembers = [];
+      _showRegistrationForm = false;
     });
 
     try {
@@ -95,102 +143,224 @@ class _PatientRegistrationScreenState
 
       if (!mounted) return;
 
-      if (results.isEmpty) {
-        setState(() {
-          _isSearchingPatient = false;
-          _isManualEntry = true;
-        });
+      setState(() {
+        _isVerifyingMobile = false;
+        _verifiedMobile = phone;
+        _familyMembers = results;
+        // No existing patient → straight to the registration form. Existing
+        // family → show the family panel first; the user can then choose to
+        // register another family member.
+        _showRegistrationForm = results.isEmpty;
+        _selectedRelationship = results.isEmpty ? 'Self' : null;
+      });
+
+      if (!silent) {
+        final message = results.isEmpty
+            ? 'No existing patient found. Please register below.'
+            : '${results.length} family member${results.length == 1 ? '' : 's'} found for +91 $phone.';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'No existing patient found. Please enter details manually.',
-            ),
+          SnackBar(
+            content: Text(message),
+            backgroundColor: results.isEmpty
+                ? Theme.of(context).colorScheme.tertiary
+                : const Color(0xFF66BB6A),
           ),
         );
-      } else if (results.length == 1) {
-        setState(() {
-          _isSearchingPatient = false;
-          _searchResults = results;
-        });
-        // Show the single result but allow user to select
-      } else {
-        setState(() {
-          _isSearchingPatient = false;
-          _searchResults = results;
-        });
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isSearchingPatient = false);
+      setState(() {
+        _isVerifyingMobile = false;
+        _verifiedMobile = null;
+        _familyMembers = [];
+      });
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Verification failed: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  void _clearVerification() {
+    setState(() {
+      _verifiedMobile = null;
+      _familyMembers = [];
+      _showRegistrationForm = false;
+      _selectedRelationship = null;
+      _isVerifyingMobile = false;
+    });
+  }
+
+  /// Expands the registration form so a new member can be added to the
+  /// currently verified family (the mobile number stays inherited from Step 1).
+  void _startFamilyMemberRegistration() {
+    setState(() {
+      _showRegistrationForm = true;
+      _selectedRelationship = null;
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Family helpers
+  // ---------------------------------------------------------------------------
+
+  String _relationshipOf(Map<String, dynamic> patient) {
+    final tag = patient['family_relationship']?.toString().trim();
+    if (tag != null && tag.isNotEmpty) return tag;
+    return _familyMembers.length == 1 ? 'Self' : 'Member';
+  }
+
+  IconData _relationshipIcon(String relationship) {
+    return switch (relationship) {
+      'Father' => Icons.man,
+      'Mother' => Icons.woman,
+      'Son' => Icons.boy,
+      'Daughter' => Icons.girl,
+      'Wife' => Icons.favorite,
+      'Husband' => Icons.favorite,
+      'Brother' || 'Sister' => Icons.group,
+      'Grandfather' || 'Grandmother' => Icons.elderly,
+      'Grandson' || 'Granddaughter' => Icons.child_care,
+      'Other' => Icons.person_outline,
+      'Member' => Icons.person_outline,
+      _ => Icons.person,
+    };
+  }
+
+  /// Family members grouped by relationship for the family-tree view. Groups
+  /// are ordered by [kFamilyRelationships]; untagged members sink to the end.
+  List<MapEntry<String, List<Map<String, dynamic>>>> _groupedFamilyMembers() {
+    final grouped = <String, List<Map<String, dynamic>>>{};
+    for (final member in _familyMembers) {
+      final relationship = _relationshipOf(member);
+      (grouped[relationship] ??= []).add(member);
+    }
+
+    final order = <String>[...kFamilyRelationships, 'Member'];
+    final entries = grouped.entries.toList()
+      ..sort((a, b) {
+        final ai = order.indexOf(a.key);
+        final bi = order.indexOf(b.key);
+        final aiNorm = ai < 0 ? order.length : ai;
+        final biNorm = bi < 0 ? order.length : bi;
+        return aiNorm.compareTo(biNorm);
+      });
+    return entries;
+  }
+
+  void _openPatientProfile(Map<String, dynamic> patient) {
+    final id = patient['id']?.toString();
+    if (id == null || id.isEmpty) return;
+    context.push('/patients/$id');
+  }
+
+  /// Bottom sheet that lets the user tag (or clear) the relationship of an
+  /// existing family member.
+  Future<void> _tagFamilyMember(Map<String, dynamic> patient) async {
+    final patientId = patient['id']?.toString();
+    if (patientId == null || patientId.isEmpty) return;
+
+    final current = _relationshipOf(patient);
+
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Tag Family Relationship',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'
+                      .trim(),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final relationship in kFamilyRelationships)
+                      ChoiceChip(
+                        label: Text(relationship),
+                        selected: relationship == current,
+                        avatar: Icon(_relationshipIcon(relationship), size: 16),
+                        onSelected: (_) =>
+                            Navigator.pop(sheetContext, relationship),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () =>
+                        Navigator.pop(sheetContext, _kClearRelationship),
+                    icon: const Icon(Icons.clear, size: 16),
+                    label: const Text('Clear tag'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (selected == null || !mounted) return;
+
+    final relationship = selected == _kClearRelationship ? null : selected;
+
+    try {
+      await ref
+          .read(databaseServiceProvider)
+          .updatePatientFamilyRelationship(patientId, relationship);
+      if (!mounted) return;
+      setState(() {
+        _familyMembers = [
+          for (final member in _familyMembers)
+            if (member['id']?.toString() == patientId)
+              {...member, 'family_relationship': relationship}
+            else
+              member,
+        ];
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Search failed: $e'),
+          content: Text(
+            relationship == null
+                ? 'Relationship tag cleared'
+                : 'Tagged as $relationship',
+          ),
+          backgroundColor: const Color(0xFF66BB6A),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not update relationship: $e'),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
     }
-  }
-
-  void _selectPatient(Map<String, dynamic> patient) {
-    _firstNameController.text = patient['first_name'] as String? ?? '';
-    _lastNameController.text = patient['last_name'] as String? ?? '';
-    _dobController.text = patient['date_of_birth'] as String? ?? '';
-    final gender = patient['gender'] as String?;
-    if (gender != null && ['Male', 'Female', 'Other'].contains(gender)) {
-      _selectedGender = gender;
-    }
-    _mobileController.text = patient['mobile_number'] as String? ?? '';
-    _addressController.text = patient['address_line1'] as String? ?? '';
-    final abhaId = patient['abha_id'] as String?;
-    if (abhaId != null && abhaId.isNotEmpty) {
-      _abhaController.text = abhaId;
-      _abhaAddressController.text = patient['abha_address'] as String? ?? '';
-      _registrationMethod = RegistrationMethod.abha;
-      _hasExistingAbha = true;
-      _isAbhaVerified = true;
-    } else {
-      _abhaController.clear();
-      _abhaAddressController.clear();
-      _registrationMethod = RegistrationMethod.direct;
-      _hasExistingAbha = false;
-      _isAbhaVerified = false;
-    }
-
-    final name = '${_firstNameController.text} ${_lastNameController.text}'
-        .trim();
-    final uhid = patient['uhid'] as String? ?? '';
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Selected: $name (UHID: $uhid)'),
-        backgroundColor: const Color(0xFF66BB6A),
-      ),
-    );
-
-    setState(() {
-      _searchResults = [];
-      _isManualEntry = false;
-    });
-  }
-
-  void _clearAndEnableManualEntry() {
-    _firstNameController.clear();
-    _lastNameController.clear();
-    _dobController.clear();
-    _selectedGender = 'Male';
-    _mobileController.clear();
-    _emailController.clear();
-    _addressController.clear();
-    _abhaController.clear();
-    _abhaAddressController.clear();
-    _registrationMethod = RegistrationMethod.direct;
-    _hasExistingAbha = false;
-    _isAbhaVerified = false;
-
-    setState(() {
-      _isManualEntry = true;
-      _searchResults = [];
-    });
   }
 
   String _generateUHID() {
@@ -218,9 +388,7 @@ class _PatientRegistrationScreenState
 
     try {
       // Real gateway call (mock mode returns a sandbox fixture automatically).
-      final profile = await ref
-          .read(abdmServiceProvider)
-          .verifyAbhaId(abhaId);
+      final profile = await ref.read(abdmServiceProvider).verifyAbhaId(abhaId);
 
       if (!mounted) return;
 
@@ -246,8 +414,7 @@ class _PatientRegistrationScreenState
           _mobileController.text.isEmpty) {
         _mobileController.text = profile['mobileNumber'] as String;
       }
-      _abhaAddressController.text =
-          (profile['abhaAddress'] as String?) ?? '';
+      _abhaAddressController.text = (profile['abhaAddress'] as String?) ?? '';
       _isAbhaVerified = true;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -292,287 +459,37 @@ class _PatientRegistrationScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Phone Search — at the very top
-              _buildPhoneSearchSection(theme),
-              const SizedBox(height: 16),
+              // Step 1 — single mobile number field with Verify button.
+              _buildMobileVerificationCard(theme),
 
-              // "New Patient? Click here to enter details manually" link
-              GestureDetector(
-                onTap: _clearAndEnableManualEntry,
-                child: Text(
-                  'New Patient? Click here to enter details manually',
-                  style: TextStyle(
-                    color: theme.colorScheme.primary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    decoration: TextDecoration.underline,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Divider(),
-              const SizedBox(height: 8),
-
-              _buildRegistrationMethodSelector(theme),
-              const SizedBox(height: 16),
-
-              if (_registrationMethod == RegistrationMethod.abha) ...[
-                // Sub-option: Has existing ABHA or needs to create one
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'ABHA Option',
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: SegmentedButton<bool>(
-                        segments: const [
-                          ButtonSegment(
-                            value: true,
-                            label: Text('I have ABHA ID'),
-                            icon: Icon(Icons.fingerprint, size: 18),
-                          ),
-                          ButtonSegment(
-                            value: false,
-                            label: Text('Create via Aadhaar/DL'),
-                            icon: Icon(Icons.add_card, size: 18),
-                          ),
-                        ],
-                        selected: {_hasExistingAbha},
-                        onSelectionChanged: (selection) {
-                          setState(() => _hasExistingAbha = selection.first);
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                if (_hasExistingAbha) ...[
-                  // Create ABHA option — navigate to ABHA create screen
-                  Card(
-                    color: theme.colorScheme.secondaryContainer,
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.add_circle_outline,
-                                color: theme.colorScheme.onSecondaryContainer,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Create new ABHA Health ID using Aadhaar Card or Driving Licence',
-                                  style: TextStyle(
-                                    color:
-                                        theme.colorScheme.onSecondaryContainer,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton.icon(
-                              onPressed: () async {
-                                // Navigate to ABHA create screen; on return, if
-                                // ABHA was created, populate the ABHA fields here.
-                                final result = await context.push<Map<String, dynamic>>(
-                                  '/abha/create',
-                                );
-                                if (result != null && mounted) {
-                                  _abhaController.text =
-                                      (result['abhaId'] as String?) ??
-                                      (result['abhaNumber'] as String?) ??
-                                      '';
-                                  _abhaAddressController.text =
-                                      (result['abhaAddress'] as String?) ?? '';
-                                  _isAbhaVerified = true;
-                                  setState(() => _hasExistingAbha = false);
-                                }
-                              },
-                              icon: const Icon(Icons.arrow_forward, size: 18),
-                              label: const Text('Proceed to Create ABHA'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ] else ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _abhaController,
-                          decoration: InputDecoration(
-                            labelText: 'ABHA ID',
-                            hintText: 'Enter 14-digit ABHA ID',
-                            prefixIcon: const Icon(Icons.fingerprint),
-                          ),
-                          keyboardType: TextInputType.text,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        height: 48,
-                        child: ElevatedButton.icon(
-                          onPressed: _isVerifyingAbha ? null : _verifyAbha,
-                          icon: _isVerifyingAbha
-                              ? const SizedBox(
-                                  height: 18,
-                                  width: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.verified_user, size: 18),
-                          label: Text(
-                            _isVerifyingAbha ? 'Verifying...' : 'Verify',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _abhaAddressController,
-                    decoration: const InputDecoration(
-                      labelText: 'ABHA Address',
-                      hintText: 'Auto-filled after verification (e.g. rahul9012@abdm)',
-                      prefixIcon: Icon(Icons.alternate_email),
-                    ),
-                  ),
-                ],
+              if (_verifiedMobile != null) ...[
                 const SizedBox(height: 16),
-              ],
 
-              _buildAdmissionTypeSelector(theme),
-              const Divider(height: 32),
-
-              // Mobile Number — important identification key, placed at top
-              TextFormField(
-                controller: _mobileController,
-                keyboardType: TextInputType.phone,
-                maxLength: 10,
-                decoration: const InputDecoration(
-                  labelText: 'Mobile Number *',
-                  hintText: 'Enter 10-digit mobile number',
-                  prefixText: '+91 ',
-                  counterText: '',
-                ),
-                onChanged: _onMobileChanged,
-              ),
-              const SizedBox(height: 16),
-
-              AppFieldRow(
-                children: [
-                  TextFormField(
-                    controller: _firstNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'First Name *',
-                    ),
-                    validator:
-                        _registrationMethod == RegistrationMethod.direct
-                        ? (v) => v?.isEmpty == true ? 'Required' : null
-                        : null,
+                // Step 2 — family members sharing the verified number.
+                if (_hasFamily) ...[
+                  _buildFamilySection(theme),
+                  const SizedBox(height: 16),
+                ] else ...[
+                  const AppInfoBanner(
+                    message:
+                        'No patient found with this mobile number. Fill in the '
+                        'details below to register a new patient.',
+                    tone: AppBannerTone.info,
+                    icon: Icons.person_add_alt,
                   ),
-                  TextFormField(
-                    controller: _lastNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Last Name *',
-                    ),
-                    validator:
-                        _registrationMethod == RegistrationMethod.direct
-                        ? (v) => v?.isEmpty == true ? 'Required' : null
-                        : null,
-                  ),
+                  const SizedBox(height: 16),
                 ],
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _dobController,
-                decoration: const InputDecoration(
-                  labelText: 'Date of Birth',
-                  suffixIcon: Icon(Icons.calendar_today),
-                ),
-                onTap: () async {
-                  final date = await showDatePicker(
-                    context: context,
-                    initialDate: DateTime.now().subtract(
-                      const Duration(days: 365 * 30),
-                    ),
-                    firstDate: DateTime(1900),
-                    lastDate: DateTime.now(),
-                  );
-                  if (date != null) {
-                    _dobController.text = date.toDateString;
-                  }
-                },
-                readOnly: true,
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: _selectedGender,
-                decoration: const InputDecoration(labelText: 'Gender'),
-                items: ['Male', 'Female', 'Other']
-                    .map((g) => DropdownMenuItem(value: g, child: Text(g)))
-                    .toList(),
-                onChanged: (v) => setState(() => _selectedGender = v!),
-              ),
-              const SizedBox(height: 16),
 
-              // Email field
-              TextFormField(
-                controller: _emailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(labelText: 'Email'),
-                validator: (v) {
-                  if (v?.isNotEmpty == true && !v!.contains('@')) {
-                    return 'Invalid email';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // Address field
-              TextFormField(
-                controller: _addressController,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: 'Address'),
-              ),
-              const SizedBox(height: 20),
-
-              // Personalized tags — stored per logged-in user, not per hospital.
-              PersonalizedTagField(
-                key: _tagsKey,
-                fieldKey: PersonalizedTagFields.patient,
-                entityType: PersonalizedTagEntityTypes.patient,
-                label: 'Patient Tags',
-                hint: 'e.g. VIP, Diabetic, Follow-up...',
-              ),
-              const SizedBox(height: 24),
-
-              // Submit button
-              AppSubmitButton(
-                label: 'Submit',
-                loading: _isSubmitting,
-                onPressed: _submitForm,
-              ),
-              const SizedBox(height: 32),
+                // Step 3 — registration form (auto-shown when no family exists,
+                // or after tapping "Register New Family Member").
+                if (_showRegistrationForm) ...[
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  _buildRegistrationFormHeader(theme),
+                  const SizedBox(height: 16),
+                  _buildRegistrationForm(theme),
+                ],
+              ],
             ],
           ),
         ),
@@ -580,8 +497,619 @@ class _PatientRegistrationScreenState
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Step 1 — Mobile verification card
+  // ---------------------------------------------------------------------------
+  Widget _buildMobileVerificationCard(ThemeData theme) {
+    final isVerified = _verifiedMobile != null;
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.phone_android, color: Color(0xFF1565C0)),
+                const SizedBox(width: 8),
+                Text(
+                  'Step 1: Verify Mobile Number',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Search for an existing patient and view all family members '
+              'linked to this number.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _mobileController,
+                    keyboardType: TextInputType.phone,
+                    maxLength: 10,
+                    decoration: const InputDecoration(
+                      labelText: 'Mobile Number *',
+                      hintText: 'Enter 10-digit mobile number',
+                      prefixText: '+91 ',
+                      counterText: '',
+                    ),
+                    onChanged: _onMobileChanged,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: (_isVerifyingMobile || isVerified)
+                        ? null
+                        : _verifyMobileNumber,
+                    icon: _isVerifyingMobile
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.verified_user, size: 18),
+                    label: Text(_isVerifyingMobile ? 'Verifying...' : 'Verify'),
+                  ),
+                ),
+              ],
+            ),
+            if (isVerified) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F5E9),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.check_circle,
+                      color: Color(0xFF43A047),
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Verified: +91 $_verifiedMobile',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF2E7D32),
+                        ),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: _clearVerification,
+                      icon: const Icon(Icons.refresh, size: 16),
+                      label: const Text('Change'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 2 — Family members (grouped by relationship = family tree)
+  // ---------------------------------------------------------------------------
+  Widget _buildFamilySection(ThemeData theme) {
+    final groups = _groupedFamilyMembers();
+
+    return AppSectionCard(
+      title: 'Family Members (${_familyMembers.length})',
+      subtitle: 'Patients linked to +91 $_verifiedMobile',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const AppInfoBanner(
+            message:
+                'These patients share the same mobile number. Tap a member to '
+                'open their profile, or use the edit icon to tag their '
+                'relationship.',
+            tone: AppBannerTone.info,
+            icon: Icons.family_restroom,
+          ),
+          const SizedBox(height: 12),
+          for (final group in groups)
+            _buildFamilyGroup(theme, group.key, group.value),
+          if (!_showRegistrationForm) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _startFamilyMemberRegistration,
+                icon: const Icon(Icons.person_add_alt, size: 18),
+                label: const Text('Register New Family Member'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFamilyGroup(
+    ThemeData theme,
+    String relationship,
+    List<Map<String, dynamic>> members,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 6),
+          child: Row(
+            children: [
+              Icon(
+                _relationshipIcon(relationship),
+                size: 16,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '$relationship (${members.length})',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        for (final member in members) _buildFamilyMemberCard(theme, member),
+      ],
+    );
+  }
+
+  Widget _buildFamilyMemberCard(ThemeData theme, Map<String, dynamic> member) {
+    final name = '${member['first_name'] ?? ''} ${member['last_name'] ?? ''}'
+        .trim();
+    final uhid = member['uhid']?.toString() ?? '';
+    final gender = member['gender']?.toString() ?? '';
+    final relationship = _relationshipOf(member);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: theme.colorScheme.primaryContainer,
+          child: Icon(
+            _relationshipIcon(relationship),
+            color: theme.colorScheme.onPrimaryContainer,
+          ),
+        ),
+        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 2),
+            Text('UHID: $uhid${gender.isNotEmpty ? '  •  $gender' : ''}'),
+            const SizedBox(height: 6),
+            _buildRelationshipChip(theme, member, relationship),
+          ],
+        ),
+        trailing: IconButton(
+          icon: const Icon(Icons.edit_outlined, size: 20),
+          tooltip: 'Tag relationship',
+          onPressed: () => _tagFamilyMember(member),
+        ),
+        onTap: () => _openPatientProfile(member),
+      ),
+    );
+  }
+
+  Widget _buildRelationshipChip(
+    ThemeData theme,
+    Map<String, dynamic> member,
+    String relationship,
+  ) {
+    return InkWell(
+      onTap: () => _tagFamilyMember(member),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.secondaryContainer,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _relationshipIcon(relationship),
+              size: 14,
+              color: theme.colorScheme.onSecondaryContainer,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              relationship,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSecondaryContainer,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.edit,
+              size: 12,
+              color: theme.colorScheme.onSecondaryContainer,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 3 — Registration form
+  // ---------------------------------------------------------------------------
+  Widget _buildRegistrationFormHeader(ThemeData theme) {
+    final mobile = _verifiedMobile ?? _mobileController.text.trim();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _hasFamily ? 'Register New Family Member' : 'Patient Details',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            const Icon(Icons.verified_user, size: 16, color: Color(0xFF43A047)),
+            const SizedBox(width: 6),
+            Text(
+              'Mobile verified: +91 $mobile',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRegistrationForm(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildRegistrationMethodSelector(theme),
+        const SizedBox(height: 16),
+
+        if (_registrationMethod == RegistrationMethod.abha) ...[
+          _buildAbhaSection(theme),
+          const SizedBox(height: 16),
+        ],
+
+        _buildAdmissionTypeSelector(theme),
+        const Divider(height: 32),
+
+        // Family relationship tag — required when joining an existing family.
+        _buildRelationshipField(theme),
+        const SizedBox(height: 16),
+
+        AppFieldRow(
+          children: [
+            TextFormField(
+              controller: _firstNameController,
+              decoration: const InputDecoration(labelText: 'First Name *'),
+              validator: _registrationMethod == RegistrationMethod.direct
+                  ? (v) => v?.isEmpty == true ? 'Required' : null
+                  : null,
+            ),
+            TextFormField(
+              controller: _lastNameController,
+              decoration: const InputDecoration(labelText: 'Last Name *'),
+              validator: _registrationMethod == RegistrationMethod.direct
+                  ? (v) => v?.isEmpty == true ? 'Required' : null
+                  : null,
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          controller: _dobController,
+          decoration: const InputDecoration(
+            labelText: 'Date of Birth',
+            suffixIcon: Icon(Icons.calendar_today),
+          ),
+          onTap: () async {
+            final date = await showDatePicker(
+              context: context,
+              initialDate: DateTime.now().subtract(
+                const Duration(days: 365 * 30),
+              ),
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+            );
+            if (date != null) {
+              _dobController.text = date.toDateString;
+            }
+          },
+          readOnly: true,
+        ),
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          initialValue: _selectedGender,
+          decoration: const InputDecoration(labelText: 'Gender'),
+          items: [
+            'Male',
+            'Female',
+            'Other',
+          ].map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+          onChanged: (v) => setState(() => _selectedGender = v!),
+        ),
+        const SizedBox(height: 16),
+
+        // Email field
+        TextFormField(
+          controller: _emailController,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(labelText: 'Email'),
+          validator: (v) {
+            if (v?.isNotEmpty == true && !v!.contains('@')) {
+              return 'Invalid email';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 16),
+
+        // Address field
+        TextFormField(
+          controller: _addressController,
+          maxLines: 3,
+          decoration: const InputDecoration(labelText: 'Address'),
+        ),
+        const SizedBox(height: 20),
+
+        // Personalized tags — stored per logged-in user, not per hospital.
+        PersonalizedTagField(
+          key: _tagsKey,
+          fieldKey: PersonalizedTagFields.patient,
+          entityType: PersonalizedTagEntityTypes.patient,
+          label: 'Patient Tags',
+          hint: 'e.g. VIP, Diabetic, Follow-up...',
+        ),
+        const SizedBox(height: 24),
+
+        // Submit button
+        AppSubmitButton(
+          label: _hasFamily ? 'Register Family Member' : 'Register Patient',
+          loading: _isSubmitting,
+          onPressed: _submitForm,
+        ),
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+
+  Widget _buildAbhaSection(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'ABHA Option',
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(
+                value: true,
+                label: Text('I have ABHA ID'),
+                icon: Icon(Icons.fingerprint, size: 18),
+              ),
+              ButtonSegment(
+                value: false,
+                label: Text('Create via Aadhaar/DL'),
+                icon: Icon(Icons.add_card, size: 18),
+              ),
+            ],
+            selected: {_hasExistingAbha},
+            onSelectionChanged: (selection) {
+              setState(() => _hasExistingAbha = selection.first);
+            },
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (_hasExistingAbha) ...[
+          // Create ABHA option — navigate to ABHA create screen
+          Card(
+            color: theme.colorScheme.secondaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.add_circle_outline,
+                        color: theme.colorScheme.onSecondaryContainer,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Create new ABHA Health ID using Aadhaar Card or Driving Licence',
+                          style: TextStyle(
+                            color: theme.colorScheme.onSecondaryContainer,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        // Navigate to ABHA create screen; on return, if
+                        // ABHA was created, populate the ABHA fields here.
+                        final result = await context.push<Map<String, dynamic>>(
+                          '/abha/create',
+                        );
+                        if (result != null && mounted) {
+                          _abhaController.text =
+                              (result['abhaId'] as String?) ??
+                              (result['abhaNumber'] as String?) ??
+                              '';
+                          _abhaAddressController.text =
+                              (result['abhaAddress'] as String?) ?? '';
+                          _isAbhaVerified = true;
+                          setState(() => _hasExistingAbha = false);
+                        }
+                      },
+                      icon: const Icon(Icons.arrow_forward, size: 18),
+                      label: const Text('Proceed to Create ABHA'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ] else ...[
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _abhaController,
+                  decoration: InputDecoration(
+                    labelText: 'ABHA ID',
+                    hintText: 'Enter 14-digit ABHA ID',
+                    prefixIcon: const Icon(Icons.fingerprint),
+                  ),
+                  keyboardType: TextInputType.text,
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: _isVerifyingAbha ? null : _verifyAbha,
+                  icon: _isVerifyingAbha
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.verified_user, size: 18),
+                  label: Text(_isVerifyingAbha ? 'Verifying...' : 'Verify'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _abhaAddressController,
+            decoration: const InputDecoration(
+              labelText: 'ABHA Address',
+              hintText: 'Auto-filled after verification (e.g. rahul9012@abdm)',
+              prefixIcon: Icon(Icons.alternate_email),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Family relationship selector. For the first patient of a mobile number
+  /// the default is "Self"; when joining an existing family the user must pick
+  /// an explicit relationship.
+  Widget _buildRelationshipField(ThemeData theme) {
+    final options = _hasFamily
+        ? kFamilyRelationships.where((r) => r != 'Self').toList()
+        : kFamilyRelationships;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Family Relationship',
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          initialValue: _selectedRelationship,
+          decoration: InputDecoration(
+            labelText: _hasFamily ? 'Relationship in Family *' : 'Relationship',
+            hintText: _hasFamily
+                ? 'e.g. Father, Mother, Wife...'
+                : 'Defaults to Self (head of family)',
+            prefixIcon: const Icon(Icons.family_restroom),
+          ),
+          items: [
+            for (final relationship in options)
+              DropdownMenuItem(
+                value: relationship,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(_relationshipIcon(relationship), size: 18),
+                    const SizedBox(width: 8),
+                    Text(relationship),
+                  ],
+                ),
+              ),
+          ],
+          onChanged: (v) => setState(() => _selectedRelationship = v),
+        ),
+      ],
+    );
+  }
+
   bool validateStep() {
-    // Validate all fields (single step form)
+    // Mobile must still match the verified Step 1 number.
+    final mobile = _mobileController.text.trim();
+    if (_verifiedMobile == null || mobile != _verifiedMobile) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please verify the mobile number first')),
+      );
+      return false;
+    }
+
+    // Joining an existing family requires an explicit relationship tag.
+    if (_hasFamily &&
+        (_selectedRelationship == null || _selectedRelationship!.isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select the family relationship')),
+      );
+      return false;
+    }
+
     if (_registrationMethod == RegistrationMethod.abha && !_isAbhaVerified) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please verify your ABHA ID first')),
@@ -601,18 +1129,6 @@ class _PatientRegistrationScreenState
         ).showSnackBar(const SnackBar(content: Text('Last Name is required')));
         return false;
       }
-    }
-    if (_mobileController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Mobile Number is required')),
-      );
-      return false;
-    }
-    if (_mobileController.text.trim().length != 10) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter valid 10-digit mobile number')),
-      );
-      return false;
     }
     if (_emailController.text.trim().isNotEmpty &&
         !_emailController.text.trim().contains('@')) {
@@ -706,174 +1222,6 @@ class _PatientRegistrationScreenState
     );
   }
 
-  Widget _buildPhoneSearchSection(ThemeData theme) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.search, color: Color(0xFF1565C0)),
-                const SizedBox(width: 8),
-                Text(
-                  'Search Existing Patient',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _phoneSearchController,
-                    keyboardType: TextInputType.phone,
-                    maxLength: 10,
-                    decoration: const InputDecoration(
-                      labelText: 'Phone Number',
-                      hintText: 'Enter 10-digit number',
-                      prefixText: '+91 ',
-                      counterText: '',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  height: 48,
-                  child: ElevatedButton.icon(
-                    onPressed: _isSearchingPatient
-                        ? null
-                        : _searchPatientByPhone,
-                    icon: _isSearchingPatient
-                        ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.search, size: 18),
-                    label: Text(
-                      _isSearchingPatient ? 'Searching...' : 'Search',
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (_searchResults.isNotEmpty || _isManualEntry) ...[
-              const SizedBox(height: 12),
-              _buildSearchResults(theme),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSearchResults(ThemeData theme) {
-    if (_isManualEntry) {
-      return const AppInfoBanner(
-        message:
-            'No patient found with this number. You can enter details manually below.',
-        tone: AppBannerTone.warning,
-      );
-    }
-
-    if (_searchResults.length == 1) {
-      final patient = _searchResults.first;
-      final name =
-          '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'.trim();
-      final uhid = patient['uhid'] as String? ?? '';
-
-      return AppSectionCard(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.person,
-                  color: theme.colorScheme.primary,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    name,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: theme.colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'UHID: $uhid',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => _selectPatient(patient),
-                icon: const Icon(Icons.check_circle, size: 18),
-                label: const Text('Select This Patient'),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Multiple results
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '${_searchResults.length} patients found. Select one:',
-          style: TextStyle(fontSize: 13, color: Colors.grey[700]),
-        ),
-        const SizedBox(height: 8),
-        ..._searchResults.map((patient) {
-          final name =
-              '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'
-                  .trim();
-          final uhid = patient['uhid'] as String? ?? '';
-
-          return Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: theme.colorScheme.primaryContainer,
-                child: Icon(
-                  Icons.person,
-                  color: theme.colorScheme.onPrimaryContainer,
-                ),
-              ),
-              title: Text(
-                name,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text('UHID: $uhid'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () => _selectPatient(patient),
-            ),
-          );
-        }),
-      ],
-    );
-  }
-
   Future<void> _submitRegistration() async {
     if (_registrationMethod == RegistrationMethod.direct &&
         _firstNameController.text.trim().isEmpty) {
@@ -906,6 +1254,8 @@ class _PatientRegistrationScreenState
         'registration_date': DateTime.now().toDateString,
         'registration_method': _registrationMethod.name,
         'admission_type': _admissionType.name,
+        // Family linking — the mobile number is already shared via Step 1.
+        'family_relationship': _selectedRelationship ?? 'Self',
       };
 
       final abhaId = _abhaController.text.trim();
@@ -930,18 +1280,21 @@ class _PatientRegistrationScreenState
       // Personalized tags — store per logged-in user (best-effort; a tag
       // failure must never block the patient registration).
       // ---------------------------------------------------------------------
-      final patientTags = _tagsKey.currentState?.selectedTags ?? const <String>[];
+      final patientTags =
+          _tagsKey.currentState?.selectedTags ?? const <String>[];
       if (patientTags.isNotEmpty) {
         try {
           final userId = await dbService.getCurrentUsersTableId();
           if (userId != null) {
-            await ref.read(personalizedTagServiceProvider).setEntityTags(
-              userId: userId,
-              fieldKey: PersonalizedTagFields.patient,
-              entityType: PersonalizedTagEntityTypes.patient,
-              entityId: patientId,
-              names: patientTags,
-            );
+            await ref
+                .read(personalizedTagServiceProvider)
+                .setEntityTags(
+                  userId: userId,
+                  fieldKey: PersonalizedTagFields.patient,
+                  entityType: PersonalizedTagEntityTypes.patient,
+                  entityId: patientId,
+                  names: patientTags,
+                );
           }
         } catch (e) {
           debugPrint('Patient tags save failed (non-blocking): $e');
@@ -967,8 +1320,9 @@ class _PatientRegistrationScreenState
         }
 
         try {
-          final recordType =
-              _admissionType == AdmissionType.ipd ? 'ipd_admission' : 'opd_visit';
+          final recordType = _admissionType == AdmissionType.ipd
+              ? 'ipd_admission'
+              : 'opd_visit';
           await abdm.linkCareContext(
             abhaId: abhaId,
             careContextId: abdm.buildCareContextId(
@@ -985,9 +1339,16 @@ class _PatientRegistrationScreenState
         }
       }
 
+      // Re-check after the best-effort ABDM/tag awaits above.
+      if (!mounted) return;
+
+      final relationshipLabel = _selectedRelationship ?? 'Self';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Patient registered! UHID: $uhid'),
+          content: Text(
+            'Patient registered! UHID: $uhid'
+            '${relationshipLabel != 'Self' ? ' (Relationship: $relationshipLabel)' : ''}',
+          ),
           backgroundColor: const Color(0xFF66BB6A),
         ),
       );
@@ -1027,9 +1388,14 @@ class _PatientRegistrationScreenState
       builder: (context) => AlertDialog(
         title: const Text('Registration Help'),
         content: const Text(
-          'Choose registration method (ABHA or Manual) and admission type (OPD or IPD).\n\n'
-          'Fill in patient details, contact information, and address, then submit.\n\n'
-          'For IPD admissions, you will be redirected to the bed allocation screen after submission.',
+          'Step 1 — Enter the mobile number and tap Verify.\n\n'
+          'If patients already exist for that number, their family members '
+          'are shown grouped by relationship. You can open a member profile, '
+          'tag a relationship, or register a new family member.\n\n'
+          'If no patient is found, fill in the details to register.\n\n'
+          'Choose registration method (ABHA or Direct) and admission type '
+          '(OPD or IPD), then submit. For IPD admissions you will be '
+          'redirected to the bed allocation screen after submission.',
         ),
         actions: [
           TextButton(

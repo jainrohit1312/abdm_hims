@@ -313,6 +313,9 @@ class DatabaseService {
   }
 
   /// Searches patients by exact mobile number match.
+  ///
+  /// Rows are returned oldest-first so the first patient registered with a
+  /// mobile number (the family head) appears before other family members.
   Future<List<Map<String, dynamic>>> searchPatientByPhone(
     String phone, {
     String? hospitalId,
@@ -320,16 +323,41 @@ class DatabaseService {
     try {
       dynamic query = _client.from(ApiConstants.patientsTable).select();
 
-      if (hospitalId != null) {
+      if (hospitalId != null && hospitalId.isNotEmpty) {
         query = query.eq('hospital_id', hospitalId);
       }
 
-      query = query.eq('mobile_number', phone);
+      query = query
+          .eq('mobile_number', phone)
+          .order('created_at', ascending: true);
 
-      final response = await fetchWithRetry(() => query.limit(10));
+      final response = await fetchWithRetry(() => query.limit(50));
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       AppLogger.e('Error searching patient by phone', e);
+      rethrow;
+    }
+  }
+
+  /// Tags (or clears) the family relationship of an existing patient.
+  ///
+  /// [relationship] should be one of the family relationship labels
+  /// (Self, Father, Mother, Son, Daughter, Wife, Husband, Brother, Sister,
+  /// ...). Pass `null` to clear the tag.
+  Future<void> updatePatientFamilyRelationship(
+    String patientId,
+    String? relationship,
+  ) async {
+    try {
+      await fetchWithRetry(
+        () => _client
+            .from(ApiConstants.patientsTable)
+            .update({'family_relationship': relationship})
+            .eq('id', patientId),
+      );
+      await _invalidateFrequentCacheForTable(ApiConstants.patientsTable);
+    } catch (e) {
+      AppLogger.e('Error updating patient family relationship', e);
       rethrow;
     }
   }
