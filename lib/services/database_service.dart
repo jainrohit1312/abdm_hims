@@ -146,10 +146,27 @@ class DatabaseService {
         return await query.single();
       });
       return response;
+    } on PostgrestException catch (e) {
+      // `.single()` throws PGRST116 ("Results contain 0 rows") when the row
+      // genuinely does not exist — that is a legitimate "not found" and we
+      // return null. Anything else (network, permissions, missing table, ...)
+      // must propagate so callers show the real error instead of a misleading
+      // "not found" message.
+      if (_isNoRowsError(e)) return null;
+      AppLogger.e('Error fetching from $table by id', e);
+      rethrow;
     } catch (e) {
       AppLogger.e('Error fetching from $table by id', e);
-      return null;
+      rethrow;
     }
+  }
+
+  /// True when PostgREST reports zero rows for `.single()` lookups.
+  bool _isNoRowsError(PostgrestException e) {
+    final details = e.details?.toString() ?? '';
+    return e.code == 'PGRST116' ||
+        details.contains('Results contain 0 rows') ||
+        e.message.toLowerCase().contains('no rows returned');
   }
 
   Future<Map<String, dynamic>> create(
@@ -1373,7 +1390,8 @@ class DatabaseService {
       final today = DateTime.now().toIso8601String().split('T')[0];
 
       // Context: IPD admission wins (agar dono somehow pass hue hon).
-      final resolvedVisitType = visitType?.trim().toLowerCase() ??
+      final resolvedVisitType =
+          visitType?.trim().toLowerCase() ??
           ((ipdAdmissionId != null && ipdAdmissionId.isNotEmpty)
               ? 'ipd'
               : 'opd');
@@ -1500,7 +1518,8 @@ class DatabaseService {
       for (final prescription in prescriptions) {
         // Naya JSONB array na ho (legacy rows) to items table se fill karo.
         final rawMedicines = prescription['medicines'];
-        final hasJsonMedicines = rawMedicines is List && rawMedicines.isNotEmpty;
+        final hasJsonMedicines =
+            rawMedicines is List && rawMedicines.isNotEmpty;
 
         final itemsResponse = await fetchWithRetry(
           () => _client
@@ -1549,9 +1568,7 @@ class DatabaseService {
             .update({'status': status})
             .eq('id', prescriptionId),
       );
-      await _invalidateFrequentCacheForTable(
-        ApiConstants.prescriptionsTable,
-      );
+      await _invalidateFrequentCacheForTable(ApiConstants.prescriptionsTable);
     } catch (e) {
       AppLogger.e('Error updating prescription status', e);
       rethrow;
@@ -1772,7 +1789,8 @@ class DatabaseService {
     final discount = 0.0;
     final net = total - discount;
     final billDate =
-        opd['visit_date']?.toString() ?? DateTime.now().toIso8601String().split('T')[0];
+        opd['visit_date']?.toString() ??
+        DateTime.now().toIso8601String().split('T')[0];
 
     final existing = await _client
         .from(ApiConstants.billingTable)
@@ -1859,7 +1877,8 @@ class DatabaseService {
           action: 'payment_added',
           oldValue: {'paid_amount': 0},
           newValue: {'paid_amount': amount},
-          description: 'OPD slip payment of $amount received via ${paymentMode.toUpperCase()}',
+          description:
+              'OPD slip payment of $amount received via ${paymentMode.toUpperCase()}',
         );
       }
     }
@@ -2189,6 +2208,21 @@ class DatabaseService {
       AppLogger.e('Error fetching IPD ward pricing', e);
       return [];
     }
+  }
+
+  Future<Map<String, dynamic>> saveIPDWardPricing(
+    Map<String, dynamic> data, {
+    String? id,
+  }) async {
+    if (id == null) return create(ApiConstants.ipdWardPricingTable, data);
+    return update(ApiConstants.ipdWardPricingTable, id, {
+      ...data,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    });
+  }
+
+  Future<void> deleteIPDWardPricing(String id) async {
+    await delete(ApiConstants.ipdWardPricingTable, id);
   }
 
   Future<List<Map<String, dynamic>>> getIPDPackages({
@@ -2528,7 +2562,8 @@ class DatabaseService {
       final userId = await getCurrentUsersTableId();
 
       final subtotal = _sumOf(items, 'total_price');
-      final net = math.max(0, (subtotal - discountAmount) * 100).roundToDouble() / 100;
+      final net =
+          math.max(0, (subtotal - discountAmount) * 100).roundToDouble() / 100;
       final paid = (paidAmount * 100).roundToDouble() / 100;
       final balance = ((net - paid) * 100).roundToDouble() / 100;
       final status =
@@ -2734,7 +2769,8 @@ class DatabaseService {
 
       // 2. Raw OPD registrations as bills (deduped against materialised rows).
       //    Only included when the caller wants every source or OPD bills.
-      final includeRawOpd = (sourceType == null || sourceType == 'opd') &&
+      final includeRawOpd =
+          (sourceType == null || sourceType == 'opd') &&
           (visitType == null || visitType == 'opd');
       if (includeRawOpd) {
         var opdQuery = _client
@@ -2901,7 +2937,10 @@ class DatabaseService {
     } on PostgrestException catch (e) {
       if (e.message.toLowerCase().contains('could not find the table') ||
           e.message.toLowerCase().contains('could not find the')) {
-        AppLogger.e('billing_audit table missing — run unified billing migration', e);
+        AppLogger.e(
+          'billing_audit table missing — run unified billing migration',
+          e,
+        );
         return [];
       }
       AppLogger.e('Error fetching billing audit', e);
@@ -2937,7 +2976,10 @@ class DatabaseService {
       final message = e.message.toLowerCase();
       if (message.contains('could not find the table') ||
           message.contains('could not find the')) {
-        AppLogger.e('billing_audit table missing — run unified billing migration', e);
+        AppLogger.e(
+          'billing_audit table missing — run unified billing migration',
+          e,
+        );
         return;
       }
       AppLogger.e('Error recording billing audit', e);
@@ -2948,7 +2990,8 @@ class DatabaseService {
   /// Generates a unique, human-readable bill number.
   String _generateBillNumber(String prefix) {
     final now = DateTime.now();
-    final stamp = '${now.year}'
+    final stamp =
+        '${now.year}'
         '${now.month.toString().padLeft(2, '0')}'
         '${now.day.toString().padLeft(2, '0')}';
     final random = math.Random().nextInt(9999).toString().padLeft(4, '0');
@@ -3113,7 +3156,8 @@ class DatabaseService {
         action: 'created',
         oldValue: null,
         newValue: _auditSnapshot(bill),
-        description: 'OPD registration materialised into a permanent billing record',
+        description:
+            'OPD registration materialised into a permanent billing record',
       );
 
       return _normalizeBillingRow(bill);
@@ -3302,9 +3346,13 @@ class DatabaseService {
       await recordBillingAudit(
         billId: targetBillId,
         action: 'payment_added',
-        oldValue: {'paid_amount': currentPaid, 'balance_amount': _toDouble(bill['balance_amount'])},
+        oldValue: {
+          'paid_amount': currentPaid,
+          'balance_amount': _toDouble(bill['balance_amount']),
+        },
         newValue: {'paid_amount': newPaid, 'balance_amount': balance},
-        description: 'Payment of $amountPaid received via ${paymentMode.toUpperCase()}',
+        description:
+            'Payment of $amountPaid received via ${paymentMode.toUpperCase()}',
       );
 
       // Keep the source OPD registration in sync so the OPD tab/queue still

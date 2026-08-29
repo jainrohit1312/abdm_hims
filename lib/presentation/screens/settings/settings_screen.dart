@@ -92,6 +92,13 @@ class SettingsScreen extends ConsumerWidget {
           const Divider(),
           _buildSectionHeader('IPD Billing Masters', theme),
           ListTile(
+            leading: const Icon(Icons.meeting_room_outlined),
+            title: const Text('Ward Pricing'),
+            subtitle: const Text('Daily room rate per ward type'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _showWardPricingDialog(context),
+          ),
+          ListTile(
             leading: const Icon(Icons.miscellaneous_services_outlined),
             title: const Text('Service Master'),
             subtitle: const Text(
@@ -285,6 +292,14 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   // ---------------------------------------------------------------------------
+  // Ward Pricing dialog
+  // ---------------------------------------------------------------------------
+
+  void _showWardPricingDialog(BuildContext context) {
+    showDialog(context: context, builder: (_) => const _WardPricingDialog());
+  }
+
+  // ---------------------------------------------------------------------------
   // Service Master dialog
   // ---------------------------------------------------------------------------
 
@@ -308,6 +323,256 @@ class SettingsScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (_) => const _PrescriptionModeDialog(),
+    );
+  }
+}
+
+// =============================================================================
+// Ward Pricing Master (daily room rate per ward type)
+// =============================================================================
+
+class _WardPricingDialog extends ConsumerStatefulWidget {
+  const _WardPricingDialog();
+
+  @override
+  ConsumerState<_WardPricingDialog> createState() => _WardPricingDialogState();
+}
+
+class _WardPricingDialogState extends ConsumerState<_WardPricingDialog> {
+  @override
+  Widget build(BuildContext context) {
+    final pricingAsync = ref.watch(ipdWardPricingProvider);
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Text('Ward Pricing'),
+          const Spacer(),
+          IconButton(
+            tooltip: 'Add ward pricing',
+            onPressed: () => _openPricingForm(),
+            icon: const Icon(Icons.add_circle_outline),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 520,
+        height: 420,
+        child: pricingAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) =>
+              Center(child: Text('Failed to load ward pricing: $e')),
+          data: (pricing) {
+            if (pricing.isEmpty) {
+              return const Center(
+                child: Text(
+                  'No ward pricing defined yet.\nTap + to add a daily rate.',
+                  textAlign: TextAlign.center,
+                ),
+              );
+            }
+            return ListView.separated(
+              itemCount: pricing.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final row = pricing[index];
+                final wardType = row['ward_type']?.toString() ?? 'general';
+                final rate = _toDouble(row['daily_rate']);
+                final description = row['description']?.toString() ?? '';
+                final isActive = row['is_active'] != false;
+                return ListTile(
+                  title: Text(_formatWardType(wardType)),
+                  subtitle: Text(description.isEmpty ? wardType : description),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _inr(rate),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: 'Edit',
+                        icon: const Icon(Icons.edit_outlined, size: 20),
+                        onPressed: () => _openPricingForm(row: row),
+                      ),
+                      IconButton(
+                        tooltip: 'Delete',
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          size: 20,
+                          color: Colors.red,
+                        ),
+                        onPressed: () => _deletePricing(row),
+                      ),
+                    ],
+                  ),
+                  enabled: isActive,
+                );
+              },
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openPricingForm({Map<String, dynamic>? row}) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _WardPricingFormDialog(row: row),
+    );
+    if (result == null) return;
+
+    try {
+      final db = ref.read(databaseServiceProvider);
+      await db.saveIPDWardPricing(result, id: row?['id']?.toString());
+      ref.invalidate(ipdWardPricingProvider);
+    } catch (e) {
+      _showMessage('Failed to save ward pricing: $e');
+    }
+  }
+
+  Future<void> _deletePricing(Map<String, dynamic> row) async {
+    final id = row['id']?.toString();
+    if (id == null) return;
+    try {
+      final db = ref.read(databaseServiceProvider);
+      await db.deleteIPDWardPricing(id);
+      ref.invalidate(ipdWardPricingProvider);
+    } catch (e) {
+      _showMessage('Failed to delete ward pricing: $e');
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _WardPricingFormDialog extends StatefulWidget {
+  final Map<String, dynamic>? row;
+  const _WardPricingFormDialog({this.row});
+
+  @override
+  State<_WardPricingFormDialog> createState() => _WardPricingFormDialogState();
+}
+
+class _WardPricingFormDialogState extends State<_WardPricingFormDialog> {
+  late final TextEditingController _rateController;
+  late final TextEditingController _descriptionController;
+  late String _wardType;
+  late bool _isActive;
+
+  bool get _isEdit => widget.row != null;
+
+  static const Map<String, String> _wardTypeOptions = {
+    'general': 'General Ward',
+    'semi_private': 'Semi Private',
+    'private': 'Private',
+    'icu': 'ICU',
+    'nicu': 'NICU',
+    'deluxe': 'Deluxe',
+    'emergency': 'Emergency',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    final row = widget.row;
+    _wardType = row?['ward_type']?.toString() ?? 'general';
+    final rate = _toDouble(row?['daily_rate']);
+    _rateController = TextEditingController(
+      text: rate == 0 ? '' : rate.toStringAsFixed(2),
+    );
+    _descriptionController = TextEditingController(
+      text: row?['description']?.toString() ?? '',
+    );
+    _isActive = row?['is_active'] != false;
+  }
+
+  @override
+  void dispose() {
+    _rateController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(_isEdit ? 'Edit Ward Pricing' : 'Add Ward Pricing'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DropdownButtonFormField<String>(
+            initialValue: _wardType,
+            decoration: const InputDecoration(labelText: 'Ward Type *'),
+            items: _wardTypeOptions.entries
+                .map(
+                  (entry) => DropdownMenuItem(
+                    value: entry.key,
+                    child: Text(entry.value),
+                  ),
+                )
+                .toList(),
+            onChanged: (v) => setState(() => _wardType = v!),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _rateController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Daily Rate (₹) *'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _descriptionController,
+            decoration: const InputDecoration(
+              labelText: 'Description',
+              hintText: 'e.g. General ward bed charge per day',
+            ),
+          ),
+          const SizedBox(height: 12),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Active'),
+            value: _isActive,
+            onChanged: (v) => setState(() => _isActive = v),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final rate = _toDouble(_rateController.text);
+            if (rate <= 0) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Enter a valid daily rate.')),
+              );
+              return;
+            }
+            Navigator.pop(context, {
+              'ward_type': _wardType,
+              'daily_rate': rate,
+              'description': _descriptionController.text.trim(),
+              'is_active': _isActive,
+            });
+          },
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }
@@ -907,3 +1172,11 @@ double _toDouble(dynamic value) {
 }
 
 String _inr(double value) => '₹ ${value.toStringAsFixed(2)}';
+
+String _formatWardType(String wardType) {
+  final words = wardType.split('_').where((w) => w.isNotEmpty).toList();
+  final formatted = words
+      .map((w) => '${w[0].toUpperCase()}${w.substring(1)}')
+      .join(' ');
+  return formatted.isEmpty ? 'General' : formatted;
+}
