@@ -18,10 +18,12 @@ import '../../widgets/smart_navigation.dart';
 /// tabs ka data ek hi prescription mein save hota hai jab doctor
 /// "Save & Complete" dabata hai.
 ///
-/// Neeche ka "Saved Prescription" section hamesha poora prescription dikhata
-/// hai (History + Medicines + Investigations + Counseling) aur tabs ke bahar
-/// hai, isliye tab switch karne par saved view kabhi nahi badalta. Print ka
-/// option yahan aur OPD Queue / Saved Prescriptions mein milta hai.
+/// Neeche ka "Saved Prescription" section tabs ke bahar hai, isliye tab switch
+/// karne par saved view kabhi nahi badalta. Ye ALL screen sizes par
+/// single-line collapsible card hai (collapsed by default); tap karne par
+/// saare sections ka compact preview khulta hai aur "View Full" complete
+/// prescription bottom sheet mein kholta hai. Print ka option yahan aur OPD
+/// Queue / Saved Prescriptions mein milta hai.
 class OPDConsultationScreen extends ConsumerStatefulWidget {
   final String registrationId;
   final String? patientName;
@@ -351,76 +353,32 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
           Expanded(
             child: DefaultTabController(
               length: 4,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final width = constraints.maxWidth;
-                  final isDesktop = width > _savedRxDesktopBreakpoint;
-                  final isTablet =
-                      width >= _savedRxTabletBreakpoint &&
-                      width <= _savedRxDesktopBreakpoint;
-
-                  // TabBar + TabBarView — working area. Desktop par iske
-                  // right side mein saved-prescription preview side-by-side
-                  // dikhta hai; mobile/tablet par neeche compact panel.
-                  final workingArea = Column(
-                    children: [
-                      TabBar(
-                        labelColor: theme.colorScheme.primary,
-                        tabs: const [
-                          Tab(text: 'History'),
-                          Tab(text: 'Prescription'),
-                          Tab(text: 'Investigations'),
-                          Tab(text: 'Counseling'),
-                        ],
-                      ),
-                      Expanded(
-                        child: TabBarView(
-                          children: [
-                            _KeepAliveTab(child: _buildHistoryTab(theme)),
-                            _KeepAliveTab(child: _buildPrescriptionTab(theme)),
-                            _KeepAliveTab(
-                              child: _buildInvestigationsTab(theme),
-                            ),
-                            _KeepAliveTab(child: _buildCounselingTab(theme)),
-                          ],
-                        ),
-                      ),
+              child: Column(
+                children: [
+                  TabBar(
+                    labelColor: theme.colorScheme.primary,
+                    tabs: const [
+                      Tab(text: 'History'),
+                      Tab(text: 'Prescription'),
+                      Tab(text: 'Investigations'),
+                      Tab(text: 'Counseling'),
                     ],
-                  );
-
-                  if (isDesktop) {
-                    // Laptop/Desktop: side-by-side — working area ko poori
-                    // width nahi chheenna, bas ek compact side panel.
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                  ),
+                  Expanded(
+                    child: TabBarView(
                       children: [
-                        Expanded(child: workingArea),
-                        const SizedBox(width: 12),
-                        SizedBox(
-                          width: _savedPanelWidth(width),
-                          child: _buildSavedPrescriptionsSection(
-                            theme,
-                            isDesktop: true,
-                            isTablet: false,
-                          ),
-                        ),
+                        _KeepAliveTab(child: _buildHistoryTab(theme)),
+                        _KeepAliveTab(child: _buildPrescriptionTab(theme)),
+                        _KeepAliveTab(child: _buildInvestigationsTab(theme)),
+                        _KeepAliveTab(child: _buildCounselingTab(theme)),
                       ],
-                    );
-                  }
-
-                  // Mobile/Tablet: stacked. Saved panel collapsed-by-default
-                  // single-line (mobile) ya compact preview (tablet) hota hai.
-                  return Column(
-                    children: [
-                      Expanded(child: workingArea),
-                      _buildSavedPrescriptionsSection(
-                        theme,
-                        isDesktop: false,
-                        isTablet: isTablet,
-                      ),
-                    ],
-                  );
-                },
+                    ),
+                  ),
+                  // ALL screen sizes: stacked. Working area upar, neeche
+                  // single-line collapsible saved-prescription card
+                  // (collapsed by default, tap to expand preview).
+                  _buildSavedPrescriptionsSection(theme),
+                ],
               ),
             ),
           ),
@@ -583,76 +541,37 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
   // Saved prescription panel (responsive)
   // ---------------------------------------------------------------------------
 
-  /// Saved-prescription panel breakpoints:
-  ///  * < 768            -> mobile: single-line collapsible card
-  ///  * 768 - 1024       -> tablet: compact preview + expand
-  ///  * > 1024           -> laptop/desktop: side-by-side panel
-  static const double _savedRxTabletBreakpoint = 768;
-  static const double _savedRxDesktopBreakpoint = 1024;
-
-  /// Desktop side panel width — ~32% of available width, clamped taaki panel
-  /// readable rahe aur working area se aadhi screen na chheen le.
-  double _savedPanelWidth(double availableWidth) {
-    return (availableWidth * 0.32).clamp(300.0, 460.0).toDouble();
-  }
-
   /// Pinned saved-prescription panel — TabBarView ke BAHAR hai, isliye tab
   /// switch karne par saved view kabhi nahi badalta.
   ///
-  /// * Mobile: single-line collapsible card (collapsed by default)
-  /// * Tablet: compact preview + expand option
-  /// * Desktop: side-by-side compact panel with preview/expand
-  Widget _buildSavedPrescriptionsSection(
-    ThemeData theme, {
-    required bool isDesktop,
-    required bool isTablet,
-  }) {
+  /// ALL screen sizes (mobile/tablet/desktop): single-line collapsible card,
+  /// collapsed by default. Tap karne par expanded preview (saare sections ki
+  /// ek-line jhalak) khulta hai; "View Full" complete prescription ko bottom
+  /// sheet mein kholta hai.
+  Widget _buildSavedPrescriptionsSection(ThemeData theme) {
     final prescriptionsAsync = ref.watch(
       opdPrescriptionsProvider(widget.registrationId),
     );
 
     return Padding(
-      padding: isDesktop
-          ? const EdgeInsets.only(right: 12)
-          : const EdgeInsets.fromLTRB(12, 4, 12, 0),
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
       child: Card(
         margin: EdgeInsets.zero,
         clipBehavior: Clip.antiAlias,
         child: Column(
-          mainAxisSize: isDesktop ? MainAxisSize.max : MainAxisSize.min,
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSavedPanelHeader(
-              theme,
-              prescriptionsAsync,
-              isDesktop: isDesktop,
-              isTablet: isTablet,
-            ),
-            if (isDesktop || _savedRxExpanded || isTablet)
+            _buildSavedPanelHeader(theme, prescriptionsAsync),
+            if (_savedRxExpanded) ...[
               const Divider(height: 1),
-            if (isDesktop)
-              Expanded(
-                child: _buildSavedPanelBody(
-                  theme,
-                  prescriptionsAsync,
-                  expanded: _savedRxExpanded,
-                ),
-              )
-            else if (_savedRxExpanded)
               ConstrainedBox(
                 constraints: BoxConstraints(
-                  maxHeight: isTablet
-                      ? 300
-                      : MediaQuery.sizeOf(context).height * 0.45,
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.45,
                 ),
-                child: _buildSavedPanelBody(
-                  theme,
-                  prescriptionsAsync,
-                  expanded: true,
-                ),
-              )
-            else if (isTablet)
-              _buildTabletCollapsedPreview(theme, prescriptionsAsync),
+                child: _buildSavedPanelBody(theme, prescriptionsAsync),
+              ),
+            ],
           ],
         ),
       ),
@@ -660,26 +579,18 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
   }
 
   /// Panel header — poora header tappable hai aur expand/collapse toggle karta
-  /// hai. Mobile collapsed par ek hi line dikhti hai; baaki states mein title +
-  /// subtitle ka compact two-line header.
+  /// hai. Collapsed state mein ek hi line (single-line card) dikhti hai;
+  /// expanded state mein title + subtitle ka compact two-line header.
   Widget _buildSavedPanelHeader(
     ThemeData theme,
-    AsyncValue<List<Map<String, dynamic>>> prescriptionsAsync, {
-    required bool isDesktop,
-    required bool isTablet,
-  }) {
+    AsyncValue<List<Map<String, dynamic>>> prescriptionsAsync,
+  ) {
     final texts = _savedPanelTexts(prescriptionsAsync);
-    final showTwoLines = isDesktop || isTablet || _savedRxExpanded;
 
     return InkWell(
       onTap: () => setState(() => _savedRxExpanded = !_savedRxExpanded),
       child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          12,
-          isDesktop ? 10 : 8,
-          8,
-          isDesktop ? 10 : 8,
-        ),
+        padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
         child: Row(
           children: [
             Icon(
@@ -689,7 +600,7 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: showTwoLines
+              child: _savedRxExpanded
                   ? Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -723,11 +634,7 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
                     ),
             ),
             Icon(
-              isDesktop
-                  ? (_savedRxExpanded
-                        ? Icons.close_fullscreen
-                        : Icons.open_in_full)
-                  : (_savedRxExpanded ? Icons.expand_less : Icons.expand_more),
+              _savedRxExpanded ? Icons.expand_less : Icons.expand_more,
               size: 20,
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -777,13 +684,13 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
     );
   }
 
-  /// Panel body — expanded par COMPLETE prescription cards, collapsed (desktop
-  /// preview) par compact preview cards.
+  /// Panel body — expanded par har saved prescription ka COMPACT section
+  /// preview (History / Rx / Investigations / Counseling ki ek-line jhalak).
+  /// Poora prescription "View Full" se bottom sheet mein khulta hai.
   Widget _buildSavedPanelBody(
     ThemeData theme,
-    AsyncValue<List<Map<String, dynamic>>> prescriptionsAsync, {
-    required bool expanded,
-  }) {
+    AsyncValue<List<Map<String, dynamic>>> prescriptionsAsync,
+  ) {
     return prescriptionsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => Center(
@@ -817,63 +724,20 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
           children: [
             for (final prescription in prescriptions)
-              if (expanded)
-                _completePrescriptionCard(theme, prescription)
-              else
-                _compactPrescriptionCard(
-                  theme,
-                  prescription,
-                  onTap: () => setState(() => _savedRxExpanded = true),
-                ),
+              _compactPrescriptionCard(
+                theme,
+                prescription,
+                onTap: () => _openFullPrescription(theme, prescription),
+              ),
           ],
         );
       },
     );
   }
 
-  /// Tablet collapsed state — latest prescription ka compact preview.
-  Widget _buildTabletCollapsedPreview(
-    ThemeData theme,
-    AsyncValue<List<Map<String, dynamic>>> prescriptionsAsync,
-  ) {
-    return SizedBox(
-      height: 104,
-      child: prescriptionsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(
-              'Failed to load prescriptions: $error',
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-        data: (prescriptions) {
-          if (prescriptions.isEmpty) {
-            return const Padding(
-              padding: EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('No prescriptions saved yet.'),
-              ),
-            );
-          }
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: _compactPrescriptionCard(
-              theme,
-              prescriptions.first,
-              onTap: () => setState(() => _savedRxExpanded = true),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  /// Compact one-card preview: date + medicines + diagnosis + print action.
-  /// Tapping the card expands the panel to the complete prescription view.
+  /// Compact per-prescription preview card — saare sections ki ek-line jhalak
+  /// (History, Medicines, Investigations, Counseling) + View Full action.
+  /// Card tap ya "View Full" complete prescription bottom sheet kholta hai.
   Widget _compactPrescriptionCard(
     ThemeData theme,
     Map<String, dynamic> prescription, {
@@ -884,15 +748,31 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
     final prescriptionId = prescription['id']?.toString();
     final visitType = prescription['visit_type']?.toString() ?? 'opd';
 
-    final names = items
-        .map((item) => item['medicine_name']?.toString() ?? 'Medicine')
-        .take(3)
-        .join(' • ');
-    final more = items.length > 3 ? '  +${items.length - 3} more' : '';
-
     final history = _asMap(prescription['history']);
+    final investigations = _asMap(prescription['investigations']);
+    final advice = _asMap(prescription['advice']);
     final notes = _asMap(prescription['clinical_notes']);
+
+    final historyEntries = _historyEntries(history, notes);
+    final investigationEntries = _investigationEntries(investigations, notes);
+    final counselingEntries = _counselingEntries(advice, notes);
+
+    final medicineNames = items
+        .map((item) => item['medicine_name']?.toString() ?? 'Medicine')
+        .toList();
+    final medicinesSummary = medicineNames.isEmpty
+        ? 'No medicines'
+        : '${medicineNames.take(3).join(' • ')}'
+              '${items.length > 3 ? '  +${items.length - 3} more' : ''}';
+
     final diagnosis = _firstNonEmpty(history['diagnosis'], notes['diagnosis']);
+    final historySummary = diagnosis.isNotEmpty
+        ? diagnosis
+        : (historyEntries.isNotEmpty ? historyEntries.first.value : '');
+    final investigationsSummary = investigationEntries
+        .map((e) => '${e.key}: ${e.value}')
+        .join(' • ');
+    final counselingSummary = counselingEntries.map((e) => e.value).join(' • ');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -902,21 +782,20 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                Icons.medication,
-                size: 16,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
+              Row(
+                children: [
+                  Icon(
+                    Icons.medication,
+                    size: 16,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
                       '${date.isEmpty ? 'N/A' : date}'
                       '${visitType == 'ipd' ? ' (IPD)' : ''}',
                       maxLines: 1,
@@ -925,35 +804,127 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      names.isEmpty ? 'No medicines' : '$names$more',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall,
+                  ),
+                  TextButton.icon(
+                    onPressed: onTap,
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
                     ),
-                    if (diagnosis.isNotEmpty)
-                      Text(
-                        'Dx: $diagnosis',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                  ],
+                    icon: const Icon(Icons.open_in_full, size: 16),
+                    label: const Text('View Full'),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.print, color: Colors.blue, size: 20),
+                    tooltip: 'Print Complete Prescription',
+                    onPressed: () => _printPrescription(prescriptionId),
+                  ),
+                ],
+              ),
+              if (historySummary.isNotEmpty)
+                _previewLine(theme, Icons.history, 'History', historySummary),
+              if (items.isNotEmpty)
+                _previewLine(theme, Icons.medication, 'Rx', medicinesSummary),
+              if (investigationsSummary.isNotEmpty)
+                _previewLine(
+                  theme,
+                  Icons.biotech,
+                  'Investigations',
+                  investigationsSummary,
                 ),
-              ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.print, color: Colors.blue, size: 20),
-                tooltip: 'Print Complete Prescription',
-                onPressed: () => _printPrescription(prescriptionId),
-              ),
+              if (counselingSummary.isNotEmpty)
+                _previewLine(
+                  theme,
+                  Icons.record_voice_over,
+                  'Advice',
+                  counselingSummary,
+                ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  /// Ek-line section preview (icon + label + value), ellipsis ke saath.
+  Widget _previewLine(
+    ThemeData theme,
+    IconData icon,
+    String label,
+    String value,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 14, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              '$label: $value',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Complete prescription ko modal bottom sheet mein kholta hai — yehi
+  /// "Full view" hai jo ALL screen sizes par same behave karta hai.
+  void _openFullPrescription(
+    ThemeData theme,
+    Map<String, dynamic> prescription,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.85,
+          maxChildSize: 0.95,
+          minChildSize: 0.4,
+          builder: (context, scrollController) {
+            return ListView(
+              controller: scrollController,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.description_outlined,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Complete Prescription',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                _completePrescriptionCard(theme, prescription),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
