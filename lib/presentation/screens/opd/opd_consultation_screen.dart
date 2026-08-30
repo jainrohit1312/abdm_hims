@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/providers.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../core/utils/keyboard_inset.dart';
 import '../../../services/print_prescription.dart';
 import '../../../services/receipt_service.dart';
 import '../../widgets/counseling_visit_history_list.dart';
@@ -56,6 +57,10 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
   /// default so the working area stays visible on every screen size.
   bool _savedRxExpanded = false;
 
+  /// Browser-reported keyboard height (web). Native par hamesha 0 rahta hai
+  /// aur `MediaQuery.viewInsets` se mil jata hai.
+  double _webKeyboardInset = 0;
+
   // Registration / patient info (initState mein load hota hai).
   String? _patientName;
   String? _uhid;
@@ -74,13 +79,47 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
     _doctorName = widget.doctorName;
     _department = widget.department;
     _fee = widget.fee;
+    KeyboardInset.ensureConfigured();
+    _webKeyboardInset = KeyboardInset.current;
+    KeyboardInset.addListener(_onWebKeyboardChanged);
     Future.delayed(Duration.zero, _loadRegistration);
   }
 
   @override
   void dispose() {
+    KeyboardInset.removeListener(_onWebKeyboardChanged);
     _clinicalController.dispose();
     super.dispose();
+  }
+
+  /// Web/mobile browser se aayi keyboard height update karta hai. Change hone
+  /// par focused text field ko dobara view mein laata hai — kyunki Android
+  /// Chrome mein Flutter engine khud `viewInsets` report nahi karta aur field
+  /// keyboard ke peeche chala jata hai.
+  void _onWebKeyboardChanged() {
+    if (!mounted) return;
+    final value = KeyboardInset.current;
+    if ((value - _webKeyboardInset).abs() < 1) return;
+    setState(() => _webKeyboardInset = value);
+    _ensureFocusedFieldVisible();
+  }
+
+  /// Focused field ko (agar koi ho) scroll kar ke visible area mein le aata
+  /// hai. Keyboard open/close ke baad layout badal jata hai, isliye frame ke
+  /// baad ensureVisible call karte hain.
+  void _ensureFocusedFieldVisible() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final focusNode = FocusManager.instance.primaryFocus;
+      final fieldContext = focusNode?.context;
+      if (fieldContext == null) return;
+      Scrollable.ensureVisible(
+        fieldContext,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   Future<void> _loadRegistration() async {
@@ -313,8 +352,14 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
     // Keyboard visibility. `resizeToAvoidBottomInset: false` ke saath screen
     // resize nahi hoti — keyboard overlay karta hai. Tab content khud
     // keyboard-height bottom padding leta hai aur typing ke time bottom
-    // action bar + saved-prescription panel hide ho jaate hain.
-    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+    // action bar + saved-prescription panel + patient card hide ho jaate hain.
+    //
+    // Web par `MediaQuery.viewInsets` Android Chrome mein 0 reh sakta hai
+    // (engine canvas ko hi shrink kar deta hai), isliye browser-reported
+    // `KeyboardInset.current` ko bhi consider karte hain.
+    final mediaInset = MediaQuery.viewInsetsOf(context).bottom;
+    final keyboardInset =
+        mediaInset > _webKeyboardInset ? mediaInset : _webKeyboardInset;
     final isKeyboardOpen = keyboardInset > 0;
 
     return Scaffold(
@@ -355,9 +400,16 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: _buildPatientCard(theme),
+          // Keyboard khula ho to patient card bhi hide kar dete hain — mobile
+          // web par shrunken viewport mein ye form ke liye jagah chheen leta
+          // hai. Keyboard band karte hi wapas aa jata hai.
+          Visibility(
+            visible: !isKeyboardOpen,
+            maintainState: true,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: _buildPatientCard(theme),
+            ),
           ),
           const SizedBox(height: 12),
           Expanded(
