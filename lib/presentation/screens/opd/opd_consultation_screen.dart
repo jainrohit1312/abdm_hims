@@ -310,8 +310,18 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Keyboard visibility. `resizeToAvoidBottomInset: false` ke saath screen
+    // resize nahi hoti — keyboard overlay karta hai. Tab content khud
+    // keyboard-height bottom padding leta hai aur typing ke time bottom
+    // action bar + saved-prescription panel hide ho jaate hain.
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+    final isKeyboardOpen = keyboardInset > 0;
 
     return Scaffold(
+      // `false` isliye: keyboard khulte hi poori screen squeeze/push-up nahi
+      // hoti. Chief Complaints / HOPI jaise fields apni jagah rehte hain aur
+      // keyboard unke upar overlay hota hai.
+      resizeToAvoidBottomInset: false,
       appBar: SmartAppBar(
         title: const Text('OPD Consultation'),
         actions: [
@@ -367,45 +377,64 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
                   Expanded(
                     child: TabBarView(
                       children: [
-                        _KeepAliveTab(child: _buildHistoryTab(theme)),
-                        _KeepAliveTab(child: _buildPrescriptionTab(theme)),
-                        _KeepAliveTab(child: _buildInvestigationsTab(theme)),
-                        _KeepAliveTab(child: _buildCounselingTab(theme)),
+                        _KeepAliveTab(
+                          child: _buildHistoryTab(theme, keyboardInset),
+                        ),
+                        _KeepAliveTab(
+                          child: _buildPrescriptionTab(theme, keyboardInset),
+                        ),
+                        _KeepAliveTab(
+                          child: _buildInvestigationsTab(theme, keyboardInset),
+                        ),
+                        _KeepAliveTab(
+                          child: _buildCounselingTab(theme, keyboardInset),
+                        ),
                       ],
                     ),
                   ),
                   // ALL screen sizes: stacked. Working area upar, neeche
                   // single-line collapsible saved-prescription card
                   // (collapsed by default, tap to expand preview).
-                  _buildSavedPrescriptionsSection(theme),
+                  // Keyboard khula ho to panel hide kar dete hain taaki typing
+                  // ke time ye upar aa kar form ka view block na kare. State
+                  // maintain hota hai (expand/collapse wahi rehta hai).
+                  Visibility(
+                    visible: !isKeyboardOpen,
+                    maintainState: true,
+                    child: _buildSavedPrescriptionsSection(theme),
+                  ),
                 ],
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: () => context.pop(),
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text('Back'),
-                ),
-                ElevatedButton.icon(
-                  onPressed: _isSaving ? null : _saveAndComplete,
-                  icon: _isSaving
-                      ? const SizedBox(
-                          height: 18,
-                          width: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save),
-                  label: const Text('Save & Complete'),
-                ),
-              ],
+          // Keyboard khula ho to bottom action bar chhupa dete hain — ye
+          // resize:false mein keyboard ke peeche chala jaata hai. Keyboard
+          // band karte hi wapas aa jaata hai.
+          if (!isKeyboardOpen)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => context.pop(),
+                    icon: const Icon(Icons.arrow_back),
+                    label: const Text('Back'),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: _isSaving ? null : _saveAndComplete,
+                    icon: _isSaving
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save),
+                    label: const Text('Save & Complete'),
+                  ),
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -468,72 +497,91 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
   // Tabs
   // ---------------------------------------------------------------------------
 
-  Widget _buildHistoryTab(ThemeData theme) {
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [PrescriptionHistoryFields(controller: _clinicalController)],
+  /// Har tab ka content keyboard-aware sliver scroll view mein render hota
+  /// hai. Bottom padding mein `keyboardInset` add karne se — jab keyboard
+  /// khula ho — text fields (Chief Complaints / HOPI / Diagnosis / …) keyboard
+  /// ke upar scroll ho jaate hain; focused field kabhi keyboard ke peeche
+  /// hide nahi hota. Drag karne par keyboard dismiss bhi ho jaata hai.
+  Widget _buildScrollableTab({
+    required Widget child,
+    required double keyboardInset,
+  }) {
+    return CustomScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      slivers: [
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(12, 12, 12, 12 + keyboardInset),
+          sliver: SliverToBoxAdapter(child: child),
+        ),
+      ],
     );
   }
 
-  Widget _buildPrescriptionTab(ThemeData theme) {
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
+  Widget _buildHistoryTab(ThemeData theme, double keyboardInset) {
+    return _buildScrollableTab(
+      keyboardInset: keyboardInset,
+      child: PrescriptionHistoryFields(controller: _clinicalController),
+    );
+  }
+
+  Widget _buildPrescriptionTab(ThemeData theme, double keyboardInset) {
+    return _buildScrollableTab(
+      keyboardInset: keyboardInset,
+      child: DoctorPrescriptionForm(
         // Medicine-only bulky form. History / Investigations / Counseling apne
         // apne tabs mein hain — bottom ka "Save & Complete" chaaron tabs ka
         // data ek hi complete prescription mein save karta hai.
-        DoctorPrescriptionForm(
-          key: _prescriptionFormKey,
-          embedded: true,
-          opdRegistrationId: widget.registrationId,
-          patientName: _patientName,
-          uhid: _uhid,
-        ),
-      ],
+        key: _prescriptionFormKey,
+        embedded: true,
+        opdRegistrationId: widget.registrationId,
+        patientName: _patientName,
+        uhid: _uhid,
+      ),
     );
   }
 
-  Widget _buildInvestigationsTab(ThemeData theme) {
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        PrescriptionInvestigationsFields(controller: _clinicalController),
-      ],
+  Widget _buildInvestigationsTab(ThemeData theme, double keyboardInset) {
+    return _buildScrollableTab(
+      keyboardInset: keyboardInset,
+      child: PrescriptionInvestigationsFields(controller: _clinicalController),
     );
   }
 
-  Widget _buildCounselingTab(ThemeData theme) {
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        // Counseling advice + follow-up — prescription ke `advice` JSONB mein
-        // save hota hai aur saved prescription view mein Counseling section ke
-        // roop mein dikhta hai.
-        PrescriptionAdviceFollowUpFields(controller: _clinicalController),
-        const SizedBox(height: 12),
-        Text(
-          'Counseling Sessions',
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.bold,
+  Widget _buildCounselingTab(ThemeData theme, double keyboardInset) {
+    return _buildScrollableTab(
+      keyboardInset: keyboardInset,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Counseling advice + follow-up — prescription ke `advice` JSONB mein
+          // save hota hai aur saved prescription view mein Counseling section ke
+          // roop mein dikhta hai.
+          PrescriptionAdviceFollowUpFields(controller: _clinicalController),
+          const SizedBox(height: 12),
+          Text(
+            'Counseling Sessions',
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Recordings linked to this OPD visit are stacked here.',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+          const SizedBox(height: 4),
+          Text(
+            'Recordings linked to this OPD visit are stacked here.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        CounselingVisitHistoryList(
-          visitType: 'opd',
-          visitId: widget.registrationId,
-          patientId: _patientId ?? '',
-          patientName: _patientName ?? '',
-          uhid: _uhid ?? '',
-          onNewSession: _openCounseling,
-        ),
-      ],
+          const SizedBox(height: 8),
+          CounselingVisitHistoryList(
+            visitType: 'opd',
+            visitId: widget.registrationId,
+            patientId: _patientId ?? '',
+            patientName: _patientName ?? '',
+            uhid: _uhid ?? '',
+            onNewSession: _openCounseling,
+          ),
+        ],
+      ),
     );
   }
 

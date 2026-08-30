@@ -93,8 +93,14 @@ dependencies:
 # ke naye `hasPermission(..., {bool request})` signature ke saath compatible
 # nahi hain. 1.4.0 par pin karne se web builds theek ho jaati hain (record 7.x
 # is blocked by package_info_plus 5.x's `web` constraint).
+#
+# `record_linux 0.7.2` interface 1.4.0 ka `startStream` implement nahi karta,
+# isliye Flutter ka generated dart_plugin_registrant (sabhi platforms ke Dart
+# plugins compile karta hai) Windows/Web builds fail kar deta hai.
+# `record_linux 1.2.1` interface ^1.4.0 ke saath compatible hai.
 dependency_overrides:
   record_platform_interface: 1.4.0
+  record_linux: 1.2.1
 
 dev_dependencies:
   flutter_test:
