@@ -378,7 +378,8 @@ class AppNavDrawer extends ConsumerWidget {
     return Drawer(
       width: 300,
       child: SafeArea(
-        child: Column(
+        child: ListView(
+          padding: EdgeInsets.zero,
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
@@ -426,7 +427,6 @@ class AppNavDrawer extends ConsumerWidget {
                   },
                 ),
               ),
-            const Spacer(),
             const Divider(height: 1),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
