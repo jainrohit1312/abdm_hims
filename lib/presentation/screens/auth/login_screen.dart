@@ -166,10 +166,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Icon(
-                        Icons.local_hospital,
-                        size: 56,
-                        color: theme.colorScheme.primary,
+                      Center(
+                        child: Image.asset(
+                          'assets/branding/mediflux_login_page.png',
+                          width: 260,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       Text(
