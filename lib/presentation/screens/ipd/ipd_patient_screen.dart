@@ -1309,7 +1309,7 @@ class _IPDPatientScreenState extends ConsumerState<IPDPatientScreen> {
           margin: const pw.EdgeInsets.all(24),
           build: (context) => [
             PDFFontHelper.text(
-              'HIMS — IPD Patient Dashboard',
+              'MediFlux — IPD Patient Dashboard',
               fontSize: 9,
               color: PdfColors.grey700,
             ),

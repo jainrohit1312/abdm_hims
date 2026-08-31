@@ -224,7 +224,7 @@ class _WhatsappSettingsScreenState
                         controller: _webhookTokenController,
                         decoration: const InputDecoration(
                           labelText: 'Webhook Verify Token',
-                          hintText: 'Any secret string, e.g. hims-webhook-123',
+                          hintText: 'Any secret string, e.g. mediflux-webhook-123',
                           prefixIcon: Icon(Icons.https_outlined),
                         ),
                       ),

@@ -311,7 +311,7 @@ class ShareUtils {
 
     buffer
       ..writeln('')
-      ..writeln('Generated from HIMS — Hospital Information Management System');
+      ..writeln('Generated from MediFlux Hospital Software');
 
     return buffer.toString();
   }

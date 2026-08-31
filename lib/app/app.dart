@@ -45,7 +45,7 @@ class MainApp extends ConsumerWidget {
     });
 
     return MaterialApp.router(
-      title: 'HIMS - Hospital Information Management System',
+      title: 'MediFlux Hospital Software',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,

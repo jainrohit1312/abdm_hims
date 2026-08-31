@@ -244,7 +244,7 @@ class _ReportsDetailScreenState extends ConsumerState<ReportsDetailScreen> {
           pw.Header(
             level: 0,
             child: PDFFontHelper.text(
-              'HIMS — Hospital Information Management System',
+              'MediFlux Hospital Software',
               fontSize: 9,
               color: pdf.PdfColors.grey700,
             ),

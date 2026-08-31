@@ -597,7 +597,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
             controller: _patientIdController,
             decoration: const InputDecoration(
               labelText: 'Patient ID',
-              hintText: 'HIMS patient UUID',
+              hintText: 'MediFlux patient UUID',
               prefixIcon: Icon(Icons.person_search),
                           ),
             onChanged: (_) => setState(() {}),

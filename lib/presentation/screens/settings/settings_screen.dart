@@ -172,15 +172,15 @@ class SettingsScreen extends ConsumerWidget {
           _buildSectionHeader('About', theme),
           ListTile(
             leading: const Icon(Icons.info_outline),
-            title: const Text('About HIMS'),
+            title: const Text('About MediFlux'),
             subtitle: const Text('Version 1.0.0'),
             onTap: () {
               showAboutDialog(
                 context: context,
-                applicationName: 'HIMS',
+                applicationName: 'MediFlux Hospital Software',
                 applicationVersion: '1.0.0',
                 applicationLegalese:
-                    '© 2024 HIMS - Hospital Information Management System',
+                    '© 2024 MediFlux Hospital Software',
               );
             },
           ),

@@ -282,7 +282,7 @@ class _ComplianceDocumentViewerScreenState
           child: Opacity(
             opacity: 0.16,
             child: Text(
-              'CONFIDENTIAL\nHIMS • ${auth.hospitalId ?? ''}\n${auth.userId ?? ''}\n$now',
+              'CONFIDENTIAL\nMediFlux • ${auth.hospitalId ?? ''}\n${auth.userId ?? ''}\n$now',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 26,

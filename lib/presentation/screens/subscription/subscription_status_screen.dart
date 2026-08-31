@@ -208,7 +208,7 @@ class _SubscriptionStatusScreenState extends ConsumerState<SubscriptionStatusScr
       icon = Icons.block;
       title = 'Subscription Expired';
       subtitle =
-          'Your free trial has ended. Renew a plan below to continue using HIMS.';
+          'Your free trial has ended. Renew a plan below to continue using MediFlux Hospital Software.';
     } else if (isTrial) {
       color = Colors.orange.shade800;
       icon = Icons.timer_outlined;

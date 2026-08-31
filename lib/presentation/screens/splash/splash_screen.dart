@@ -5,32 +5,19 @@ class SplashScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.local_hospital,
-              size: 72,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'HIMS',
-              style: theme.textTheme.headlineLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: theme.colorScheme.primary,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40),
+              child: Image.asset(
+                'assets/branding/mediflux_header_logo.png',
+                height: 64,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Hospital Information Management System',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 32),
             const SizedBox(

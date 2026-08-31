@@ -114,7 +114,7 @@ class _SubscriptionExpiredView extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Your free trial has ended.\nRenew a plan to continue using HIMS.',
+              'Your free trial has ended.\nRenew a plan to continue using MediFlux Hospital Software.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -186,7 +186,7 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
     return Row(
       children: [
         const SizedBox(width: 16),
-        _Brand(colorScheme: colorScheme),
+        const _Brand(height: 38),
         const SizedBox(width: 4),
         // Smart Navbar: Home icon is always visible and gets high-priority
         // styling on root module pages.
@@ -255,7 +255,7 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
           onPressed: () => Scaffold.of(context).openDrawer(),
           icon: const Icon(Icons.menu),
         ),
-        _Brand(colorScheme: colorScheme, showSubtitle: false),
+        const _Brand(height: 32),
         const Spacer(),
         // Smart Navbar: highlighted Home icon on root pages.
         IconButton(
@@ -282,57 +282,25 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
 /// Brand block shown on the left of the header. Tapping it navigates to the
 /// dashboard so there is always a quick way back to `/dashboard`.
 class _Brand extends StatelessWidget {
-  const _Brand({required this.colorScheme, this.showSubtitle = true});
+  const _Brand({this.height = 36});
 
-  final ColorScheme colorScheme;
-  final bool showSubtitle;
+  /// Height of the MediFlux logo lockup in logical pixels. The width follows
+  /// the PNG's intrinsic aspect ratio (500 x 136) via [BoxFit.contain].
+  final double height;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return InkWell(
       onTap: () => context.go('/dashboard'),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                color: colorScheme.primary,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                Icons.local_hospital,
-                size: 18,
-                color: colorScheme.onPrimary,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'HIMS',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.4,
-                    color: colorScheme.onSurface,
-                  ),
-                ),
-                if (showSubtitle)
-                  Text(
-                    'Hospital Management',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-              ],
-            ),
-          ],
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Image.asset(
+          'assets/branding/mediflux_header_logo.png',
+          height: height,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          alignment: Alignment.centerLeft,
         ),
       ),
     );
@@ -414,40 +382,12 @@ class AppNavDrawer extends ConsumerWidget {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: colorScheme.primary,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      Icons.local_hospital,
-                      size: 20,
-                      color: colorScheme.onPrimary,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'HIMS',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: colorScheme.onSurface,
-                        ),
-                      ),
-                      Text(
-                        'Hospital Management',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+              child: Image.asset(
+                'assets/branding/mediflux_header_logo.png',
+                height: 44,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                alignment: Alignment.centerLeft,
               ),
             ),
             const Divider(height: 1),

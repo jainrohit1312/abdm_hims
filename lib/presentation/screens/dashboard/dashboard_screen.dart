@@ -21,7 +21,7 @@ class DashboardScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: SmartAppBar(
-        title: const Text('HIMS Dashboard'),
+        title: const Text('MediFlux Dashboard'),
         actions: [
           const AppRefreshButton(),
           IconButton(

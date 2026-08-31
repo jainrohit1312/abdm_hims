@@ -320,7 +320,7 @@ class PushNotificationService {
     required String hospitalId,
     required String userType,
     required String message,
-    String title = 'HIMS Notification',
+    String title = 'MediFlux Notification',
     NotificationType type = NotificationType.opdVisit,
     String? linkUrl,
   }) async {

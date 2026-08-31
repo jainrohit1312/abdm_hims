@@ -444,7 +444,7 @@ class _ComplianceDocumentsScreenState
         filePath: zipFile.path,
         fileName: 'compliance_documents_$stamp.zip',
         mimeType: 'application/zip',
-        text: 'Exported $count compliance document(s) from HIMS',
+        text: 'Exported $count compliance document(s) from MediFlux Hospital Software',
       );
       setState(() => _selectionMode = false);
       _selected.clear();
