@@ -525,8 +525,8 @@ class _PatientRegistrationScreenState
             ),
             const SizedBox(height: 4),
             Text(
-              'Search for an existing patient and view all family members '
-              'linked to this number.',
+              'Enter mobile number to search for an existing patient or register a new '
+              'patient. Family members linked to the number will also be shown.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
