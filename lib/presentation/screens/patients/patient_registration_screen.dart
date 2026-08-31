@@ -525,10 +525,11 @@ class _PatientRegistrationScreenState
             ),
             const SizedBox(height: 4),
             Text(
-              'Enter mobile number to search for an existing patient or register a new '
-              'patient. Family members linked to the number will also be shown.',
+              '•  Enter mobile number to search for an existing patient or register a new patient.\n'
+              '•  Family members linked to the number will also be shown.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.bold,
               ),
             ),
             const SizedBox(height: 12),
