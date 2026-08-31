@@ -13,11 +13,11 @@ import '../../widgets/smart_navigation.dart';
 
 /// OPD consultation screen.
 ///
-/// 4 tabs rakhta hai (History / Prescription / Investigations / Counseling)
-/// kyunki Medicine tab khud bahut bulky hai (1000+ medicines ki live list).
-/// Tabs sirf ye control karte hain ki doctor abhi kya bhar raha hai — chaaron
-/// tabs ka data ek hi prescription mein save hota hai jab doctor
-/// "Save & Complete" dabata hai.
+/// 5 tabs rakhta hai (History / Prescription / Investigations /
+/// Advice & Follow-up / Counseling) kyunki Medicine tab khud bahut bulky hai
+/// (1000+ medicines ki live list). Tabs sirf ye control karte hain ki doctor
+/// abhi kya bhar raha hai — paanchon tabs ka data ek hi prescription mein save
+/// hota hai jab doctor "Save & Complete" dabata hai.
 ///
 /// Neeche ka "Saved Prescription" section tabs ke bahar hai, isliye tab switch
 /// karne par saved view kabhi nahi badalta. Ye ALL screen sizes par
@@ -358,8 +358,9 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
     // (engine canvas ko hi shrink kar deta hai), isliye browser-reported
     // `KeyboardInset.current` ko bhi consider karte hain.
     final mediaInset = MediaQuery.viewInsetsOf(context).bottom;
-    final keyboardInset =
-        mediaInset > _webKeyboardInset ? mediaInset : _webKeyboardInset;
+    final keyboardInset = mediaInset > _webKeyboardInset
+        ? mediaInset
+        : _webKeyboardInset;
     final isKeyboardOpen = keyboardInset > 0;
 
     return Scaffold(
@@ -414,15 +415,21 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
           const SizedBox(height: 12),
           Expanded(
             child: DefaultTabController(
-              length: 4,
+              length: 5,
               child: Column(
                 children: [
+                  // 5 tabs ab kaafi hain aur "Advice & Follow-up" lamba label
+                  // hai — isliye scrollable + start-aligned rakha hai taaki
+                  // chhoti screens (mobile web) par tabs overflow na hon.
                   TabBar(
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
                     labelColor: theme.colorScheme.primary,
                     tabs: const [
                       Tab(text: 'History'),
                       Tab(text: 'Prescription'),
                       Tab(text: 'Investigations'),
+                      Tab(text: 'Advice & Follow-up'),
                       Tab(text: 'Counseling'),
                     ],
                   ),
@@ -437,6 +444,9 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
                         ),
                         _KeepAliveTab(
                           child: _buildInvestigationsTab(theme, keyboardInset),
+                        ),
+                        _KeepAliveTab(
+                          child: _buildAdviceFollowUpTab(theme, keyboardInset),
                         ),
                         _KeepAliveTab(
                           child: _buildCounselingTab(theme, keyboardInset),
@@ -599,17 +609,27 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
     );
   }
 
+  Widget _buildAdviceFollowUpTab(ThemeData theme, double keyboardInset) {
+    return _buildScrollableTab(
+      keyboardInset: keyboardInset,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Advice + follow-up — prescription ke `advice` JSONB mein save hota
+          // hai aur saved prescription view mein Advice section ke roop mein
+          // dikhta hai.
+          PrescriptionAdviceFollowUpFields(controller: _clinicalController),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCounselingTab(ThemeData theme, double keyboardInset) {
     return _buildScrollableTab(
       keyboardInset: keyboardInset,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Counseling advice + follow-up — prescription ke `advice` JSONB mein
-          // save hota hai aur saved prescription view mein Counseling section ke
-          // roop mein dikhta hai.
-          PrescriptionAdviceFollowUpFields(controller: _clinicalController),
-          const SizedBox(height: 12),
           Text(
             'Counseling Sessions',
             style: theme.textTheme.titleSmall?.copyWith(

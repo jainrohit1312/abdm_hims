@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -22,7 +23,7 @@ import 'widgets/consent_management_sheet.dart';
 ///
 /// Flow:
 ///   1. Visit context (OPD/IPD) + patient context (Name / UHID) auto-filled.
-///   2. Recording mode chuno — Video only / Audio only / Both.
+///   2. Audio + Video dono ek saath record hote hain (koi alag mode nahi).
 ///   3. Start dabao: GPS stamp auto-capture hota hai aur consent form
 ///      auto-generate hota hai.
 ///   4. Stop ke baad Save dabao — recording + GPS + consent Supabase par
@@ -75,6 +76,37 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
   void initState() {
     super.initState();
     _loadContextNames();
+    // Recording hamesha portrait mode mein ho — isliye counseling screen
+    // khulte hi orientation portrait par lock kar dete hain. Screen chhodne
+    // par (dispose) default orientations wapas restore ho jaati hain.
+    _lockPortrait();
+  }
+
+  @override
+  void dispose() {
+    _unlockOrientation();
+    super.dispose();
+  }
+
+  /// Locks the device to portrait while the counseling recorder is open so the
+  /// recorded video comes out in portrait (not landscape) orientation.
+  Future<void> _lockPortrait() async {
+    try {
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+      ]);
+    } catch (_) {
+      // Web/desktop par orientation lock supported nahi — ignore.
+    }
+  }
+
+  /// Restores all orientations once this screen is closed.
+  Future<void> _unlockOrientation() async {
+    try {
+      await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    } catch (_) {
+      // Web/desktop par orientation lock supported nahi — ignore.
+    }
   }
 
   /// Resolves the current doctor + hospital display names for the consent form.
@@ -365,12 +397,8 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
             const SizedBox(height: 16),
             _buildVisitContextCard(theme),
             const SizedBox(height: 16),
-            _buildModeSelector(recService, theme),
+            _buildCameraPreview(recService, theme),
             const SizedBox(height: 12),
-            if (recService.wantsVideo) ...[
-              _buildCameraPreview(recService, theme),
-              const SizedBox(height: 12),
-            ],
             _buildRecordingControls(recService, theme),
             const SizedBox(height: 12),
             _buildGpsCard(recService, theme),
@@ -487,42 +515,6 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
     );
   }
 
-  Widget _buildModeSelector(CounselingRecordingService rec, ThemeData theme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Recording Mode',
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-        SegmentedButton<CounselingRecordingMode>(
-          segments: CounselingRecordingMode.values
-              .map(
-                (mode) => ButtonSegment<CounselingRecordingMode>(
-                  value: mode,
-                  label: Text(mode.label),
-                  icon: Icon(switch (mode) {
-                    CounselingRecordingMode.videoOnly =>
-                      Icons.videocam_outlined,
-                    CounselingRecordingMode.audioOnly => Icons.mic_none,
-                    CounselingRecordingMode.both =>
-                      Icons.video_camera_front_outlined,
-                  }),
-                ),
-              )
-              .toList(),
-          selected: {rec.mode},
-          onSelectionChanged: rec.isIdle
-              ? (selection) => rec.selectMode(selection.first)
-              : null,
-        ),
-      ],
-    );
-  }
-
   Widget _buildCameraPreview(CounselingRecordingService rec, ThemeData theme) {
     final controller = rec.cameraController;
 
@@ -555,10 +547,27 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
       );
     }
 
+    // CameraPreview khud portrait/landscape ke hisaab se rotate hota hai —
+    // outer AspectRatio bhi usi ratio ka hona chahiye, warna portrait phone
+    // par preview landscape (16:9) mein squeeze ho kar dikhta hai. Plugin ki
+    // orientation logic mirror karke ratio nikaalte hain (portrait => 9:16).
+    final value = controller.value;
+    final applicableOrientation = value.isRecordingVideo
+        ? value.recordingOrientation!
+        : (value.previewPauseOrientation ??
+              value.lockedCaptureOrientation ??
+              value.deviceOrientation);
+    final isLandscape =
+        applicableOrientation == DeviceOrientation.landscapeLeft ||
+        applicableOrientation == DeviceOrientation.landscapeRight;
+    final previewAspectRatio = isLandscape
+        ? controller.value.aspectRatio
+        : 1 / controller.value.aspectRatio;
+
     return Card(
       clipBehavior: Clip.antiAlias,
       child: AspectRatio(
-        aspectRatio: controller.value.aspectRatio,
+        aspectRatio: previewAspectRatio,
         child: Stack(
           fit: StackFit.expand,
           children: [

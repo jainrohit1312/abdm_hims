@@ -113,7 +113,9 @@ class CounselingRecordingService extends ChangeNotifier {
   final AudioRecorder _audioRecorder = AudioRecorder();
 
   // -- state ----------------------------------------------------------------
-  CounselingRecordingMode mode = CounselingRecordingMode.videoOnly;
+  // Counseling ab hamesha Audio + Video dono ek saath record karta hai —
+  // isliye default mode `both` hai aur UI se mode selector hata diya gaya hai.
+  CounselingRecordingMode mode = CounselingRecordingMode.both;
   CounselingRecordingPhase phase = CounselingRecordingPhase.idle;
   Duration elapsed = Duration.zero;
   int fileSizeBytes = 0;
@@ -379,13 +381,18 @@ class CounselingRecordingService extends ChangeNotifier {
     await captureGps();
 
     // 4. Prepare output files.
+    //
+    //    Combined (both) mode mein camera video ke saath audio bhi record kar
+    //    leta hai (`enableAudio: true`), isliye alag audio file sirf
+    //    audio-only mode ke liye banate hain. Isse ek hi combined recording
+    //    banti hai — playback par video aur audio alag-alag nahi dikhte.
     try {
       final dir = await getTemporaryDirectory();
       final stamp = DateTime.now().millisecondsSinceEpoch;
       videoPath = wantsVideo
           ? '${dir.path}${Platform.pathSeparator}counseling_video_$stamp.mp4'
           : null;
-      audioPath = wantsAudio
+      audioPath = (wantsAudio && !wantsVideo)
           ? '${dir.path}${Platform.pathSeparator}counseling_audio_$stamp.m4a'
           : null;
     } catch (e) {
