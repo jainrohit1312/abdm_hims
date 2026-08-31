@@ -106,13 +106,14 @@ class SmartHomeAction extends StatelessWidget {
 ///
 /// Use it exactly like [AppBar]: it automatically adds the correct
 /// [SmartBackButton] in the leading slot (Home icon on root pages, back arrow
-/// on child pages) and appends a [SmartHomeAction] to the actions.
+/// on child pages), shows the MediFlux brand lockup beside the page title and
+/// appends a [SmartHomeAction] to the actions.
 class SmartAppBar extends AppBar {
   SmartAppBar({
     super.key,
     Widget? leading,
     super.automaticallyImplyLeading,
-    super.title,
+    Widget? title,
     List<Widget>? actions,
     super.bottom,
     super.backgroundColor,
@@ -125,10 +126,41 @@ class SmartAppBar extends AppBar {
     this.isRootPage,
   }) : super(
          leading: leading ?? SmartBackButton(isRootPage: isRootPage),
+         title: _MediFluxBrandTitle(child: title),
          actions: [...?actions, const SmartHomeAction()],
        );
 
   /// Optional override for root-page detection. When `null`, the current
   /// GoRouter path is used.
   final bool? isRootPage;
+}
+
+/// MediFlux brand lockup rendered in every [SmartAppBar].
+///
+/// The logo is a transparent-background variant of the MediFlux header lockup
+/// so it sits cleanly on the light app bar instead of showing the dark plate
+/// baked into the original header logo.
+class _MediFluxBrandTitle extends StatelessWidget {
+  const _MediFluxBrandTitle({this.child});
+
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    final logo = Image.asset(
+      'assets/branding/mediflux_header_logo_light.png',
+      height: 32,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+    );
+    if (child == null) return logo;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        logo,
+        const SizedBox(width: 12),
+        Flexible(child: child!),
+      ],
+    );
+  }
 }

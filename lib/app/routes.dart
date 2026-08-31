@@ -17,8 +17,6 @@ import '../presentation/screens/abha/abha_verify_screen.dart';
 import '../presentation/screens/abha/abha_create_screen.dart';
 import '../presentation/screens/billing/billing_screen.dart';
 import '../presentation/screens/settings/settings_screen.dart';
-import '../presentation/screens/notifications/notifications_screen.dart';
-import '../presentation/widgets/app_header.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -31,43 +29,48 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'login',
         builder: (context, state) => const LoginScreen(),
       ),
-
-      // ---------------------------------------------------------------------
-      // Authenticated app shell: keeps the global MediFlux header (logo +
-      // module navigation) mounted on every authenticated route below.
-      // ---------------------------------------------------------------------
-      ShellRoute(
-        builder: (context, state, child) =>
-            AppNavigationShell(currentPath: state.uri.path, child: child),
+      GoRoute(
+        path: '/dashboard',
+        name: 'dashboard',
+        builder: (context, state) => const DashboardScreen(),
+      ),
+      GoRoute(
+        path: '/patients',
+        name: 'patients',
+        builder: (context, state) => const PatientListScreen(),
         routes: [
           GoRoute(
-            path: '/dashboard',
-            name: 'dashboard',
-            builder: (context, state) => const DashboardScreen(),
+            path: 'register',
+            name: 'patient-register',
+            builder: (context, state) => const PatientRegistrationScreen(),
           ),
           GoRoute(
-            path: '/patients',
-            name: 'patients',
-            builder: (context, state) => const PatientListScreen(),
-            routes: [
-              GoRoute(
-                path: 'register',
-                name: 'patient-register',
-                builder: (context, state) => const PatientRegistrationScreen(),
-              ),
-              GoRoute(
-                path: ':id',
-                name: 'patient-profile',
-                builder: (context, state) {
-                  final id = state.pathParameters['id']!;
-                  return PatientProfileScreen(patientId: id);
-                },
-              ),
-            ],
+            path: ':id',
+            name: 'patient-profile',
+            builder: (context, state) {
+              final id = state.pathParameters['id']!;
+              return PatientProfileScreen(patientId: id);
+            },
           ),
+        ],
+      ),
+      GoRoute(
+        path: '/opd',
+        name: 'opd',
+        builder: (context, state) {
+          final patientId = state.uri.queryParameters['patientId'];
+          final uhid = state.uri.queryParameters['uhid'];
+          final patientName = state.uri.queryParameters['patientName'];
+          return OPDRegistrationScreen(
+            patientId: patientId,
+            uhid: uhid,
+            patientName: patientName,
+          );
+        },
+        routes: [
           GoRoute(
-            path: '/opd',
-            name: 'opd',
+            path: 'register',
+            name: 'opd-register',
             builder: (context, state) {
               final patientId = state.uri.queryParameters['patientId'];
               final uhid = state.uri.queryParameters['uhid'];
@@ -78,116 +81,95 @@ final routerProvider = Provider<GoRouter>((ref) {
                 patientName: patientName,
               );
             },
-            routes: [
-              GoRoute(
-                path: 'register',
-                name: 'opd-register',
-                builder: (context, state) {
-                  final patientId = state.uri.queryParameters['patientId'];
-                  final uhid = state.uri.queryParameters['uhid'];
-                  final patientName = state.uri.queryParameters['patientName'];
-                  return OPDRegistrationScreen(
-                    patientId: patientId,
-                    uhid: uhid,
-                    patientName: patientName,
-                  );
-                },
-              ),
-              GoRoute(
-                path: 'queue',
-                name: 'opd-queue',
-                builder: (context, state) => const OPDQueueScreen(),
-              ),
-              GoRoute(
-                path: 'consultation/:id',
-                name: 'opd-consultation',
-                builder: (context, state) {
-                  final id = state.pathParameters['id']!;
-                  return OPDConsultationScreen(registrationId: id);
-                },
-              ),
-            ],
           ),
           GoRoute(
-            path: '/ipd',
-            name: 'ipd',
-            builder: (context, state) => const IPDAdmissionScreen(),
-            routes: [
-              GoRoute(
-                path: 'admit',
-                name: 'ipd-admit',
-                builder: (context, state) {
-                  final patientId = state.uri.queryParameters['patientId'];
-                  return IPDAdmissionScreen(patientId: patientId);
-                },
-              ),
-              GoRoute(
-                path: 'wards',
-                name: 'ipd-wards',
-                builder: (context, state) => const IPDWardScreen(),
-              ),
-              GoRoute(
-                path: 'patient/:id',
-                name: 'ipd-patient',
-                builder: (context, state) {
-                  final id = state.pathParameters['id']!;
-                  return IPDPatientScreen(admissionId: id);
-                },
-              ),
-              GoRoute(
-                path: 'discharge/:id',
-                name: 'ipd-discharge',
-                builder: (context, state) {
-                  final id = state.pathParameters['id']!;
-                  return IPDDischargeScreen(admissionId: id);
-                },
-              ),
-            ],
+            path: 'queue',
+            name: 'opd-queue',
+            builder: (context, state) => const OPDQueueScreen(),
           ),
           GoRoute(
-            path: '/abha',
-            name: 'abha',
-            builder: (context, state) => const ABHAVerifyScreen(),
-            routes: [
-              GoRoute(
-                path: 'verify',
-                name: 'abha-verify',
-                builder: (context, state) => const ABHAVerifyScreen(),
-              ),
-              GoRoute(
-                path: 'create',
-                name: 'abha-create',
-                builder: (context, state) => const ABHACreateScreen(),
-              ),
-            ],
+            path: 'consultation/:id',
+            name: 'opd-consultation',
+            builder: (context, state) {
+              final id = state.pathParameters['id']!;
+              return OPDConsultationScreen(registrationId: id);
+            },
           ),
-          GoRoute(
-            path: '/billing',
-            name: 'billing',
-            builder: (context, state) => const BillingScreen(),
-          ),
-          GoRoute(
-            path: '/settings',
-            name: 'settings',
-            builder: (context, state) => const SettingsScreen(),
-          ),
-          GoRoute(
-            path: '/notifications',
-            name: 'notifications',
-            builder: (context, state) => const NotificationsScreen(),
-          ),
-          for (final module in const {
-            '/lab': 'Laboratory',
-            '/pharmacy': 'Pharmacy',
-            '/reports': 'Reports',
-          }.entries)
-            GoRoute(
-              path: module.key,
-              builder: (context, state) =>
-                  _ModuleComingSoonScreen(moduleName: module.value),
-            ),
         ],
       ),
+      GoRoute(
+        path: '/ipd',
+        name: 'ipd',
+        builder: (context, state) => const IPDAdmissionScreen(),
+        routes: [
+          GoRoute(
+            path: 'admit',
+            name: 'ipd-admit',
+            builder: (context, state) {
+              final patientId = state.uri.queryParameters['patientId'];
+              return IPDAdmissionScreen(patientId: patientId);
+            },
+          ),
+          GoRoute(
+            path: 'wards',
+            name: 'ipd-wards',
+            builder: (context, state) => const IPDWardScreen(),
+          ),
+          GoRoute(
+            path: 'patient/:id',
+            name: 'ipd-patient',
+            builder: (context, state) {
+              final id = state.pathParameters['id']!;
+              return IPDPatientScreen(admissionId: id);
+            },
+          ),
+          GoRoute(
+            path: 'discharge/:id',
+            name: 'ipd-discharge',
+            builder: (context, state) {
+              final id = state.pathParameters['id']!;
+              return IPDDischargeScreen(admissionId: id);
+            },
+          ),
+        ],
+      ),
+      GoRoute(
+        path: '/abha',
+        name: 'abha',
+        builder: (context, state) => const ABHAVerifyScreen(),
+        routes: [
+          GoRoute(
+            path: 'verify',
+            name: 'abha-verify',
+            builder: (context, state) => const ABHAVerifyScreen(),
+          ),
+          GoRoute(
+            path: 'create',
+            name: 'abha-create',
+            builder: (context, state) => const ABHACreateScreen(),
+          ),
+        ],
+      ),
+      GoRoute(
+        path: '/billing',
+        name: 'billing',
+        builder: (context, state) => const BillingScreen(),
+      ),
+      GoRoute(
+        path: '/settings',
+        name: 'settings',
+        builder: (context, state) => const SettingsScreen(),
+      ),
+      for (final module in const {
+        '/lab': 'Laboratory',
+        '/pharmacy': 'Pharmacy',
+        '/reports': 'Reports',
+      }.entries)
+        GoRoute(
+          path: module.key,
+          builder: (context, state) =>
+              _ModuleComingSoonScreen(moduleName: module.value),
+        ),
     ],
     errorBuilder: (context, state) => Scaffold(
       body: Center(

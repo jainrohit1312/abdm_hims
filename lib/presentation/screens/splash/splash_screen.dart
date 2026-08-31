@@ -13,7 +13,7 @@ class SplashScreen extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 40),
               child: Image.asset(
-                'assets/branding/mediflux_header_logo.png',
+                'assets/branding/mediflux_header_logo_light.png',
                 height: 64,
                 fit: BoxFit.contain,
                 filterQuality: FilterQuality.high,
