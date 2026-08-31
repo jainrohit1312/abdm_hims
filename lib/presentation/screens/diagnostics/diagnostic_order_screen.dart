@@ -67,7 +67,8 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
 
   double get _totalPrice => _selectedTests.fold<double>(
     0,
-    (sum, test) => sum + (double.tryParse(test['price']?.toString() ?? '') ?? 0),
+    (sum, test) =>
+        sum + (double.tryParse(test['price']?.toString() ?? '') ?? 0),
   );
 
   @override
@@ -197,9 +198,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
       setState(() => _selectedPatient = patient);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Walk-in patient created. UHID: ${patient['uhid']}',
-          ),
+          content: Text('Walk-in patient created. UHID: ${patient['uhid']}'),
         ),
       );
     } catch (e) {
@@ -306,7 +305,8 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
       await DiagnosticReceiptService.printDiagnosticReceipt(
         hospitalName: hospitalName,
         hospitalAddress: hospitalAddress,
-        receiptNumber: result['receipt_number']?.toString() ??
+        receiptNumber:
+            result['receipt_number']?.toString() ??
             'DIAG-${DateTime.now().millisecondsSinceEpoch}',
         date: DateTime.now(),
         patientName: _patientName(patient),
@@ -323,7 +323,9 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Receipt cut & order placed successfully')),
+        const SnackBar(
+          content: Text('Receipt cut & order placed successfully'),
+        ),
       );
       context.go('/diagnostics/results');
     } catch (e) {
@@ -478,16 +480,14 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : null,
-                      ),
+          ),
         ),
         if (_resolvingPatient)
           const Padding(
             padding: EdgeInsets.all(12),
             child: CircularProgressIndicator(),
           ),
-        if (_debouncedQuery.isNotEmpty &&
-            _searchResults.isEmpty &&
-            !_searching)
+        if (_debouncedQuery.isNotEmpty && _searchResults.isEmpty && !_searching)
           const Padding(
             padding: EdgeInsets.all(12),
             child: Text('No patients found. Use Walk-in mode to create one.'),
@@ -535,16 +535,14 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _walkInFirstNameController,
-              decoration: const InputDecoration(
-                labelText: 'Patient Name *',
-                              ),
+              decoration: const InputDecoration(labelText: 'Patient Name *'),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _walkInLastNameController,
               decoration: const InputDecoration(
                 labelText: 'Last Name (optional)',
-                              ),
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -554,7 +552,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
               decoration: const InputDecoration(
                 labelText: 'Mobile Number *',
                 counterText: '',
-                              ),
+              ),
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -584,24 +582,30 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Tests',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-              ),
-            ),
-            OutlinedButton.icon(
+        Text(
+          'Tests',
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: SizedBox(
+            width: 220,
+            child: FilledButton.icon(
               onPressed: _pickTests,
               icon: const Icon(Icons.add),
               label: const Text('Add Tests'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 14,
+                ),
+              ),
             ),
-          ],
+          ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         if (_selectedTests.isEmpty)
           Container(
             padding: const EdgeInsets.all(20),
@@ -685,9 +689,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           initialValue: _urgency,
-          decoration: const InputDecoration(
-            labelText: 'Order Type',
-                      ),
+          decoration: const InputDecoration(labelText: 'Order Type'),
           items: const [
             DropdownMenuItem(value: 'routine', child: Text('Routine')),
             DropdownMenuItem(value: 'urgent', child: Text('Urgent')),
@@ -702,7 +704,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
           decoration: const InputDecoration(
             labelText: 'Order Date',
             prefixIcon: Icon(Icons.calendar_today_outlined),
-                      ),
+          ),
         ),
       ],
     );
@@ -712,8 +714,8 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
   // Payment section
   // ---------------------------------------------------------------------------
   Widget _buildPaymentSection() {
-    final balance = _totalPrice -
-        (double.tryParse(_paidAmountController.text.trim()) ?? 0);
+    final balance =
+        _totalPrice - (double.tryParse(_paidAmountController.text.trim()) ?? 0);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -727,9 +729,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           initialValue: _paymentMode,
-          decoration: const InputDecoration(
-            labelText: 'Payment Mode',
-                      ),
+          decoration: const InputDecoration(labelText: 'Payment Mode'),
           items: const [
             DropdownMenuItem(value: 'cash', child: Text('Cash')),
             DropdownMenuItem(value: 'card', child: Text('Card')),
@@ -746,8 +746,9 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
           decoration: InputDecoration(
             labelText: 'Paid Amount (₹)',
             prefixText: '₹ ',
-                        helperText:
-                balance >= 0 ? 'Balance: ₹ ${balance.toStringAsFixed(2)}' : '',
+            helperText: balance >= 0
+                ? 'Balance: ₹ ${balance.toStringAsFixed(2)}'
+                : '',
             suffixIcon: IconButton(
               tooltip: 'Full amount',
               onPressed: () => setState(() {
@@ -804,9 +805,13 @@ class _TestPickerDialogState extends State<_TestPickerDialog> {
           _category == 'all' || test['category'] == _category;
       final matchesQuery =
           _query.isEmpty ||
-          (test['test_name']?.toString().toLowerCase().contains(_query.toLowerCase()) ??
+          (test['test_name']?.toString().toLowerCase().contains(
+                _query.toLowerCase(),
+              ) ??
               false) ||
-          (test['test_code']?.toString().toLowerCase().contains(_query.toLowerCase()) ??
+          (test['test_code']?.toString().toLowerCase().contains(
+                _query.toLowerCase(),
+              ) ??
               false);
       return matchesCategory && matchesQuery;
     }).toList();
@@ -822,21 +827,25 @@ class _TestPickerDialogState extends State<_TestPickerDialog> {
               decoration: const InputDecoration(
                 hintText: 'Search test name or code',
                 prefixIcon: Icon(Icons.search),
-                              ),
+              ),
               onChanged: (value) => setState(() => _query = value),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               initialValue: _category,
-              decoration: const InputDecoration(
-                labelText: 'Category',
-                              ),
+              decoration: const InputDecoration(labelText: 'Category'),
               items: const [
                 DropdownMenuItem(value: 'all', child: Text('All Categories')),
                 DropdownMenuItem(value: 'pathology', child: Text('Pathology')),
                 DropdownMenuItem(value: 'radiology', child: Text('Radiology')),
-                DropdownMenuItem(value: 'cardiology', child: Text('Cardiology')),
-                DropdownMenuItem(value: 'other', child: Text('Other Diagnostics')),
+                DropdownMenuItem(
+                  value: 'cardiology',
+                  child: Text('Cardiology'),
+                ),
+                DropdownMenuItem(
+                  value: 'other',
+                  child: Text('Other Diagnostics'),
+                ),
               ],
               onChanged: (value) => setState(() => _category = value ?? 'all'),
             ),
@@ -850,9 +859,8 @@ class _TestPickerDialogState extends State<_TestPickerDialog> {
                         final test = filtered[index];
                         final id = test['id']?.toString() ?? '';
                         final isChecked = _selected.contains(id);
-                        final price = double.tryParse(
-                              test['price']?.toString() ?? '',
-                            ) ??
+                        final price =
+                            double.tryParse(test['price']?.toString() ?? '') ??
                             0;
                         return CheckboxListTile(
                           value: isChecked,
@@ -893,7 +901,8 @@ class _TestPickerDialogState extends State<_TestPickerDialog> {
                     'test_id': test['id'],
                     'test_name': test['test_name'],
                     'category': test['category'],
-                    'price': double.tryParse(test['price']?.toString() ?? '') ?? 0,
+                    'price':
+                        double.tryParse(test['price']?.toString() ?? '') ?? 0,
                   },
                 )
                 .toList();
