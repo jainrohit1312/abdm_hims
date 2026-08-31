@@ -487,51 +487,46 @@ const List<_NavDestination> _navDestinations = [
     icon: Icons.people_outline,
   ),
   _NavDestination(
-    label: 'Billing',
-    route: '/billing',
-    icon: Icons.receipt_long_outlined,
-  ),
-  _NavDestination(
-    label: 'Voucher/Expense',
-    route: '/vouchers',
-    icon: Icons.account_balance_wallet_outlined,
-  ),
-  _NavDestination(
-    label: 'Compliance',
-    route: '/compliance',
-    icon: Icons.verified_user_outlined,
-  ),
-  _NavDestination(
     label: 'OPD',
     route: '/opd/queue',
     icon: Icons.medical_services_outlined,
   ),
   _NavDestination(
-    label: 'IPD Patient Queue',
-    route: '/ipd/queue',
+    label: 'IPD',
+    route: '/ipd',
     icon: Icons.medical_information_outlined,
     excludeRoutes: ['/ipd/wards'],
   ),
   _NavDestination(
-    label: 'Ward Management',
+    label: 'Wards',
     route: '/ipd/wards',
     icon: Icons.local_hotel_outlined,
     exactMatch: true,
   ),
   _NavDestination(
-    label: 'Diagnostics',
-    route: '/diagnostics',
+    label: 'ABHA',
+    route: '/abha',
+    icon: Icons.verified_user_outlined,
+  ),
+  _NavDestination(
+    label: 'Billing',
+    route: '/billing',
+    icon: Icons.receipt_long_outlined,
+  ),
+  _NavDestination(
+    label: 'Lab',
+    route: '/lab',
     icon: Icons.biotech_outlined,
+  ),
+  _NavDestination(
+    label: 'Pharmacy',
+    route: '/pharmacy',
+    icon: Icons.medication_outlined,
   ),
   _NavDestination(
     label: 'Reports',
     route: '/reports',
     icon: Icons.analytics_outlined,
-  ),
-  _NavDestination(
-    label: 'WhatsApp',
-    route: '/whatsapp',
-    icon: Icons.chat_outlined,
   ),
   _NavDestination(
     label: 'Settings',
