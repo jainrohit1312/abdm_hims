@@ -88,7 +88,6 @@ class _CounselingPlaybackScreenState
     final audios = media.where((m) => m['media_type'] == 'audio').toList();
     final transcript = record?['transcript_text']?.toString() ?? '';
     final summary = record?['summary_text']?.toString() ?? '';
-    final gps = _firstGps(media);
 
     _ensureVideoController(videos.isEmpty ? null : videos.first);
 
@@ -134,10 +133,6 @@ class _CounselingPlaybackScreenState
           _AudioPlayerTile(media: audio),
           const SizedBox(height: 12),
         ],
-
-        // -- GPS stamp ----------------------------------------------------------
-        _buildGpsCard(gps, theme),
-        const SizedBox(height: 12),
 
         // -- consent ------------------------------------------------------------
         if (consent != null) ...[
@@ -304,72 +299,6 @@ class _CounselingPlaybackScreenState
     );
   }
 
-  Widget _buildGpsCard(Map<String, dynamic>? gps, ThemeData theme) {
-    final hasFix =
-        gps != null &&
-        gps['gps_latitude'] != null &&
-        gps['gps_longitude'] != null;
-    final lat = (gps?['gps_latitude'] as num?)?.toDouble();
-    final lng = (gps?['gps_longitude'] as num?)?.toDouble();
-    final accuracy = (gps?['gps_accuracy'] as num?)?.toDouble();
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.location_on_outlined,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'GPS Location Stamp',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (!hasFix)
-              Text(
-                'No GPS fix recorded for this session.',
-                style: theme.textTheme.bodySmall,
-              )
-            else ...[
-              Text(
-                'Latitude: ${lat!.toStringAsFixed(6)}',
-                style: theme.textTheme.bodyMedium,
-              ),
-              Text(
-                'Longitude: ${lng!.toStringAsFixed(6)}',
-                style: theme.textTheme.bodyMedium,
-              ),
-              if (accuracy != null)
-                Text(
-                  'Accuracy: ±${accuracy.toStringAsFixed(1)} m',
-                  style: theme.textTheme.bodySmall,
-                ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () => launchUrl(
-                  Uri.parse('https://www.google.com/maps?q=$lat,$lng'),
-                  mode: LaunchMode.externalApplication,
-                ),
-                icon: const Icon(Icons.map_outlined, size: 18),
-                label: const Text('Open in Maps'),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildConsentCard(Map<String, dynamic> consent, ThemeData theme) {
     final status = consent['status']?.toString() ?? 'pending';
     final version = (consent['consent_version'] as num?)?.toInt() ?? 1;
@@ -396,13 +325,6 @@ class _CounselingPlaybackScreenState
             : null,
       ),
     );
-  }
-
-  Map<String, dynamic>? _firstGps(List<Map<String, dynamic>> media) {
-    for (final m in media) {
-      if (m['gps_latitude'] != null && m['gps_longitude'] != null) return m;
-    }
-    return null;
   }
 
   Future<void> _downloadOrOpen(Map<String, dynamic> media) async {

@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
@@ -21,30 +20,6 @@ enum CounselingRecordingMode {
 
 /// Lifecycle of the media recorder.
 enum CounselingRecordingPhase { idle, preparing, recording, paused, completed }
-
-/// GPS co-ordinates captured automatically when a recording starts.
-class GpsStamp {
-  double? latitude;
-  double? longitude;
-  double? accuracy;
-  DateTime? capturedAt;
-
-  bool get hasFix => latitude != null && longitude != null;
-
-  String get coordinatesLabel => hasFix
-      ? '${latitude!.toStringAsFixed(6)}, ${longitude!.toStringAsFixed(6)}'
-      : 'Waiting for GPS...';
-
-  String get accuracyLabel =>
-      accuracy == null ? '--' : '±${accuracy!.toStringAsFixed(1)} m';
-
-  Map<String, dynamic> toJson() => {
-    'latitude': latitude,
-    'longitude': longitude,
-    'accuracy': accuracy,
-    'captured_at': capturedAt?.toUtc().toIso8601String(),
-  };
-}
 
 /// Auto-generated consent form for the current counseling session.
 ///
@@ -93,10 +68,13 @@ class CounselingConsentDraft {
 /// Owns:
 /// * camera preview + video recording (`camera`)
 /// * audio recording (`record`)
-/// * GPS capture (`geolocator`)
 /// * recording timer with auto-stop (10 min video / 30 min audio)
 /// * live file-size indicator
 /// * auto-generated consent draft
+///
+/// GPS capture is deliberately NOT part of this controller anymore — location
+/// fetch was slow on mobile and the video preview now carries a text info
+/// stamp (hospital / doctor / patient / complaint) instead.
 class CounselingRecordingService extends ChangeNotifier {
   static const Duration videoAutoStop = Duration(minutes: 10);
   static const Duration audioAutoStop = Duration(minutes: 30);
@@ -122,7 +100,6 @@ class CounselingRecordingService extends ChangeNotifier {
   String? videoPath;
   String? audioPath;
   String? lastError;
-  final GpsStamp gps = GpsStamp();
   CounselingConsentDraft? consent;
 
   Timer? _timer;
@@ -242,68 +219,6 @@ class CounselingRecordingService extends ChangeNotifier {
   }
 
   // -------------------------------------------------------------------------
-  // GPS
-  // -------------------------------------------------------------------------
-
-  /// Captures the best GPS fix available, retrying up to 3 times to get
-  /// accuracy below 10 metres. Non-fatal: a failed fix still lets recording
-  /// continue and is surfaced through [lastError].
-  Future<bool> captureGps() async {
-    try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        lastError = 'Location services are disabled — GPS stamp unavailable.';
-        notifyListeners();
-        return false;
-      }
-
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        lastError = 'Location permission denied — GPS stamp unavailable.';
-        notifyListeners();
-        return false;
-      }
-
-      Position? best;
-      for (var attempt = 0; attempt < 3; attempt++) {
-        try {
-          final position = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.best,
-            timeLimit: const Duration(seconds: 8),
-          );
-          if (best == null || position.accuracy < best.accuracy) {
-            best = position;
-          }
-          if (position.accuracy <= 10) break;
-        } catch (_) {
-          // Try again; the next attempt may get a better fix.
-        }
-      }
-
-      if (best != null) {
-        gps.latitude = best.latitude;
-        gps.longitude = best.longitude;
-        gps.accuracy = best.accuracy;
-        gps.capturedAt = DateTime.now();
-        notifyListeners();
-        return true;
-      }
-
-      lastError = 'Could not capture a GPS fix.';
-      notifyListeners();
-      return false;
-    } catch (e) {
-      lastError = 'GPS error: $e';
-      notifyListeners();
-      return false;
-    }
-  }
-
-  // -------------------------------------------------------------------------
   // Consent
   // -------------------------------------------------------------------------
 
@@ -377,24 +292,31 @@ class CounselingRecordingService extends ChangeNotifier {
       lastError = 'Microphone permission denied.';
     }
 
-    // 3. GPS stamp — non-fatal, shown on the Recording tab either way.
-    await captureGps();
-
-    // 4. Prepare output files.
+    // 3. Prepare output files.
     //
     //    Combined (both) mode mein camera video ke saath audio bhi record kar
     //    leta hai (`enableAudio: true`), isliye alag audio file sirf
     //    audio-only mode ke liye banate hain. Isse ek hi combined recording
     //    banti hai — playback par video aur audio alag-alag nahi dikhte.
+    //
+    //    Web par `path_provider` ka `getTemporaryDirectory` available nahi
+    //    hota (MissingPluginException) — browser recorders khud blob URLs
+    //    return karte hain, isliye wahan placeholder path set karke aage
+    //    badhte hain aur `stop()` par actual blob URL assign hota hai.
     try {
-      final dir = await getTemporaryDirectory();
-      final stamp = DateTime.now().millisecondsSinceEpoch;
-      videoPath = wantsVideo
-          ? '${dir.path}${Platform.pathSeparator}counseling_video_$stamp.mp4'
-          : null;
-      audioPath = (wantsAudio && !wantsVideo)
-          ? '${dir.path}${Platform.pathSeparator}counseling_audio_$stamp.m4a'
-          : null;
+      if (kIsWeb) {
+        videoPath = wantsVideo ? 'web_video' : null;
+        audioPath = (wantsAudio && !wantsVideo) ? 'web_audio' : null;
+      } else {
+        final dir = await getTemporaryDirectory();
+        final stamp = DateTime.now().millisecondsSinceEpoch;
+        videoPath = wantsVideo
+            ? '${dir.path}${Platform.pathSeparator}counseling_video_$stamp.mp4'
+            : null;
+        audioPath = (wantsAudio && !wantsVideo)
+            ? '${dir.path}${Platform.pathSeparator}counseling_audio_$stamp.m4a'
+            : null;
+      }
     } catch (e) {
       phase = CounselingRecordingPhase.idle;
       lastError = 'Could not prepare recording files: $e';
@@ -402,7 +324,7 @@ class CounselingRecordingService extends ChangeNotifier {
       return false;
     }
 
-    // 5. Start both recorders.
+    // 4. Start both recorders.
     try {
       if (videoPath != null && _camera != null) {
         await _camera!.startVideoRecording();
@@ -486,7 +408,11 @@ class CounselingRecordingService extends ChangeNotifier {
       if (videoPath != null &&
           _camera != null &&
           _camera!.value.isRecordingVideo) {
-        await _camera!.stopVideoRecording();
+        // Camera plugin actual recorded file khud decide karta hai (native
+        // temp path ya web blob URL) — wahi use karna hota hai, isliye
+        // return hone wala XFile path assign karte hain.
+        final file = await _camera!.stopVideoRecording();
+        videoPath = file.path;
       }
     } catch (e) {
       lastError = 'Video stop error: $e';
@@ -495,7 +421,9 @@ class CounselingRecordingService extends ChangeNotifier {
     try {
       if (audioPath != null) {
         final path = await _audioRecorder.stop();
-        audioPath ??= path;
+        // Web par recorder blob URL return karta hai (path pre-set nahi tha
+        // actual file), native par yahi wahi path hai jo start mein diya tha.
+        audioPath = kIsWeb ? path : (path ?? audioPath);
       }
     } catch (e) {
       lastError = 'Audio stop error: $e';

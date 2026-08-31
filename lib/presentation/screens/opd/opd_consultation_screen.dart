@@ -196,9 +196,15 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
 
     final nameParam = Uri.encodeComponent(_patientName ?? '');
     final uhidParam = Uri.encodeComponent(_uhid ?? '');
+    // History tab mein bhara hua Chief Complaint counseling ke video stamp
+    // par dikhaya jata hai.
+    final complaintParam = Uri.encodeComponent(
+      _clinicalController.chiefComplaints.text.trim(),
+    );
     context.push(
       '/counseling?patientId=$patientId'
       '&patientName=$nameParam&uhid=$uhidParam'
+      '&complaint=$complaintParam'
       '&visitType=opd&opdRegistrationId=${widget.registrationId}',
     );
   }

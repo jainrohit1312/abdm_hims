@@ -36,7 +36,9 @@ class CounselingSessionHistoryScreen extends ConsumerWidget {
       visitType: visitType,
       visitId: visitId,
     );
-    final historyAsync = ref.watch(counselingSessionHistoryByVisitProvider(params));
+    final historyAsync = ref.watch(
+      counselingSessionHistoryByVisitProvider(params),
+    );
 
     return Scaffold(
       appBar: SmartAppBar(
@@ -145,9 +147,6 @@ class _SessionCard extends StatelessWidget {
     final hasVideo = media.any((m) => m['media_type'] == 'video');
     final hasAudio = media.any((m) => m['media_type'] == 'audio');
     final hasSummary = (session['summary_text']?.toString() ?? '').isNotEmpty;
-    final hasGps = media.any(
-      (m) => m['gps_latitude'] != null && m['gps_longitude'] != null,
-    );
 
     return Card(
       child: Padding(
@@ -197,11 +196,6 @@ class _SessionCard extends StatelessWidget {
                   const _InfoChip(
                     icon: Icons.auto_awesome,
                     label: 'AI Summary',
-                  ),
-                if (hasGps)
-                  const _InfoChip(
-                    icon: Icons.location_on_outlined,
-                    label: 'GPS',
                   ),
               ],
             ),

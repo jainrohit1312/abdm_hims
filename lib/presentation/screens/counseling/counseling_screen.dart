@@ -24,10 +24,10 @@ import 'widgets/consent_management_sheet.dart';
 /// Flow:
 ///   1. Visit context (OPD/IPD) + patient context (Name / UHID) auto-filled.
 ///   2. Audio + Video dono ek saath record hote hain (koi alag mode nahi).
-///   3. Start dabao: GPS stamp auto-capture hota hai aur consent form
-///      auto-generate hota hai.
-///   4. Stop ke baad Save dabao — recording + GPS + consent Supabase par
-///      secure upload hote hain (`counseling_records`, `counseling_media`,
+///   3. Start dabao: consent form auto-generate hota hai aur camera preview
+///      par info stamp (hospital / doctor / patient / complaint) dikhta hai.
+///   4. Stop ke baad Save dabao — recording + consent Supabase par secure
+///      upload hote hain (`counseling_records`, `counseling_media`,
 ///      `counseling_consents`) taaki future legal reference ke liye
 ///      tamper-proof record bana rahe.
 class CounselingScreen extends ConsumerStatefulWidget {
@@ -37,6 +37,7 @@ class CounselingScreen extends ConsumerStatefulWidget {
     required this.visitType,
     this.patientName = '',
     this.uhid = '',
+    this.patientComplaint = '',
     this.opdRegistrationId,
     this.ipdAdmissionId,
   });
@@ -44,6 +45,10 @@ class CounselingScreen extends ConsumerStatefulWidget {
   final String patientId;
   final String patientName;
   final String uhid;
+
+  /// Patient ki chief complaint / problem — OPD consultation se aati hai aur
+  /// video preview par stamp mein dikhti hai.
+  final String patientComplaint;
 
   /// `opd` or `ipd` — auto-detected from the screen that opened counseling.
   final String visitType;
@@ -60,8 +65,9 @@ class CounselingScreen extends ConsumerStatefulWidget {
 class _CounselingScreenState extends ConsumerState<CounselingScreen> {
   bool _isSaving = false;
 
-  // Consent form context (hospital + doctor name) resolved lazily.
+  // Consent form + video stamp context (hospital + doctor) resolved lazily.
   String _hospitalName = '';
+  String _hospitalAddress = '';
   String _doctorName = '';
 
   /// Normalized visit type — auto-detected from the screen that opened this
@@ -109,7 +115,8 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
     }
   }
 
-  /// Resolves the current doctor + hospital display names for the consent form.
+  /// Resolves the current doctor + hospital display names/address for the
+  /// consent form and the video info stamp.
   Future<void> _loadContextNames() async {
     try {
       final db = ref.read(databaseServiceProvider);
@@ -122,18 +129,21 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
       ].whereType<String>().where((s) => s.trim().isNotEmpty).join(' ').trim();
 
       var hospitalName = '';
+      var hospitalAddress = '';
       if (hospitalId != null && hospitalId.isNotEmpty) {
         final hospital = await db.getById(
           ApiConstants.hospitalsTable,
           hospitalId,
         );
         hospitalName = hospital?['name']?.toString() ?? '';
+        hospitalAddress = hospital?['address']?.toString() ?? '';
       }
 
       if (!mounted) return;
       setState(() {
         _doctorName = doctorName;
         _hospitalName = hospitalName;
+        _hospitalAddress = hospitalAddress;
       });
     } catch (_) {
       // Non-critical — the consent sheet still opens with whatever it has.
@@ -222,7 +232,7 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
       }, hospitalId: hospitalId);
       final recordId = record['id']?.toString() ?? '';
 
-      // 2. Upload + save video/audio recordings with GPS stamp metadata.
+      // 2. Upload + save video/audio recordings.
       if (recordId.isNotEmpty) {
         if (rec.hasVideo && rec.videoPath != null) {
           final url = await _uploadMediaFile(
@@ -239,11 +249,7 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
             'local_file_path': rec.videoPath,
             'duration_seconds': rec.elapsed.inSeconds,
             'file_size_bytes': await _mediaFileSize(rec.videoPath!),
-            'gps_latitude': rec.gps.latitude,
-            'gps_longitude': rec.gps.longitude,
-            'gps_accuracy': rec.gps.accuracy,
-            'gps_address': rec.gps.hasFix ? rec.gps.coordinatesLabel : null,
-            'recorded_at': rec.gps.capturedAt?.toUtc().toIso8601String(),
+            'recorded_at': DateTime.now().toUtc().toIso8601String(),
           }, hospitalId: hospitalId);
         }
 
@@ -262,11 +268,7 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
             'local_file_path': rec.audioPath,
             'duration_seconds': rec.elapsed.inSeconds,
             'file_size_bytes': await _mediaFileSize(rec.audioPath!),
-            'gps_latitude': rec.gps.latitude,
-            'gps_longitude': rec.gps.longitude,
-            'gps_accuracy': rec.gps.accuracy,
-            'gps_address': rec.gps.hasFix ? rec.gps.coordinatesLabel : null,
-            'recorded_at': rec.gps.capturedAt?.toUtc().toIso8601String(),
+            'recorded_at': DateTime.now().toUtc().toIso8601String(),
           }, hospitalId: hospitalId);
         }
 
@@ -401,8 +403,6 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
             const SizedBox(height: 12),
             _buildRecordingControls(recService, theme),
             const SizedBox(height: 12),
-            _buildGpsCard(recService, theme),
-            const SizedBox(height: 12),
             _buildConsentStatusCard(recService, theme),
             const SizedBox(height: 24),
             _buildSaveButton(),
@@ -515,6 +515,18 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
     );
   }
 
+  /// Stamp mein dikhne wali lines — sirf bhare hue fields include hote hain.
+  List<String> get _infoStampLines {
+    final complaint = widget.patientComplaint.trim();
+    return [
+      if (_hospitalName.isNotEmpty) _hospitalName,
+      if (_hospitalAddress.isNotEmpty) _hospitalAddress,
+      if (_doctorName.isNotEmpty) 'Dr. $_doctorName',
+      'Patient: ${widget.patientName.isEmpty ? 'Patient' : widget.patientName}',
+      if (complaint.isNotEmpty) 'Complaint: $complaint',
+    ];
+  }
+
   Widget _buildCameraPreview(CounselingRecordingService rec, ThemeData theme) {
     final controller = rec.cameraController;
 
@@ -572,11 +584,12 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
           fit: StackFit.expand,
           children: [
             CameraPreview(controller),
-            // GPS watermark overlay (live stamp while recording).
+            // Info stamp overlay — hospital / doctor / patient / complaint.
             Positioned(
               top: 8,
               left: 8,
-              child: _GpsWatermark(text: rec.gps.coordinatesLabel),
+              right: 8,
+              child: _InfoStamp(lines: _infoStampLines),
             ),
             if (rec.isRecording || rec.isPaused)
               Positioned(
@@ -755,76 +768,6 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
     );
   }
 
-  Widget _buildGpsCard(CounselingRecordingService rec, ThemeData theme) {
-    final gps = rec.gps;
-    final accuracyOk = gps.accuracy != null && gps.accuracy! <= 10;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.location_on_outlined,
-                  color: gps.hasFix
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.outline,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'GPS Location Stamp',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                if (gps.hasFix)
-                  Icon(
-                    accuracyOk
-                        ? Icons.check_circle
-                        : Icons.warning_amber_rounded,
-                    size: 18,
-                    color: accuracyOk ? Colors.green : Colors.orange,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (!gps.hasFix)
-              Text(
-                rec.lastError ?? 'GPS will be captured when recording starts.',
-                style: theme.textTheme.bodySmall,
-              )
-            else ...[
-              Text(
-                gps.coordinatesLabel,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Accuracy: ${gps.accuracyLabel}'
-                '${accuracyOk ? ' (within 10 m)' : ' (target < 10 m)'}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: accuracyOk ? Colors.green : Colors.orange,
-                ),
-              ),
-              if (gps.capturedAt != null)
-                Text(
-                  'Captured: ${gps.capturedAt!.toLocal().toString().split('.').first}',
-                  style: theme.textTheme.bodySmall,
-                ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildConsentStatusCard(
     CounselingRecordingService rec,
     ThemeData theme,
@@ -910,27 +853,41 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
   }
 }
 
-/// Semi-transparent GPS watermark shown over the live camera preview while
-/// recording (the co-ordinates are also persisted with the media row).
-class _GpsWatermark extends StatelessWidget {
-  const _GpsWatermark({required this.text});
+/// Semi-transparent info stamp shown over the live camera preview — hospital,
+/// doctor, patient aur complaint ki details record hote waqt video par dikhti
+/// hain.
+class _InfoStamp extends StatelessWidget {
+  const _InfoStamp({required this.lines});
 
-  final String text;
+  final List<String> lines;
 
   @override
   Widget build(BuildContext context) {
+    if (lines.isEmpty) return const SizedBox.shrink();
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.black54,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.location_on, size: 14, color: Colors.white),
-          const SizedBox(width: 4),
-          Text(text, style: const TextStyle(color: Colors.white, fontSize: 11)),
+          for (var i = 0; i < lines.length; i++) ...[
+            if (i > 0) const SizedBox(height: 2),
+            Text(
+              lines[i],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ],
       ),
     );

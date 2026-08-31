@@ -338,6 +338,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                 patientId: state.uri.queryParameters['patientId'] ?? '',
                 patientName: state.uri.queryParameters['patientName'] ?? '',
                 uhid: state.uri.queryParameters['uhid'] ?? '',
+                patientComplaint: state.uri.queryParameters['complaint'] ?? '',
                 visitType: state.uri.queryParameters['visitType'] ?? 'opd',
                 opdRegistrationId:
                     state.uri.queryParameters['opdRegistrationId'],

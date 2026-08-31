@@ -121,6 +121,7 @@ class _IPDPatientScreenState extends ConsumerState<IPDPatientScreen> {
             patientId: patientId,
             patientName: patientName,
             uhid: uhid,
+            diagnosis: diagnosis == 'N/A' ? '' : diagnosis,
           ),
         ],
       ),
@@ -216,10 +217,7 @@ class _IPDPatientScreenState extends ConsumerState<IPDPatientScreen> {
       children: [
         _buildTprGroup(vitals, patientName: patientName, uhid: uhid),
         _buildMedsGroup(medications, patientName: patientName, uhid: uhid),
-        _buildIpdPrescriptionsGroup(
-          patientName: patientName,
-          uhid: uhid,
-        ),
+        _buildIpdPrescriptionsGroup(patientName: patientName, uhid: uhid),
         _buildNotesGroup(progressNotes, patientName: patientName, uhid: uhid),
         _buildReportsGroup(reports, patientName: patientName, uhid: uhid),
         _buildCounselingGroup(patientId, patientName, uhid),
@@ -764,11 +762,8 @@ class _IPDPatientScreenState extends ConsumerState<IPDPatientScreen> {
                 IconButton(
                   icon: const Icon(Icons.print, color: Colors.blue),
                   tooltip: 'Print IPD prescription',
-                  onPressed: () => _printIpdPrescription(
-                    prescriptionId,
-                    patientName,
-                    uhid,
-                  ),
+                  onPressed: () =>
+                      _printIpdPrescription(prescriptionId, patientName, uhid),
                 ),
               ],
             ),
@@ -824,9 +819,9 @@ class _IPDPatientScreenState extends ConsumerState<IPDPatientScreen> {
     );
     if (!mounted) return;
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
     }
   }
 
@@ -1488,6 +1483,7 @@ class _IPDPatientScreenState extends ConsumerState<IPDPatientScreen> {
     required String patientId,
     required String patientName,
     required String uhid,
+    String diagnosis = '',
   }) {
     return Wrap(
       alignment: WrapAlignment.center,
@@ -1498,9 +1494,11 @@ class _IPDPatientScreenState extends ConsumerState<IPDPatientScreen> {
           onPressed: () {
             final patientNameParam = Uri.encodeComponent(patientName);
             final uhidParam = Uri.encodeComponent(uhid);
+            final complaintParam = Uri.encodeComponent(diagnosis);
             context.push(
               '/counseling?patientId=$patientId'
-              '&patientName=$patientNameParam&uhid=$uhidParam&visitType=ipd'
+              '&patientName=$patientNameParam&uhid=$uhidParam'
+              '&complaint=$complaintParam&visitType=ipd'
               '&ipdAdmissionId=${widget.admissionId}',
             );
           },
@@ -1947,10 +1945,7 @@ class _VitalsFormSheetState extends ConsumerState<_VitalsFormSheet> {
     return TextFormField(
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon),
-              ),
+      decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
       validator: _validateNumber,
     );
   }
@@ -2139,7 +2134,7 @@ class _ProgressNoteFormSheetState
                   labelText: 'Note Date *',
                   prefixIcon: const Icon(Icons.calendar_today),
                   suffixIcon: const Icon(Icons.arrow_drop_down),
-                                  ),
+                ),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -2150,7 +2145,7 @@ class _ProgressNoteFormSheetState
                   labelText: 'Progress Note *',
                   hintText: 'e.g. Patient is stable, fever reduced...',
                   alignLabelWithHint: true,
-                                  ),
+                ),
                 validator: (value) =>
                     value?.trim().isEmpty == true ? 'Note is required' : null,
               ),
@@ -2347,7 +2342,7 @@ class _MedicationFormSheetState extends ConsumerState<_MedicationFormSheet> {
                 decoration: InputDecoration(
                   labelText: 'Medicine Name *',
                   prefixIcon: const Icon(Icons.medication),
-                                  ),
+                ),
                 validator: (value) => value?.trim().isEmpty == true
                     ? 'Medicine name is required'
                     : null,
@@ -2359,7 +2354,7 @@ class _MedicationFormSheetState extends ConsumerState<_MedicationFormSheet> {
                   labelText: 'Dosage',
                   hintText: 'e.g. 500 mg',
                   prefixIcon: const Icon(Icons.straighten),
-                                  ),
+                ),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -2368,7 +2363,7 @@ class _MedicationFormSheetState extends ConsumerState<_MedicationFormSheet> {
                   labelText: 'Frequency',
                   hintText: 'e.g. TDS / BD / OD',
                   prefixIcon: const Icon(Icons.schedule),
-                                  ),
+                ),
               ),
               const SizedBox(height: 12),
               Row(
@@ -2430,7 +2425,7 @@ class _MedicationFormSheetState extends ConsumerState<_MedicationFormSheet> {
         labelText: label,
         prefixIcon: const Icon(Icons.calendar_today),
         suffixIcon: const Icon(Icons.arrow_drop_down),
-              ),
+      ),
     );
   }
 
@@ -2598,7 +2593,7 @@ class _ReportFormSheetState extends ConsumerState<_ReportFormSheet> {
                   labelText: 'Report Type *',
                   hintText: 'e.g. CBC, X-Ray Chest, MRI',
                   prefixIcon: const Icon(Icons.description_outlined),
-                                  ),
+                ),
                 validator: (value) => value?.trim().isEmpty == true
                     ? 'Report type is required'
                     : null,
@@ -2612,7 +2607,7 @@ class _ReportFormSheetState extends ConsumerState<_ReportFormSheet> {
                   labelText: 'Report Date *',
                   prefixIcon: const Icon(Icons.calendar_today),
                   suffixIcon: const Icon(Icons.arrow_drop_down),
-                                  ),
+                ),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -2622,7 +2617,7 @@ class _ReportFormSheetState extends ConsumerState<_ReportFormSheet> {
                   labelText: 'Report File URL (optional)',
                   hintText: 'https://...',
                   prefixIcon: const Icon(Icons.link),
-                                  ),
+                ),
               ),
               const SizedBox(height: 20),
               SizedBox(

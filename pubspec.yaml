@@ -80,7 +80,6 @@ dependencies:
   video_player: ^2.14.0
   record: ^5.1.2
   audioplayers: ^6.8.1
-  geolocator: ^11.1.0
   signature: ^6.4.0
   # Optional: Firebase Auth — Firebase login token verify karne ke liye.
   # Jab zaroorat ho toh comment hata kar `flutter pub get` chalao.
