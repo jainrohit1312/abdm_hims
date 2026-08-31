@@ -296,7 +296,7 @@ class _Brand extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Image.asset(
-          'assets/branding/mediflux_header_logo.png',
+          'assets/branding/mediflux_header_logo_light.png',
           height: height,
           fit: BoxFit.contain,
           filterQuality: FilterQuality.high,
@@ -383,7 +383,7 @@ class AppNavDrawer extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
               child: Image.asset(
-                'assets/branding/mediflux_header_logo.png',
+                'assets/branding/mediflux_header_logo_light.png',
                 height: 44,
                 fit: BoxFit.contain,
                 filterQuality: FilterQuality.high,
@@ -487,46 +487,51 @@ const List<_NavDestination> _navDestinations = [
     icon: Icons.people_outline,
   ),
   _NavDestination(
-    label: 'OPD',
-    route: '/opd/queue',
-    icon: Icons.medical_services_outlined,
-  ),
-  _NavDestination(
-    label: 'IPD',
-    route: '/ipd',
-    icon: Icons.medical_information_outlined,
-    excludeRoutes: ['/ipd/wards'],
-  ),
-  _NavDestination(
-    label: 'Wards',
-    route: '/ipd/wards',
-    icon: Icons.local_hotel_outlined,
-    exactMatch: true,
-  ),
-  _NavDestination(
-    label: 'ABHA',
-    route: '/abha',
-    icon: Icons.verified_user_outlined,
-  ),
-  _NavDestination(
     label: 'Billing',
     route: '/billing',
     icon: Icons.receipt_long_outlined,
   ),
   _NavDestination(
-    label: 'Lab',
-    route: '/lab',
-    icon: Icons.biotech_outlined,
+    label: 'Voucher/Expense',
+    route: '/vouchers',
+    icon: Icons.account_balance_wallet_outlined,
   ),
   _NavDestination(
-    label: 'Pharmacy',
-    route: '/pharmacy',
-    icon: Icons.medication_outlined,
+    label: 'Compliance',
+    route: '/compliance',
+    icon: Icons.verified_user_outlined,
+  ),
+  _NavDestination(
+    label: 'OPD',
+    route: '/opd/queue',
+    icon: Icons.medical_services_outlined,
+  ),
+  _NavDestination(
+    label: 'IPD Patient Queue',
+    route: '/ipd/queue',
+    icon: Icons.medical_information_outlined,
+    excludeRoutes: ['/ipd/wards'],
+  ),
+  _NavDestination(
+    label: 'Ward Management',
+    route: '/ipd/wards',
+    icon: Icons.local_hotel_outlined,
+    exactMatch: true,
+  ),
+  _NavDestination(
+    label: 'Diagnostics',
+    route: '/diagnostics',
+    icon: Icons.biotech_outlined,
   ),
   _NavDestination(
     label: 'Reports',
     route: '/reports',
     icon: Icons.analytics_outlined,
+  ),
+  _NavDestination(
+    label: 'WhatsApp',
+    route: '/whatsapp',
+    icon: Icons.chat_outlined,
   ),
   _NavDestination(
     label: 'Settings',
