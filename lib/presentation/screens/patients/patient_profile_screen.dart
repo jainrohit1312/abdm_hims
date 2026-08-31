@@ -675,55 +675,70 @@ class _OpdRegistrationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: _opdBlue.withValues(alpha: 0.06),
+    return Material(
+      color: _opdBlue.withValues(alpha: 0.06),
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _opdBlue.withValues(alpha: 0.35)),
+        side: BorderSide(color: _opdBlue.withValues(alpha: 0.35)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openVisitEntry(
+          context,
+          _VisitEntry(type: _VisitType.opd, data: visit),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.local_hospital, size: 20, color: _opdBlue),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Latest OPD Registration',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: _opdBlue,
+              Row(
+                children: [
+                  const Icon(Icons.local_hospital, size: 20, color: _opdBlue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Latest OPD Registration',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: _opdBlue,
+                      ),
+                    ),
                   ),
-                ),
+                  _StatusChip(
+                    status: _text(visit['status'], fallback: 'waiting'),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right, size: 20, color: _opdBlue),
+                ],
               ),
-              _StatusChip(status: _text(visit['status'], fallback: 'waiting')),
+              const SizedBox(height: 10),
+              _LabelValueGrid(
+                entries: [
+                  ('Visit Date', _formatDate(visit['visit_date'])),
+                  ('Doctor', _orDash(visit['doctor_name'])),
+                  ('Department', _orDash(visit['department_name'])),
+                  ('Consultation Type', _orDash(visit['consultation_type'])),
+                  ('Consultation Fee', _money(visit['consultation_fee'])),
+                  (
+                    'Payment Status',
+                    _labelize(
+                      _text(visit['payment_status'], fallback: 'unpaid'),
+                    ),
+                  ),
+                  ('Chief Complaint', _orDash(visit['chief_complaint'])),
+                  ('Diagnosis', _orDash(visit['diagnosis'])),
+                ],
+              ),
+              if (latestVitals != null) ...[
+                const SizedBox(height: 8),
+                const Divider(),
+                const SizedBox(height: 4),
+                _VitalsTile(vitals: latestVitals!),
+              ],
             ],
           ),
-          const SizedBox(height: 10),
-          _LabelValueGrid(
-            entries: [
-              ('Visit Date', _formatDate(visit['visit_date'])),
-              ('Doctor', _orDash(visit['doctor_name'])),
-              ('Department', _orDash(visit['department_name'])),
-              ('Consultation Type', _orDash(visit['consultation_type'])),
-              ('Consultation Fee', _money(visit['consultation_fee'])),
-              (
-                'Payment Status',
-                _labelize(_text(visit['payment_status'], fallback: 'unpaid')),
-              ),
-              ('Chief Complaint', _orDash(visit['chief_complaint'])),
-              ('Diagnosis', _orDash(visit['diagnosis'])),
-            ],
-          ),
-          if (latestVitals != null) ...[
-            const SizedBox(height: 8),
-            const Divider(),
-            const SizedBox(height: 4),
-            _VitalsTile(vitals: latestVitals!),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -740,55 +755,70 @@ class _IpdAdmissionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: _ipdGreen.withValues(alpha: 0.06),
+    return Material(
+      color: _ipdGreen.withValues(alpha: 0.06),
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _ipdGreen.withValues(alpha: 0.35)),
+        side: BorderSide(color: _ipdGreen.withValues(alpha: 0.35)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openVisitEntry(
+          context,
+          _VisitEntry(
+            type: _VisitType.ipd,
+            data: admission,
+            bedNumber: bedNumber,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.bed, size: 20, color: _ipdGreen),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Latest IPD Admission',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: _ipdGreen,
+              Row(
+                children: [
+                  const Icon(Icons.bed, size: 20, color: _ipdGreen),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Latest IPD Admission',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: _ipdGreen,
+                      ),
+                    ),
                   ),
-                ),
+                  _StatusChip(
+                    status: _text(admission['status'], fallback: 'admitted'),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right, size: 20, color: _ipdGreen),
+                ],
               ),
-              _StatusChip(
-                status: _text(admission['status'], fallback: 'admitted'),
+              const SizedBox(height: 10),
+              _LabelValueGrid(
+                entries: [
+                  ('Admission Date', _formatDate(admission['admission_date'])),
+                  ('Discharge Date', _formatDate(admission['discharge_date'])),
+                  ('Ward', _orDash(admission['ward_type'])),
+                  ('Bed', _orDash(bedNumber)),
+                  ('Admission Type', _orDash(admission['admission_type'])),
+                  ('Doctor', _orDash(admission['doctor_name'])),
+                  ('Department', _orDash(admission['department_name'])),
+                  ('Primary Diagnosis', _orDash(admission['primary_diagnosis'])),
+                  (
+                    'Length of Stay',
+                    _lengthOfStay(
+                      admission['admission_date'],
+                      admission['discharge_date'],
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          _LabelValueGrid(
-            entries: [
-              ('Admission Date', _formatDate(admission['admission_date'])),
-              ('Discharge Date', _formatDate(admission['discharge_date'])),
-              ('Ward', _orDash(admission['ward_type'])),
-              ('Bed', _orDash(bedNumber)),
-              ('Admission Type', _orDash(admission['admission_type'])),
-              ('Doctor', _orDash(admission['doctor_name'])),
-              ('Department', _orDash(admission['department_name'])),
-              ('Primary Diagnosis', _orDash(admission['primary_diagnosis'])),
-              (
-                'Length of Stay',
-                _lengthOfStay(
-                  admission['admission_date'],
-                  admission['discharge_date'],
-                ),
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -986,7 +1016,7 @@ class _VisitCard extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () => _showVisitDetailDialog(context, entry),
+        onTap: () => _openVisitEntry(context, entry),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
@@ -2889,6 +2919,21 @@ Future<void> _openUrl(BuildContext context, String url) async {
       ).showSnackBar(SnackBar(content: Text('Could not open the file: $e')));
     }
   }
+}
+
+/// Opens the detail screen for a visit entry when a valid record id exists.
+/// Legacy rows without an id fall back to the generic detail dialog.
+void _openVisitEntry(BuildContext context, _VisitEntry entry) {
+  final id = _text(entry.data['id']);
+  if (id.isNotEmpty) {
+    context.push(
+      entry.type == _VisitType.opd
+          ? '/opd/consultation/$id'
+          : '/ipd/patient/$id',
+    );
+    return;
+  }
+  _showVisitDetailDialog(context, entry);
 }
 
 void _showVisitDetailDialog(BuildContext context, _VisitEntry entry) {
