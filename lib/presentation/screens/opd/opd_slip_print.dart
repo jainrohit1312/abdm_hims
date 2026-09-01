@@ -31,7 +31,11 @@ class OPDSlipPrintService {
     required String uhid,
     required String doctorName,
     required String department,
-    required double paymentAmount,
+    required double consultationFee,
+    required double discountAmount,
+    required double netPayable,
+    required double paidAmount,
+    required double balanceAmount,
     required String paymentMode,
     required String paymentStatus,
     required DateTime date,
@@ -77,7 +81,27 @@ class OPDSlipPrintService {
                 ['UHID', uhid],
                 ['Department', department],
                 ['Doctor', doctorName],
-                ['Payment Amount', PDFFontHelper.formatCurrency(paymentAmount, decimals: 0)],
+                [
+                  'Consultation Fee',
+                  PDFFontHelper.formatCurrency(consultationFee, decimals: 0),
+                ],
+                [
+                  'Discount',
+                  PDFFontHelper.formatCurrency(discountAmount, decimals: 0),
+                ],
+                [
+                  'Net Payable',
+                  PDFFontHelper.formatCurrency(netPayable, decimals: 0),
+                ],
+                [
+                  'Paid Amount',
+                  PDFFontHelper.formatCurrency(paidAmount, decimals: 0),
+                ],
+                if (balanceAmount > 0)
+                  [
+                    'Balance',
+                    PDFFontHelper.formatCurrency(balanceAmount, decimals: 0),
+                  ],
                 ['Payment Mode', paymentMode],
                 ['Payment Status', paymentStatus],
               ],
@@ -112,6 +136,17 @@ class OPDSlipPrintService {
 
   /// Opens the platform print dialog with the generated OPD slip PDF.
   static Future<void> printSlip(Map<String, dynamic> data) async {
+    final fallbackNet = _toDouble(data['paymentAmount']);
+    final consultationFee = _toDouble(data['consultationFee'] ?? fallbackNet);
+    final discountAmount = _toDouble(
+      data['discount'] ?? (consultationFee - fallbackNet),
+    );
+    final netPayable = _toDouble(data['netPayable'] ?? fallbackNet);
+    final paidAmount = _toDouble(data['paidAmount'] ?? fallbackNet);
+    final balanceAmount = _toDouble(
+      data['balanceAmount'] ?? (netPayable - paidAmount),
+    );
+
     final bytes = await generateSlipPdf(
       hospitalName: data['hospitalName']?.toString() ?? 'HIMS Hospital',
       hospitalAddress:
@@ -121,7 +156,11 @@ class OPDSlipPrintService {
       uhid: data['uhid']?.toString() ?? 'N/A',
       doctorName: data['doctorName']?.toString() ?? 'N/A',
       department: data['department']?.toString() ?? 'N/A',
-      paymentAmount: _toDouble(data['paymentAmount']),
+      consultationFee: consultationFee,
+      discountAmount: discountAmount,
+      netPayable: netPayable,
+      paidAmount: paidAmount,
+      balanceAmount: balanceAmount,
       paymentMode: data['paymentMode']?.toString() ?? 'Cash',
       paymentStatus: data['paymentStatus']?.toString() ?? 'paid',
       date: data['date'] ?? DateTime.now(),
@@ -214,6 +253,16 @@ class OPDSlipPrintScreen extends ConsumerWidget {
           final slipNumber =
               'OPD-${(id.length >= 8 ? id.substring(0, 8) : id).toUpperCase()}';
 
+          final consultationFee = _toDouble(payment['consultation_fee']);
+          final netPayable = _toDouble(payment['payment_amount']);
+          final discountAmount = consultationFee - netPayable;
+          final paidAmount = _toDouble(
+            payment['paid_amount'] ?? netPayable,
+          );
+          final balanceAmount = _toDouble(
+            payment['balance_amount'] ?? (netPayable - paidAmount),
+          );
+
           final slipData = <String, dynamic>{
             'hospitalName': hospital['name']?.toString() ?? 'HIMS Hospital',
             'hospitalAddress':
@@ -226,7 +275,12 @@ class OPDSlipPrintScreen extends ConsumerWidget {
               payment['doctor_name']?.toString(),
             ),
             'department': department['name']?.toString() ?? 'N/A',
-            'paymentAmount': _toDouble(payment['payment_amount']),
+            'consultationFee': consultationFee,
+            'discount': discountAmount,
+            'netPayable': netPayable,
+            'paymentAmount': netPayable,
+            'paidAmount': paidAmount,
+            'balanceAmount': balanceAmount,
             'paymentMode': _paymentModeLabel(payment['payment_mode']),
             'paymentStatus': _paymentStatusLabel(payment['payment_status']),
             'date': DateTime.tryParse(
@@ -286,11 +340,32 @@ class OPDSlipPrintScreen extends ConsumerWidget {
                         const Divider(height: 24),
                         _infoRow(
                           theme,
-                          'Payment Amount',
-                          '₹ ${_toDouble(payment['payment_amount']).toStringAsFixed(0)}',
+                          'Consultation Fee',
+                          '₹ ${consultationFee.toStringAsFixed(0)}',
+                        ),
+                        _infoRow(
+                          theme,
+                          'Discount',
+                          '₹ ${discountAmount.toStringAsFixed(0)}',
+                        ),
+                        _infoRow(
+                          theme,
+                          'Net Payable',
+                          '₹ ${netPayable.toStringAsFixed(0)}',
                           valueColor: theme.colorScheme.primary,
                           bold: true,
                         ),
+                        _infoRow(
+                          theme,
+                          'Paid Amount',
+                          '₹ ${paidAmount.toStringAsFixed(0)}',
+                        ),
+                        if (balanceAmount > 0)
+                          _infoRow(
+                            theme,
+                            'Balance',
+                            '₹ ${balanceAmount.toStringAsFixed(0)}',
+                          ),
                         _infoRow(theme, 'Payment Mode', slipData['paymentMode']),
                         _infoRow(
                           theme,

@@ -43,6 +43,8 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
   final _walkInLastNameController = TextEditingController();
   final _walkInMobileController = TextEditingController();
   final _paidAmountController = TextEditingController();
+  final _discountController = TextEditingController();
+  final _discountReasonController = TextEditingController();
   final Map<String, TextEditingController> _chargedControllers = {};
   Timer? _debounce;
 
@@ -65,6 +67,19 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
     0,
     (sum, test) => sum + _chargedPriceOf(test),
   );
+
+  double get _discountAmount =>
+      double.tryParse(_discountController.text.trim()) ?? 0;
+
+  double get _netPayable {
+    final net = _totalPrice - _discountAmount;
+    return net < 0 ? 0 : (net * 100).roundToDouble() / 100;
+  }
+
+  void _syncPaidAmountToNet() {
+    if (_paidManuallyEdited) return;
+    _paidAmountController.text = _netPayable.toStringAsFixed(2);
+  }
 
   double _masterPriceOf(Map<String, dynamic> test) =>
       double.tryParse(test['price']?.toString() ?? '') ?? 0;
@@ -116,9 +131,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
       } else {
         test['charged_price'] = parsed < 0 ? 0 : parsed;
       }
-      if (!_paidManuallyEdited) {
-        _paidAmountController.text = _totalPrice.toStringAsFixed(2);
-      }
+      _syncPaidAmountToNet();
     });
   }
 
@@ -141,6 +154,8 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
     _walkInLastNameController.dispose();
     _walkInMobileController.dispose();
     _paidAmountController.dispose();
+    _discountController.dispose();
+    _discountReasonController.dispose();
     for (final controller in _chargedControllers.values) {
       controller.dispose();
     }
@@ -309,9 +324,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
             }),
           );
         _syncChargedControllers();
-        if (!_paidManuallyEdited) {
-          _paidAmountController.text = _totalPrice.toStringAsFixed(2);
-        }
+        _syncPaidAmountToNet();
       });
     }
   }
@@ -321,9 +334,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
     setState(() {
       _chargedControllers.remove(_testKey(test))?.dispose();
       _selectedTests.removeAt(index);
-      if (!_paidManuallyEdited) {
-        _paidAmountController.text = _totalPrice.toStringAsFixed(2);
-      }
+      _syncPaidAmountToNet();
     });
   }
 
@@ -353,6 +364,17 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
       _showMessage('Enter a valid paid amount.');
       return;
     }
+    final discountAmount = _discountAmount;
+    if (discountAmount < 0) {
+      _showMessage('Discount cannot be negative.');
+      return;
+    }
+    if (discountAmount > _totalPrice) {
+      _showMessage('Discount cannot exceed the subtotal.');
+      return;
+    }
+    final netPayable = _netPayable;
+    final balanceAmount = ((netPayable - paidAmount) * 100).roundToDouble() / 100;
 
     setState(() => _submitting = true);
     try {
@@ -369,6 +391,8 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
         items: _selectedTests,
         paidAmount: paidAmount,
         paymentMode: _paymentMode,
+        discountAmount: discountAmount,
+        discountReason: _discountReasonController.text.trim(),
       );
 
       // Hospital info for the printed receipt.
@@ -393,8 +417,10 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
         urgency: _urgency,
         tests: _selectedTests,
         totalAmount: _totalPrice,
+        discountAmount: discountAmount,
+        netPayable: netPayable,
         paidAmount: paidAmount,
-        balanceAmount: _totalPrice - paidAmount,
+        balanceAmount: balanceAmount,
         paymentMode: _paymentMode,
       );
 
@@ -859,8 +885,8 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
   // Payment section
   // ---------------------------------------------------------------------------
   Widget _buildPaymentSection() {
-    final balance =
-        _totalPrice - (double.tryParse(_paidAmountController.text.trim()) ?? 0);
+    final paidAmount = double.tryParse(_paidAmountController.text.trim()) ?? 0;
+    final balance = _netPayable - paidAmount;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -885,20 +911,40 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
           onChanged: (value) => setState(() => _paymentMode = value ?? 'cash'),
         ),
         const SizedBox(height: 12),
+        _amountRow('Subtotal', _totalPrice),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _discountController,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [_DecimalAmountFormatter()],
+          onChanged: (_) => setState(_syncPaidAmountToNet),
+          decoration: const InputDecoration(
+            labelText: 'Discount Amount (₹)',
+            prefixText: '₹ ',
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _discountReasonController,
+          decoration: const InputDecoration(
+            labelText: 'Discount Reason (optional)',
+          ),
+        ),
+        const SizedBox(height: 8),
+        _amountRow('Net Payable', _netPayable, bold: true),
+        const SizedBox(height: 8),
         TextField(
           controller: _paidAmountController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
             labelText: 'Paid Amount (₹)',
             prefixText: '₹ ',
-            helperText: balance >= 0
-                ? 'Balance: ₹ ${balance.toStringAsFixed(2)}'
-                : '',
+            helperText: 'Balance: ₹ ${balance.toStringAsFixed(2)}',
             suffixIcon: IconButton(
               tooltip: 'Full amount',
               onPressed: () => setState(() {
                 _paidManuallyEdited = false;
-                _paidAmountController.text = _totalPrice.toStringAsFixed(2);
+                _syncPaidAmountToNet();
               }),
               icon: const Icon(Icons.all_inclusive),
             ),
@@ -906,6 +952,34 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
           onChanged: (_) => setState(() {
             _paidManuallyEdited = true;
           }),
+        ),
+        const SizedBox(height: 4),
+        _amountRow('Balance', balance, bold: true),
+      ],
+    );
+  }
+
+  Widget _amountRow(
+    String label,
+    double value, {
+    bool bold = false,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontWeight: bold ? FontWeight.bold : FontWeight.w500,
+            fontSize: bold ? 16 : 14,
+          ),
+        ),
+        Text(
+          '₹ ${value.toStringAsFixed(2)}',
+          style: TextStyle(
+            fontWeight: bold ? FontWeight.bold : FontWeight.w500,
+            fontSize: bold ? 16 : 14,
+          ),
         ),
       ],
     );

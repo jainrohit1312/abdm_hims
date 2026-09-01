@@ -83,6 +83,8 @@ class _IPDBillingScreenState extends ConsumerState<IPDBillingScreen> {
   // Payment
   final _paidAmountController = TextEditingController();
   final _transactionRefController = TextEditingController();
+  final _discountController = TextEditingController();
+  final _discountReasonController = TextEditingController();
 
   String? _loadedAdmissionId;
   Map<String, dynamic>? _details;
@@ -118,6 +120,8 @@ class _IPDBillingScreenState extends ConsumerState<IPDBillingScreen> {
     _frequencyController.dispose();
     _paidAmountController.dispose();
     _transactionRefController.dispose();
+    _discountController.dispose();
+    _discountReasonController.dispose();
     super.dispose();
   }
 
@@ -149,7 +153,17 @@ class _IPDBillingScreenState extends ConsumerState<IPDBillingScreen> {
 
   double get _paidAmount => _toDouble(_paidAmountController.text);
 
-  double get _balanceAmount => _totalAmount - _paidAmount;
+  double get _discountAmount => _toDouble(_discountController.text);
+
+  double get _netPayable {
+    final net = _totalAmount - _discountAmount;
+    return net < 0 ? 0 : (net * 100).roundToDouble() / 100;
+  }
+
+  double get _balanceAmount {
+    final balance = _netPayable - _paidAmount;
+    return (balance * 100).roundToDouble() / 100;
+  }
 
   double get _previewAmount {
     final rate = _toDouble(_rateController.text);
@@ -174,6 +188,8 @@ class _IPDBillingScreenState extends ConsumerState<IPDBillingScreen> {
       _finalBill = null;
       _items.clear();
       _paidAmountController.clear();
+      _discountController.clear();
+      _discountReasonController.clear();
       _resetAddForm();
     });
 
@@ -367,6 +383,14 @@ class _IPDBillingScreenState extends ConsumerState<IPDBillingScreen> {
       _showMessage('Bill has no items.');
       return;
     }
+    if (_discountAmount < 0) {
+      _showMessage('Discount cannot be negative.');
+      return;
+    }
+    if (_discountAmount > _totalAmount) {
+      _showMessage('Discount cannot exceed the subtotal.');
+      return;
+    }
 
     setState(() => _isGenerating = true);
     try {
@@ -379,6 +403,8 @@ class _IPDBillingScreenState extends ConsumerState<IPDBillingScreen> {
         paymentStatus: _paymentStatus,
         paymentMode: _paymentMode,
         transactionReference: _transactionRefController.text.trim(),
+        discountAmount: _discountAmount,
+        discountReason: _discountReasonController.text.trim(),
       );
 
       ref.invalidate(ipdBillsProvider(admissionId));
@@ -439,6 +465,8 @@ class _IPDBillingScreenState extends ConsumerState<IPDBillingScreen> {
           DateTime.now().toDisplayDate,
       'items': _collectBillItems(),
       'totalAmount': _totalAmount,
+      'discountAmount': _discountAmount,
+      'netPayable': _netPayable,
       'paidAmount': _paidAmount,
       'balanceAmount': _balanceAmount,
       'paymentStatus': _paymentStatus,
@@ -862,11 +890,34 @@ class _IPDBillingScreenState extends ConsumerState<IPDBillingScreen> {
             _totalRow(theme, 'Room Charges', _roomTotal),
             _totalRow(theme, 'Services & Packages', _otherTotal),
             const Divider(),
-            _totalRow(theme, 'Total Amount', _totalAmount, bold: true),
+            _totalRow(theme, 'Subtotal', _totalAmount, bold: true),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _discountController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'Discount Amount (₹)',
+                prefixIcon: Icon(Icons.savings_outlined),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _discountReasonController,
+              decoration: const InputDecoration(
+                labelText: 'Discount Reason (optional)',
+              ),
+            ),
+            const SizedBox(height: 8),
+            _totalRow(theme, 'Net Payable', _netPayable, bold: true),
             const SizedBox(height: 8),
             TextField(
               controller: _paidAmountController,
-              keyboardType: TextInputType.number,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
                 labelText: 'Paid Amount (₹)',

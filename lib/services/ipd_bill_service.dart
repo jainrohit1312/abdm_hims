@@ -23,6 +23,8 @@ class IPDBillService {
     required String billDate,
     required List<Map<String, dynamic>> items,
     required double totalAmount,
+    required double discountAmount,
+    required double netPayable,
     required double paidAmount,
     required double balanceAmount,
     required String paymentStatus,
@@ -182,7 +184,9 @@ class IPDBillService {
               child: pw.TableHelper.fromTextArray(
                 headers: const ['Summary', 'Amount'],
                 data: [
-                  ['Total Amount', _inr(totalAmount)],
+                  ['Subtotal', _inr(totalAmount)],
+                  ['Discount', _inr(discountAmount)],
+                  ['Net Payable', _inr(netPayable)],
                   ['Paid Amount', _inr(paidAmount)],
                   ['Balance Due', _inr(balanceAmount)],
                 ],
@@ -273,6 +277,11 @@ class IPDBillService {
   }
 
   static Future<void> printBill(Map<String, dynamic> data) async {
+    final totalAmount = _toDouble(data['totalAmount']);
+    final discountAmount = _toDouble(data['discountAmount']);
+    final netPayable = _toDouble(
+      data['netPayable'] ?? (totalAmount - discountAmount),
+    );
     final bytes = await generateBillPdf(
       hospitalName: data['hospitalName'] ?? 'HIMS Hospital',
       hospitalAddress: data['hospitalAddress'],
@@ -283,7 +292,9 @@ class IPDBillService {
       billNumber: data['billNumber'] ?? 'N/A',
       billDate: data['billDate'] ?? '',
       items: (data['items'] as List?)?.cast<Map<String, dynamic>>() ?? const [],
-      totalAmount: _toDouble(data['totalAmount']),
+      totalAmount: totalAmount,
+      discountAmount: discountAmount,
+      netPayable: netPayable,
       paidAmount: _toDouble(data['paidAmount']),
       balanceAmount: _toDouble(data['balanceAmount']),
       paymentStatus: data['paymentStatus'] ?? 'unpaid',

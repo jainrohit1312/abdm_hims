@@ -1,5 +1,5 @@
 name: abdm_hims
-description: "ABDM-compliant Hospital Information Management System"
+description: "MediFlux Hospital Management System"
 publish_to: 'none'
 version: 1.0.0+1
 

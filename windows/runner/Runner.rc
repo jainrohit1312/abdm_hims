@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "MediFlux" "\0"
-            VALUE "FileDescription", "MediFlux Hospital Software" "\0"
+            VALUE "FileDescription", "MediFlux Hospital Management System" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "MediFlux" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 MediFlux. All rights reserved." "\0"
-            VALUE "OriginalFilename", "abdm_hims.exe" "\0"
-            VALUE "ProductName", "MediFlux Hospital Software" "\0"
+            VALUE "OriginalFilename", "MediFlux.exe" "\0"
+            VALUE "ProductName", "MediFlux Hospital Management System" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

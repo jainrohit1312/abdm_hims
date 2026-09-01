@@ -218,6 +218,35 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
   }
 
   // --- Slip Data ---
+  Widget _amountRow(
+    String label,
+    double value, {
+    bool bold = false,
+    Color? color,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: bold ? 16 : 14,
+            fontWeight: bold ? FontWeight.bold : FontWeight.w500,
+            color: color ?? const Color(0xFF2E7D32),
+          ),
+        ),
+        Text(
+          '₹ ${value.toStringAsFixed(0)}',
+          style: TextStyle(
+            fontSize: bold ? 18 : 15,
+            fontWeight: bold ? FontWeight.bold : FontWeight.w500,
+            color: color ?? const Color(0xFF2E7D32),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// Registration ke baad print dialog ke liye slip data taiyar karta hai.
   /// PDF generator [OPDSlipPrintService] A5 page format use karta hai jisse
   /// A5 thermal/paper par print ho aur page waste na ho.
@@ -256,6 +285,23 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
     final slipNumber =
         'OPD-${(opdId.length >= 8 ? opdId.substring(0, 8) : opdId).toUpperCase()}';
 
+    final grossFee = double.tryParse(
+          slipRow['consultation_fee']?.toString() ?? '',
+        ) ??
+        0;
+    final netPayable = double.tryParse(
+          slipRow['payment_amount']?.toString() ?? '',
+        ) ??
+        0;
+    final paidAmount = double.tryParse(
+          slipRow['paid_amount']?.toString() ?? '',
+        ) ??
+        netPayable;
+    final balanceAmount = double.tryParse(
+          slipRow['balance_amount']?.toString() ?? '',
+        ) ??
+        (netPayable - paidAmount);
+
     return <String, dynamic>{
       'hospitalName': hospital?['name']?.toString() ?? 'HIMS Hospital',
       'hospitalAddress':
@@ -267,7 +313,12 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
       'uhid': patients['uhid']?.toString() ?? widget.uhid ?? 'N/A',
       'doctorName': _selectedDoctorName.isEmpty ? 'N/A' : _selectedDoctorName,
       'department': departmentName,
-      'paymentAmount': slipRow['payment_amount'] ?? 0,
+      'consultationFee': grossFee,
+      'discount': grossFee - netPayable,
+      'netPayable': netPayable,
+      'paymentAmount': netPayable,
+      'paidAmount': paidAmount,
+      'balanceAmount': balanceAmount,
       'paymentMode': _paymentMode,
       'paymentStatus': 'Paid',
       'date': DateTime.now(),
@@ -341,7 +392,31 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
       final ageText = _ageController.text.trim();
       final age = ageText.isNotEmpty ? int.tryParse(ageText) : null;
 
-      final double finalFee = _consultationFee - _discount;
+      final double grossFee = _consultationFee;
+      final double discount = double.tryParse(
+            _discountController.text.trim(),
+          ) ??
+          _discount;
+      if (discount < 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Discount cannot be negative.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      if (discount > grossFee) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Discount cannot exceed the consultation fee.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      final double finalFee =
+          ((grossFee - discount) * 100).roundToDouble() / 100;
 
       var selectedDepartmentName = '';
       for (final dept in _departments) {
@@ -367,7 +442,7 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
         'created_by': createdById,
         'is_emergency': _isEmergency,
         'whatsapp_opt_in': _whatsappOptIn,
-        'consultation_fee': finalFee, // Final fee after discount
+        'consultation_fee': grossFee, // Original/gross consultation fee
         'doctor_name': _selectedDoctorName,
       };
 
@@ -378,6 +453,7 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
         opdData,
         hospitalId: authState.hospitalId,
         doctorId: _selectedDoctorId,
+        discountAmount: discount,
       );
 
       final opdId = created['id']?.toString() ?? '';
@@ -407,6 +483,7 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
         paymentAmount: finalFee,
         paymentMode: _paymentModeValue,
         opdRegistrationId: opdId,
+        discountAmount: discount,
       );
 
       // WhatsApp opt-in consent ko patient master par bhi mirror karo.
@@ -731,8 +808,10 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
                   prefixText: '₹ ',
                   filled: true,
                   fillColor: Colors.grey[50],
-                                  ),
-                keyboardType: TextInputType.number,
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 onChanged: (val) {
                   final newFee = double.tryParse(val);
                   if (newFee != null) {
@@ -753,21 +832,21 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
                   prefixText: '₹ ',
                   filled: true,
                   fillColor: Colors.grey[50],
-                                  ),
-                keyboardType: TextInputType.number,
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 onChanged: (val) {
                   final newDiscount = double.tryParse(val);
-                  if (newDiscount != null) {
-                    setState(() {
-                      _discount = newDiscount;
-                    });
-                  }
+                  setState(() {
+                    _discount = newDiscount ?? 0;
+                  });
                 },
               ),
 
               const SizedBox(height: 8),
 
-              // Final Amount Display (Auto-calculated)
+              // Amount Summary (Auto-calculated)
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -778,24 +857,17 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: const Color(0xFF66BB6A)),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: Column(
                   children: [
-                    const Text(
-                      'Payment Amount (₹)',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF2E7D32),
-                      ),
-                    ),
-                    Text(
-                      '₹ ${(_consultationFee - _discount).toStringAsFixed(0)}',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF2E7D32),
-                      ),
+                    _amountRow('Consultation Fee', _consultationFee),
+                    const SizedBox(height: 8),
+                    _amountRow('Discount', _discount),
+                    const Divider(height: 16, color: Color(0xFFA5D6A7)),
+                    _amountRow(
+                      'Net Payable',
+                      _consultationFee - _discount,
+                      bold: true,
+                      color: const Color(0xFF2E7D32),
                     ),
                   ],
                 ),

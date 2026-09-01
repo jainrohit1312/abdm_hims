@@ -1665,10 +1665,16 @@ class DatabaseService {
     Map<String, dynamic> opdData, {
     String? hospitalId,
     required String doctorId,
+    double discountAmount = 0,
   }) async {
     try {
       final prescriptionMode = await getDoctorsPrescriptionMode(doctorId);
       final fee = _toDouble(opdData['consultation_fee']);
+      final discount = math.max(0, discountAmount);
+      if (discount > fee) {
+        throw ArgumentError('Discount cannot exceed the consultation fee.');
+      }
+      final netPayable = ((fee - discount) * 100).roundToDouble() / 100;
       final now = DateTime.now().toUtc().toIso8601String();
 
       final payload = _tenantPayload(
@@ -1681,10 +1687,15 @@ class DatabaseService {
       // isliye doctors.id yahan store nahi karte — sirf prescription_mode
       // lookup ke liye use hota hai. (Screen doctor ka naam slip route ko
       // query param ke through deti hai.)
+      //
+      // Accounting model:
+      //   consultation_fee = original/gross consultation fee (master rate)
+      //   payment_amount   = net payable (gross - discount)
+      //   billing row      = subtotal/gross, discount_amount, net_amount
       payload['status'] = prescriptionMode ? 'pending' : 'completed';
-      payload['payment_amount'] = fee;
+      payload['payment_amount'] = netPayable;
       payload['paid_amount'] = 0;
-      payload['balance_amount'] = fee;
+      payload['balance_amount'] = netPayable;
       payload['payment_status'] = 'unpaid';
       if (!prescriptionMode) {
         payload['completed_at'] = now;
@@ -1745,6 +1756,7 @@ class DatabaseService {
     required double paymentAmount,
     required String paymentMode,
     String? opdRegistrationId,
+    double discountAmount = 0,
   }) async {
     try {
       var resolvedOpdId = (opdRegistrationId ?? '').trim();
@@ -1791,6 +1803,7 @@ class DatabaseService {
         amount: amount,
         paymentMode: paymentMode.toLowerCase(),
         paymentStatus: 'paid',
+        discountAmount: discountAmount,
       );
 
       return updated;
@@ -1809,13 +1822,21 @@ class DatabaseService {
     required double amount,
     required String paymentMode,
     required String paymentStatus,
+    double discountAmount = 0,
   }) async {
     final opdId = opd['id'].toString();
     final now = DateTime.now().toUtc().toIso8601String();
     final userId = await getCurrentUsersTableId();
     final total = _toDouble(opd['consultation_fee']);
-    final discount = 0.0;
-    final net = total - discount;
+    final discount =
+        (math.min(math.max(0, discountAmount), total) * 100).roundToDouble() /
+        100;
+    final net = math.max(0, (total - discount) * 100).roundToDouble() / 100;
+    final paid = (amount * 100).roundToDouble() / 100;
+    final balance = ((net - paid) * 100).roundToDouble() / 100;
+    final discountPercentage = total > 0
+        ? ((discount / total) * 100 * 100).roundToDouble() / 100
+        : 0.0;
     final billDate =
         opd['visit_date']?.toString() ??
         DateTime.now().toIso8601String().split('T')[0];
@@ -1835,9 +1856,11 @@ class DatabaseService {
           .update({
             'subtotal': total,
             'total_amount': total,
+            'discount_amount': discount,
+            'discount_percentage': discountPercentage,
             'net_amount': net,
-            'paid_amount': amount,
-            'balance_amount': 0,
+            'paid_amount': paid,
+            'balance_amount': balance,
             'payment_status': paymentStatus,
             'payment_mode': paymentMode,
             'status': paymentStatus == 'paid' ? 'paid' : 'generated',
@@ -1863,14 +1886,14 @@ class DatabaseService {
             'subtotal': total,
             'total_amount': total,
             'discount_amount': discount,
-            'discount_percentage': 0,
+            'discount_percentage': discountPercentage,
             'tax_amount': 0,
             'net_amount': net,
-            'paid_amount': amount,
-            'balance_amount': 0,
+            'paid_amount': paid,
+            'balance_amount': balance,
             'payment_status': paymentStatus,
             'payment_mode': paymentMode,
-            'payment_date': amount > 0 ? now : null,
+            'payment_date': paid > 0 ? now : null,
             'status': paymentStatus == 'paid' ? 'paid' : 'generated',
             'created_by': userId,
             'updated_by': userId,
@@ -1890,13 +1913,13 @@ class DatabaseService {
 
     final billId = bill['id'].toString();
 
-    if (amount > 0) {
+    if (paid > 0) {
       // Avoid duplicate payment rows when the slip is generated repeatedly.
       final alreadyPaid = _toDouble(existing?['paid_amount'] ?? 0) > 0;
       if (!alreadyPaid) {
         await _recordPaymentLog(
           billId: billId,
-          amountPaid: amount,
+          amountPaid: paid,
           paymentMode: paymentMode,
           paidBy: null,
         );
@@ -1904,9 +1927,9 @@ class DatabaseService {
           billId: billId,
           action: 'payment_added',
           oldValue: {'paid_amount': 0},
-          newValue: {'paid_amount': amount},
+          newValue: {'paid_amount': paid},
           description:
-              'OPD slip payment of $amount received via ${paymentMode.toUpperCase()}',
+              'OPD slip payment of $paid received via ${paymentMode.toUpperCase()}',
         );
       }
     }
@@ -2459,6 +2482,8 @@ class DatabaseService {
     required String paymentStatus, // paid, unpaid, partially_paid
     String? paymentMode,
     String? transactionReference,
+    double discountAmount = 0,
+    String? discountReason,
   }) async {
     try {
       final admission = await getById(
@@ -2472,7 +2497,16 @@ class DatabaseService {
       final today = DateTime.now().toIso8601String().split('T')[0];
       final now = DateTime.now().toUtc().toIso8601String();
       final billNumber = _generateBillNumber('IPD');
-      final balanceAmount = (totalAmount - paidAmount).roundToDouble();
+      final subtotal = (totalAmount * 100).roundToDouble() / 100;
+      final discount =
+          (math.min(math.max(0, discountAmount), subtotal) * 100).roundToDouble() /
+          100;
+      final net = math.max(0, (subtotal - discount) * 100).roundToDouble() / 100;
+      final paid = (paidAmount * 100).roundToDouble() / 100;
+      final balanceAmount = ((net - paid) * 100).roundToDouble() / 100;
+      final discountPercentage = subtotal > 0
+          ? ((discount / subtotal) * 100 * 100).roundToDouble() / 100
+          : 0.0;
       final createdBy = await getCurrentUsersTableId();
 
       final bill = await _client
@@ -2486,21 +2520,22 @@ class DatabaseService {
             'bill_date': today,
             'bill_type': 'ipd',
             'visit_type': 'ipd',
-            'subtotal': totalAmount,
-            'total_amount': totalAmount,
-            'discount_amount': 0,
-            'discount_percentage': 0,
+            'subtotal': subtotal,
+            'total_amount': subtotal,
+            'discount_amount': discount,
+            'discount_percentage': discountPercentage,
+            'discount_reason': discountReason,
             'tax_amount': 0,
-            'net_amount': totalAmount,
-            'paid_amount': paidAmount,
+            'net_amount': net,
+            'paid_amount': paid,
             'balance_amount': balanceAmount,
             'payment_status': paymentStatus,
             'payment_mode': paymentMode,
             'transaction_reference': transactionReference,
-            'payment_date': paidAmount > 0 ? now : null,
+            'payment_date': paid > 0 ? now : null,
             'status': paymentStatus == 'paid'
                 ? 'paid'
-                : paidAmount > 0
+                : paid > 0
                 ? 'partially_paid'
                 : 'generated',
             'created_by': createdBy,
@@ -2521,10 +2556,10 @@ class DatabaseService {
         });
       }
 
-      if (paidAmount > 0) {
+      if (paid > 0) {
         await _recordPaymentLog(
           billId: billId,
-          amountPaid: paidAmount,
+          amountPaid: paid,
           paymentMode: paymentMode ?? 'cash',
           paidBy: null,
           transactionReference: transactionReference,
@@ -3520,10 +3555,16 @@ class DatabaseService {
 
       final source = bill['source']?.toString() == 'opd' ? 'opd' : 'billing';
       final total = _toDouble(bill['total_amount']);
+      final discount = _toDouble(bill['discount_amount']);
+      final storedNet = _toDouble(bill['net_amount']);
+      // Balance always uses the NET payable, never the gross total.
+      final netPayable = storedNet > 0
+          ? storedNet
+          : math.max(0, (total - discount) * 100).roundToDouble() / 100;
       final currentPaid = _toDouble(bill['paid_amount']);
       final newPaid = ((currentPaid + amountPaid) * 100).roundToDouble() / 100;
-      final balance = ((total - newPaid) * 100).roundToDouble() / 100;
-      final status = _derivePaymentStatus(total, newPaid);
+      final balance = ((netPayable - newPaid) * 100).roundToDouble() / 100;
+      final status = _derivePaymentStatus(netPayable, newPaid);
       final now = DateTime.now().toUtc().toIso8601String();
 
       var targetBillId = billId;
@@ -3533,6 +3574,7 @@ class DatabaseService {
         // Materialise so payment_logs.bill_id (FK -> billing.id) is valid.
         final materialized = await updateBill(billId, {
           'total_amount': total,
+          'discount_amount': discount,
           'paid_amount': currentPaid,
           'payment_status': bill['payment_status'],
           'payment_mode': bill['payment_mode'],
@@ -3741,10 +3783,22 @@ class DatabaseService {
         (row['patients'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
     final total = _toDouble(row['consultation_fee']);
+    // `payment_amount` is the net payable (gross consultation fee minus the
+    // transaction-level discount). Legacy rows were backfilled with the
+    // consultation fee itself, which correctly yields discount = 0.
+    final netPayable = _toDouble(row['payment_amount']);
+    final discount = netPayable <= total
+        ? (math.max(0, (total - netPayable) * 100).roundToDouble() / 100)
+        : 0.0;
+    final effectiveNet = discount > 0 ? netPayable : total;
     final paid = _toDouble(row['paid_amount']);
     final balance = _toDouble(row['balance_amount']);
     final status =
-        row['payment_status']?.toString() ?? _derivePaymentStatus(total, paid);
+        row['payment_status']?.toString() ??
+        _derivePaymentStatus(effectiveNet, paid);
+    final discountPercentage = total > 0
+        ? ((discount / total) * 100 * 100).roundToDouble() / 100
+        : 0.0;
     final patientName =
         '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'.trim();
     final id = row['id']?.toString() ?? '';
@@ -3766,9 +3820,9 @@ class DatabaseService {
       'created_at': row['created_at'],
       'subtotal': total,
       'total_amount': total,
-      'discount_amount': 0,
-      'discount_percentage': 0,
-      'net_amount': total,
+      'discount_amount': discount,
+      'discount_percentage': discountPercentage,
+      'net_amount': effectiveNet,
       'paid_amount': paid,
       'balance_amount': balance,
       'payment_status': status,
@@ -4667,6 +4721,8 @@ class DatabaseService {
     required List<Map<String, dynamic>> items,
     required double paidAmount,
     required String paymentMode,
+    double discountAmount = 0,
+    String? discountReason,
   }) async {
     final order = await _insertDiagnosticOrder(
       hospitalId: hospitalId,
@@ -4685,18 +4741,24 @@ class DatabaseService {
       paymentMode: paymentMode,
       items: items,
       diagnosticOrderId: order['id']?.toString(),
+      discountAmount: discountAmount,
+      discountReason: discountReason,
     );
 
     if (paidAmount > 0) {
       await _addToDailyTurnover(hospitalId: hospitalId, amount: paidAmount);
     }
 
+    final discount = _toDouble(bill['discount_amount']);
+    final net = _toDouble(bill['net_amount']);
     return {
       'order': order,
       'bill': bill,
       'total_amount': total,
+      'discount_amount': discount,
+      'net_amount': net,
       'paid_amount': paidAmount,
-      'balance_amount': (total - paidAmount).roundToDouble(),
+      'balance_amount': _toDouble(bill['balance_amount']),
       'receipt_number': bill['bill_number']?.toString(),
     };
   }
@@ -4710,12 +4772,23 @@ class DatabaseService {
     required String paymentMode,
     required List<Map<String, dynamic>> items,
     String? diagnosticOrderId,
+    double discountAmount = 0,
+    String? discountReason,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
     final today = DateTime.now().toIso8601String().split('T')[0];
     final billNumber = _generateBillNumber('DIAG');
-    final balanceAmount = (totalAmount - paidAmount).roundToDouble();
-    final isPaid = paidAmount >= totalAmount;
+    final subtotal = (totalAmount * 100).roundToDouble() / 100;
+    final discount =
+        (math.min(math.max(0, discountAmount), subtotal) * 100).roundToDouble() /
+        100;
+    final net = math.max(0, (subtotal - discount) * 100).roundToDouble() / 100;
+    final paid = (paidAmount * 100).roundToDouble() / 100;
+    final balanceAmount = ((net - paid) * 100).roundToDouble() / 100;
+    final isPaid = net <= 0 || paid >= net;
+    final discountPercentage = subtotal > 0
+        ? ((discount / subtotal) * 100 * 100).roundToDouble() / 100
+        : 0.0;
     final createdBy = await getCurrentUsersTableId();
 
     final bill = await _client
@@ -4729,21 +4802,22 @@ class DatabaseService {
           'bill_date': today,
           'bill_type': 'diagnostics',
           'visit_type': 'lab',
-          'subtotal': totalAmount,
-          'total_amount': totalAmount,
-          'discount_amount': 0,
-          'discount_percentage': 0,
+          'subtotal': subtotal,
+          'total_amount': subtotal,
+          'discount_amount': discount,
+          'discount_percentage': discountPercentage,
+          'discount_reason': discountReason,
           'tax_amount': 0,
-          'net_amount': totalAmount,
-          'paid_amount': paidAmount,
+          'net_amount': net,
+          'paid_amount': paid,
           'balance_amount': balanceAmount,
           'payment_status': isPaid
               ? 'paid'
-              : paidAmount > 0
+              : paid > 0
               ? 'partially_paid'
               : 'unpaid',
-          'payment_mode': paidAmount > 0 ? paymentMode : null,
-          'payment_date': paidAmount > 0 ? now : null,
+          'payment_mode': paid > 0 ? paymentMode : null,
+          'payment_date': paid > 0 ? now : null,
           'status': isPaid ? 'paid' : 'generated',
           'created_by': createdBy,
           'updated_by': createdBy,
@@ -4764,10 +4838,10 @@ class DatabaseService {
       });
     }
 
-    if (paidAmount > 0) {
+    if (paid > 0) {
       await _recordPaymentLog(
         billId: billId,
-        amountPaid: paidAmount,
+        amountPaid: paid,
         paymentMode: paymentMode,
         paidBy: null,
       );

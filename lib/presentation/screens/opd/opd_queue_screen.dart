@@ -233,6 +233,23 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
       final slipNumber =
           'OPD-${(opdId.length >= 8 ? opdId.substring(0, 8) : opdId).toUpperCase()}';
 
+      final netPayable = double.tryParse(
+            (entry['payment_amount'] ?? entry['paid_amount'] ?? 0).toString(),
+          ) ??
+          0;
+      final consultationFee = double.tryParse(
+            entry['consultation_fee']?.toString() ?? '',
+          ) ??
+          netPayable;
+      final paidAmount = double.tryParse(
+            (entry['paid_amount'] ?? netPayable).toString(),
+          ) ??
+          netPayable;
+      final balanceAmount = double.tryParse(
+            (entry['balance_amount'] ?? (netPayable - paidAmount)).toString(),
+          ) ??
+          (netPayable - paidAmount);
+
       final slipData = <String, dynamic>{
         'hospitalName': hospital?['name']?.toString() ?? 'HIMS Hospital',
         'hospitalAddress':
@@ -242,7 +259,12 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
         'uhid': patients['uhid']?.toString() ?? 'N/A',
         'doctorName': doctorName,
         'department': departmentName,
-        'paymentAmount': entry['payment_amount'] ?? entry['paid_amount'] ?? 0,
+        'consultationFee': consultationFee,
+        'discount': consultationFee - netPayable,
+        'netPayable': netPayable,
+        'paymentAmount': netPayable,
+        'paidAmount': paidAmount,
+        'balanceAmount': balanceAmount,
         'paymentMode': _slipPaymentModeLabel(entry['payment_mode']),
         'paymentStatus': _paymentStatusLabel(entry['payment_status']),
         'date':
