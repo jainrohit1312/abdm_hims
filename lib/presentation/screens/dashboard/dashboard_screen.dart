@@ -412,24 +412,14 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Widget _buildModuleGrid(BuildContext context) {
+    // Main dashboard module cards in the required display order.
+    // These are display labels only; each card keeps its existing route.
     final modules = [
       {
-        'icon': Icons.people,
-        'label': 'Patients',
-        'route': '/patients',
-        'color': Colors.blue,
-      },
-      {
-        'icon': Icons.badge_outlined,
-        'label': 'Employees',
-        'route': '/employees',
-        'color': Colors.indigo,
-      },
-      {
-        'icon': Icons.campaign,
-        'label': 'Marketing',
-        'route': '/marketing',
-        'color': Colors.pink,
+        'icon': Icons.dashboard_outlined,
+        'label': 'Dashboard',
+        'route': '/dashboard',
+        'color': Colors.blueGrey,
       },
       {
         'icon': Icons.medical_services,
@@ -444,28 +434,22 @@ class DashboardScreen extends ConsumerWidget {
         'color': Colors.orange,
       },
       {
-        'icon': Icons.biotech,
-        'label': 'ABHA',
-        'route': '/abha',
-        'color': Colors.teal,
+        'icon': Icons.local_hotel_outlined,
+        'label': 'Ward',
+        'route': '/ipd/wards',
+        'color': Colors.cyan,
       },
       {
-        'icon': Icons.chat,
-        'label': 'WhatsApp',
-        'route': '/whatsapp',
-        'color': Colors.green,
+        'icon': Icons.people,
+        'label': 'Patients',
+        'route': '/patients',
+        'color': Colors.blue,
       },
       {
         'icon': Icons.science,
         'label': 'Diagnostics',
         'route': '/diagnostics',
         'color': Colors.purple,
-      },
-      {
-        'icon': Icons.local_pharmacy,
-        'label': 'Pharmacy',
-        'route': '/pharmacy',
-        'color': Colors.red,
       },
       {
         'icon': Icons.receipt,
@@ -475,9 +459,21 @@ class DashboardScreen extends ConsumerWidget {
       },
       {
         'icon': Icons.account_balance_wallet,
-        'label': 'Vouchers',
+        'label': 'Voucher/Expense',
         'route': '/vouchers',
         'color': Colors.deepOrange,
+      },
+      {
+        'icon': Icons.badge_outlined,
+        'label': 'Employees',
+        'route': '/employees',
+        'color': Colors.indigo,
+      },
+      {
+        'icon': Icons.campaign,
+        'label': 'PRO/Referrals',
+        'route': '/marketing',
+        'color': Colors.pink,
       },
       {
         'icon': Icons.verified_user,
@@ -486,10 +482,22 @@ class DashboardScreen extends ConsumerWidget {
         'color': Colors.teal,
       },
       {
+        'icon': Icons.chat,
+        'label': 'WhatsApp',
+        'route': '/whatsapp',
+        'color': Colors.green,
+      },
+      {
         'icon': Icons.analytics,
         'label': 'Reports',
         'route': '/reports',
         'color': Colors.brown,
+      },
+      {
+        'icon': Icons.settings_outlined,
+        'label': 'Settings',
+        'route': '/settings',
+        'color': Colors.blueGrey,
       },
     ];
 
@@ -503,23 +511,47 @@ class DashboardScreen extends ConsumerWidget {
           ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12),
-        AppResponsiveGrid(
-          itemCount: modules.length,
-          minItemWidth: 140,
-          childAspectRatio: 0.92,
-          itemBuilder: (context, index) {
-            final module = modules[index];
-            return _moduleCard(
-              context,
-              module['icon'] as IconData,
-              module['label'] as String,
-              module['color'] as Color,
-              () => context.push(module['route'] as String),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = _moduleColumnCount(constraints.maxWidth);
+            return GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 0.92,
+              ),
+              itemCount: modules.length,
+              itemBuilder: (context, index) {
+                final module = modules[index];
+                return _moduleCard(
+                  context,
+                  module['icon'] as IconData,
+                  module['label'] as String,
+                  module['color'] as Color,
+                  () => context.push(module['route'] as String),
+                );
+              },
             );
           },
         ),
       ],
     );
+  }
+
+  /// Picks the module grid column count from the available width so the
+  /// 14 cards wrap into balanced rows without horizontal scrolling:
+  /// 7-7, 5-5-4, 4-4-4-2, 3-3-3-3-2 or 2 columns on phones.
+  int _moduleColumnCount(double availableWidth) {
+    const spacing = 12.0;
+    const minCardWidth = 150.0;
+    for (final count in const [7, 5, 4, 3, 2]) {
+      final needed = count * minCardWidth + (count - 1) * spacing;
+      if (availableWidth >= needed) return count;
+    }
+    return 2;
   }
 
   Widget _moduleCard(
