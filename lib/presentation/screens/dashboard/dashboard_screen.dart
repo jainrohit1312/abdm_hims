@@ -420,6 +420,12 @@ class DashboardScreen extends ConsumerWidget {
         'color': Colors.blue,
       },
       {
+        'icon': Icons.badge_outlined,
+        'label': 'Employees',
+        'route': '/employees',
+        'color': Colors.indigo,
+      },
+      {
         'icon': Icons.medical_services,
         'label': 'OPD',
         'route': '/opd',

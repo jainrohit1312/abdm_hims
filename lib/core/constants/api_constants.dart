@@ -99,6 +99,11 @@ class ApiConstants {
   static const String counselingMediaTable = 'counseling_media';
   static const String counselingConsentsTable = 'counseling_consents';
 
+  // Employee / HRMS Module
+  static const String employeesTable = 'employees';
+  static const String employeeAttendancePunchesTable =
+      'employee_attendance_punches';
+
   // Compliance & Renewal Reminder Module
   static const String complianceRecordsTable = 'compliance_records';
   static const String complianceDocumentsTable = 'compliance_documents';

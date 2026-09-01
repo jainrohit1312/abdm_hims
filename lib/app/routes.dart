@@ -32,6 +32,8 @@ import '../presentation/screens/users/user_management_screen.dart';
 import '../presentation/screens/notifications/notifications_screen.dart';
 import '../presentation/screens/diagnostics/diagnostic_tests_master_screen.dart';
 import '../presentation/screens/diagnostics/diagnostic_order_screen.dart';
+import '../presentation/screens/employees/employee_management_screen.dart';
+import '../presentation/screens/employees/employee_form_screen.dart';
 import '../presentation/screens/diagnostics/diagnostic_result_screen.dart';
 import '../presentation/screens/diagnostics/lab_revenue_dashboard.dart';
 import '../presentation/screens/voucher/voucher_entry_screen.dart';
@@ -447,6 +449,28 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/users',
             name: 'users',
             builder: (context, state) => const UserManagementScreen(),
+          ),
+
+          // Employee / HRMS module: master + attendance + salary.
+          GoRoute(
+            path: '/employees',
+            name: 'employees',
+            builder: (context, state) => const EmployeeManagementScreen(),
+            routes: [
+              GoRoute(
+                path: 'new',
+                name: 'employee-new',
+                builder: (context, state) => const EmployeeFormScreen(),
+              ),
+              GoRoute(
+                path: ':id/edit',
+                name: 'employee-edit',
+                builder: (context, state) {
+                  final id = state.pathParameters['id']!;
+                  return EmployeeFormScreen(employeeId: id);
+                },
+              ),
+            ],
           ),
           GoRoute(
             path: '/notifications',

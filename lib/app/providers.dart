@@ -7,7 +7,16 @@ import '../config/app_config.dart';
 import '../core/constants/api_constants.dart';
 import '../core/utils/logger.dart';
 import '../models/compliance_models.dart';
+import '../models/employee_attendance_summary.dart';
+import '../models/employee_model.dart';
+import '../models/employee_salary_summary.dart';
 import '../models/personalized_tag_models.dart';
+import '../repositories/attendance_repository.dart';
+import '../repositories/employee_repository.dart';
+import '../repositories/supabase_attendance_repository.dart';
+import '../repositories/supabase_employee_repository.dart';
+import '../services/attendance_calculator.dart';
+import '../services/salary_calculator.dart';
 import '../services/abdm_service.dart';
 import '../services/auth_service.dart';
 import '../services/background_sync.dart';
@@ -2273,3 +2282,198 @@ class ProviderErrorRetry extends ConsumerWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Employee / HRMS Module Providers
+// ---------------------------------------------------------------------------
+// Dependency Inversion: UI depends on the focused repository abstractions and
+// pure calculators below, never on SupabaseClient directly.
+
+/// Persistence for the employee master (employee CRUD only).
+final employeeRepositoryProvider = Provider<EmployeeRepository>((ref) {
+  return SupabaseEmployeeRepository(ref.watch(supabaseClientProvider));
+});
+
+/// Persistence/querying for raw attendance punch events (punches only).
+final attendanceRepositoryProvider = Provider<AttendanceRepository>((ref) {
+  return SupabaseAttendanceRepository(ref.watch(supabaseClientProvider));
+});
+
+/// Pure daily/monthly attendance aggregation (no Supabase dependency).
+final attendanceCalculatorProvider = Provider<AttendanceCalculator>((ref) {
+  return const AttendanceCalculator();
+});
+
+/// Pure salary calculation (no Supabase dependency).
+final salaryCalculatorProvider = Provider<SalaryCalculator>((ref) {
+  return const SalaryCalculator();
+});
+
+/// Refresh tick for the employee master list.
+final employeesRefreshProvider = StateProvider<int>((ref) => 0);
+
+/// All employees of the current hospital (employee master only — no
+/// attendance history is loaded here).
+final employeesProvider =
+    FutureProvider.family<List<Employee>, String>((ref, hospitalId) {
+      ref.watch(employeesRefreshProvider);
+      return ref
+          .read(employeeRepositoryProvider)
+          .getEmployees(hospitalId: hospitalId);
+    });
+
+/// Identifies one employee by id inside the current hospital (form screen).
+class EmployeeDetailParams {
+  final String hospitalId;
+  final String employeeId;
+
+  const EmployeeDetailParams({
+    required this.hospitalId,
+    required this.employeeId,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is EmployeeDetailParams &&
+      other.hospitalId == hospitalId &&
+      other.employeeId == employeeId;
+
+  @override
+  int get hashCode => Object.hash(hospitalId, employeeId);
+}
+
+final employeeByIdProvider =
+    FutureProvider.family<Employee?, EmployeeDetailParams>((ref, params) {
+      ref.watch(employeesRefreshProvider);
+      return ref
+          .read(employeeRepositoryProvider)
+          .getEmployeeById(
+            hospitalId: params.hospitalId,
+            id: params.employeeId,
+          );
+    });
+
+/// Identifies one daily attendance board: hospital + selected date.
+class AttendanceDayParams {
+  final String hospitalId;
+  final DateTime date;
+
+  const AttendanceDayParams({required this.hospitalId, required this.date});
+
+  @override
+  bool operator ==(Object other) =>
+      other is AttendanceDayParams &&
+      other.hospitalId == hospitalId &&
+      other.date.year == date.year &&
+      other.date.month == date.month &&
+      other.date.day == date.day;
+
+  @override
+  int get hashCode => Object.hash(hospitalId, date.year, date.month, date.day);
+}
+
+/// Daily attendance summaries for every eligible active employee.
+///
+/// Fetches employees once and punches once for the selected date, then
+/// aggregates in memory via [AttendanceCalculator] — never N+1.
+final dailyAttendanceProvider =
+    FutureProvider.family<List<EmployeeDailyAttendance>, AttendanceDayParams>((
+      ref,
+      params,
+    ) async {
+      final employees = await ref.watch(
+        employeesProvider(params.hospitalId).future,
+      );
+      final punches = await ref
+          .read(attendanceRepositoryProvider)
+          .getPunchesForDate(hospitalId: params.hospitalId, date: params.date);
+      return ref
+          .read(attendanceCalculatorProvider)
+          .dailyAttendanceForDate(
+            date: params.date,
+            employees: employees,
+            punches: punches,
+          );
+    });
+
+/// Identifies one monthly attendance board: hospital + month + year.
+class AttendanceMonthParams {
+  final String hospitalId;
+  final int year;
+  final int month;
+
+  const AttendanceMonthParams({
+    required this.hospitalId,
+    required this.year,
+    required this.month,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is AttendanceMonthParams &&
+      other.hospitalId == hospitalId &&
+      other.year == year &&
+      other.month == month;
+
+  @override
+  int get hashCode => Object.hash(hospitalId, year, month);
+}
+
+/// Monthly attendance aggregation for every employee (one entry each).
+///
+/// Fetches punches once for the whole month and aggregates in memory.
+final monthlyAttendanceProvider =
+    FutureProvider.family<List<EmployeeMonthlyAttendance>, AttendanceMonthParams>((
+      ref,
+      params,
+    ) async {
+      final employees = await ref.watch(
+        employeesProvider(params.hospitalId).future,
+      );
+      final punches = await ref
+          .read(attendanceRepositoryProvider)
+          .getPunchesForRange(
+            hospitalId: params.hospitalId,
+            from: DateTime(params.year, params.month, 1),
+            to: DateTime(params.year, params.month + 1, 1),
+          );
+      return ref
+          .read(attendanceCalculatorProvider)
+          .monthlyAttendanceFor(
+            year: params.year,
+            month: params.month,
+            employees: employees,
+            punches: punches,
+          );
+    });
+
+/// Salary summaries for a month, computed locally from monthly attendance.
+///
+/// [SalaryCalculator] receives employee + attendance data and never queries
+/// Supabase (DIP).
+final employeeSalarySummaryProvider =
+    FutureProvider.family<List<EmployeeSalarySummary>, AttendanceMonthParams>((
+      ref,
+      params,
+    ) async {
+      final employees = await ref.watch(
+        employeesProvider(params.hospitalId).future,
+      );
+      final monthly = await ref.watch(
+        monthlyAttendanceProvider(params).future,
+      );
+      final calculator = ref.read(salaryCalculatorProvider);
+
+      final employeesById = {for (final e in employees) e.id: e};
+      return [
+        for (final attendance in monthly)
+          if (attendance.eligibleDays > 0 &&
+              employeesById[attendance.employeeId] != null)
+            calculator.calculate(
+              employee: employeesById[attendance.employeeId]!,
+              attendance: attendance,
+              year: params.year,
+              month: params.month,
+            ),
+      ];
+    });
