@@ -6,6 +6,15 @@ import 'package:printing/printing.dart';
 
 import '../core/utils/pdf_font_helper.dart';
 
+/// Exact half of an A4 sheet (A4 width x A4 height / 2).
+///
+/// The generated PDF page itself is physically half-A4; the printer is never
+/// asked to scale a full A4 page down to half A4.
+final PdfPageFormat _halfA4PageFormat = PdfPageFormat(
+  PdfPageFormat.a4.width,
+  PdfPageFormat.a4.height / 2,
+);
+
 /// Generates and prints the diagnostic test receipt.
 ///
 /// This is the cash receipt handed to the patient when a test order is cut
@@ -33,12 +42,13 @@ class DiagnosticReceiptService {
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a5,
-        margin: const pw.EdgeInsets.all(24),
+        pageFormat: _halfA4PageFormat,
+        margin: const pw.EdgeInsets.all(18),
         build: (pw.Context context) {
           return [
             pw.Header(
               level: 0,
+              margin: const pw.EdgeInsets.only(bottom: 2 * PdfPageFormat.mm),
               child: pw.Column(
                 children: [
                   PDFFontHelper.text(
@@ -63,7 +73,7 @@ class DiagnosticReceiptService {
                 ],
               ),
             ),
-            pw.SizedBox(height: 12),
+            pw.SizedBox(height: 6),
             pw.TableHelper.fromTextArray(
               headers: const ['Particulars', 'Details'],
               data: [
@@ -84,12 +94,16 @@ class DiagnosticReceiptService {
               ),
               headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
               cellStyle: PDFFontHelper.bodyStyle(fontSize: 9),
+              cellPadding: const pw.EdgeInsets.symmetric(
+                horizontal: 5,
+                vertical: 2,
+              ),
               columnWidths: const {
                 0: pw.FixedColumnWidth(90),
                 1: pw.FlexColumnWidth(1),
               },
             ),
-            pw.SizedBox(height: 12),
+            pw.SizedBox(height: 6),
 
             // Tests table
             pw.TableHelper.fromTextArray(
@@ -115,13 +129,17 @@ class DiagnosticReceiptService {
               ),
               headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
               cellStyle: PDFFontHelper.bodyStyle(fontSize: 9),
+              cellPadding: const pw.EdgeInsets.symmetric(
+                horizontal: 5,
+                vertical: 2,
+              ),
               columnWidths: const {
                 0: pw.FixedColumnWidth(20),
                 1: pw.FlexColumnWidth(3),
                 2: pw.FixedColumnWidth(70),
               },
             ),
-            pw.SizedBox(height: 24),
+            pw.SizedBox(height: 10),
             pw.Align(
               alignment: pw.Alignment.centerRight,
               child: pw.Column(
@@ -131,7 +149,7 @@ class DiagnosticReceiptService {
                     'Authorized Signature',
                     fontSize: 10,
                   ),
-                  pw.SizedBox(height: 20),
+                  pw.SizedBox(height: 8),
                   PDFFontHelper.text(
                     'Keep this receipt for test collection & reports.',
                     fontSize: 8,
@@ -181,6 +199,9 @@ class DiagnosticReceiptService {
       paymentMode: paymentMode,
     );
 
-    await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => bytes);
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => bytes,
+      format: _halfA4PageFormat,
+    );
   }
 }

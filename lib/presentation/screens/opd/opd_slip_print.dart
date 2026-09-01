@@ -10,6 +10,15 @@ import '../../../app/providers.dart';
 import '../../../core/utils/pdf_font_helper.dart';
 import '../../widgets/smart_navigation.dart';
 
+/// Exact half of an A4 sheet (A4 width x A4 height / 2).
+///
+/// The generated PDF page itself is physically half-A4; the printer is never
+/// asked to scale a full A4 page down to half A4.
+final PdfPageFormat _halfA4PageFormat = PdfPageFormat(
+  PdfPageFormat.a4.width,
+  PdfPageFormat.a4.height / 2,
+);
+
 /// OPD payment slip PDF generator + printer.
 ///
 /// Registration ke time payment collect hone ke baad is service se slip
@@ -34,7 +43,8 @@ class OPDSlipPrintService {
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a5,
+        pageFormat: _halfA4PageFormat,
+        margin: const pw.EdgeInsets.all(20),
         build: (pw.Context context) {
           return [
             pw.Header(
@@ -56,7 +66,7 @@ class OPDSlipPrintService {
                 ],
               ),
             ),
-            pw.SizedBox(height: 20),
+            pw.SizedBox(height: 6),
             pw.TableHelper.fromTextArray(
               headers: ['Particulars', 'Details'],
               data: [
@@ -78,8 +88,12 @@ class OPDSlipPrintService {
               headerDecoration: const pw.BoxDecoration(
                 color: PdfColors.blue700,
               ),
+              cellPadding: const pw.EdgeInsets.symmetric(
+                horizontal: 5,
+                vertical: 3,
+              ),
             ),
-            pw.SizedBox(height: 30),
+            pw.SizedBox(height: 14),
             pw.Align(
               alignment: pw.Alignment.centerRight,
               child: PDFFontHelper.text(
@@ -115,7 +129,10 @@ class OPDSlipPrintService {
           'OPD-${DateTime.now().millisecondsSinceEpoch}',
     );
 
-    await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => bytes);
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => bytes,
+      format: _halfA4PageFormat,
+    );
   }
 }
 
