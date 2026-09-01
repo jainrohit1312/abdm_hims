@@ -24,6 +24,13 @@ class PersonalizedTagService {
   static const int maxNameLength = 120;
   static const int maxTagsPerEntity = 20;
 
+  /// Serializes concurrent `ensureTag` calls for the same logical tag
+  /// (user + field + normalized name) so a burst of identical commits can't
+  /// read the same `usage_count` and lose increments. Only same-client bursts
+  /// need this; the DB unique index protects against duplicate rows.
+  final Map<String, Future<PersonalizedTag>> _ensureInFlight =
+      <String, Future<PersonalizedTag>>{};
+
   // ---------------------------------------------------------------------------
   // Tag collection (user_tags)
   // ---------------------------------------------------------------------------
@@ -45,9 +52,7 @@ class PersonalizedTagService {
             .order('last_used_at', ascending: false)
             .order('name', ascending: true),
       );
-      return response
-          .map((row) => PersonalizedTag.fromJson(row))
-          .toList();
+      return response.map((row) => PersonalizedTag.fromJson(row)).toList();
     } catch (e) {
       AppLogger.e('Error fetching user tags for $fieldKey', e);
       return [];
@@ -92,26 +97,35 @@ class PersonalizedTagService {
     String userId,
     String fieldKey,
     String name,
-  ) async {
+  ) {
     final normalized = normalizeTagName(name);
     if (normalized.isEmpty) {
       throw ArgumentError('Tag name cannot be empty');
     }
 
+    final inFlightKey =
+        '${userId.toLowerCase()}|$fieldKey|${normalized.toLowerCase()}';
+    final inFlight = _ensureInFlight[inFlightKey];
+    if (inFlight != null) return inFlight;
+
+    final future = _ensureTagInternal(userId, fieldKey, normalized);
+    _ensureInFlight[inFlightKey] = future;
+    future.whenComplete(() {
+      if (identical(_ensureInFlight[inFlightKey], future)) {
+        _ensureInFlight.remove(inFlightKey);
+      }
+    });
+    return future;
+  }
+
+  Future<PersonalizedTag> _ensureTagInternal(
+    String userId,
+    String fieldKey,
+    String normalized,
+  ) async {
     final existing = await _findTagByName(userId, fieldKey, normalized);
     if (existing != null) {
-      final response = await DatabaseService.fetchWithRetry(
-        () => _client
-            .from(ApiConstants.userTagsTable)
-            .update({
-              'usage_count': existing.usageCount + 1,
-              'last_used_at': DateTime.now().toUtc().toIso8601String(),
-            })
-            .eq('id', existing.id)
-            .select()
-            .single(),
-      );
-      return PersonalizedTag.fromJson(response);
+      return _bumpExistingTag(existing);
     }
 
     try {
@@ -134,19 +148,31 @@ class PersonalizedTagService {
       AppLogger.w('Tag insert race for "$normalized", resolving existing: $e');
       final raced = await _findTagByName(userId, fieldKey, normalized);
       if (raced != null) {
-        return ensureTag(userId, fieldKey, normalized);
+        return _bumpExistingTag(raced);
       }
       rethrow;
     }
   }
 
+  Future<PersonalizedTag> _bumpExistingTag(PersonalizedTag existing) async {
+    final response = await DatabaseService.fetchWithRetry(
+      () => _client
+          .from(ApiConstants.userTagsTable)
+          .update({
+            'usage_count': existing.usageCount + 1,
+            'last_used_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('id', existing.id)
+          .select()
+          .single(),
+    );
+    return PersonalizedTag.fromJson(response);
+  }
+
   /// Deletes a tag from the user's collection. Linked entity rows cascade.
   Future<void> deleteTag(String tagId) async {
     await DatabaseService.fetchWithRetry(
-      () => _client
-          .from(ApiConstants.userTagsTable)
-          .delete()
-          .eq('id', tagId),
+      () => _client.from(ApiConstants.userTagsTable).delete().eq('id', tagId),
     );
   }
 

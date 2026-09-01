@@ -99,6 +99,12 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
   /// suggestion panel so the overlay itself never calls `ref.watch`.
   List<PersonalizedTag> _historyTags = const [];
 
+  /// Which [UserTagParams] the cached [_historyTags] belongs to. Used so a
+  /// stale cache is never shown when the widget is reused for a different
+  /// user/field context, and so optimistic local updates never leak across
+  /// fields.
+  UserTagParams? _historyTagParams;
+
   /// Public `users.id` of the logged-in user, resolved during [build] and used
   /// by [recordUsageOnAdd] callbacks that fire outside the build phase.
   String? _currentUserId;
@@ -108,8 +114,11 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
   /// query text.
   bool _pendingBlurConvert = false;
 
-  /// Maps selected tag name (lowercase) → `user_tags.id`. Used so the ✕ delete
-  /// button can remove the tag from the database as well as from the UI.
+  /// Maps selected tag name (lowercase) → `user_tags.id`. Used by the ✕ delete
+  /// button for entity-linked fields (where removing the chip is allowed to
+  /// delete the DB row). For `recordUsageOnAdd` fields the mapping is kept
+  /// updated but ✕ only removes the chip from the current selection — it never
+  /// deletes the learned history row.
   final Map<String, String> _selectedTagIds = <String, String>{};
 
   /// Current selection (normalized, de-duplicated). The owning form reads
@@ -218,9 +227,7 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     }
     if (_selectedNames.length >= widget.maxTags) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('You can add up to ${widget.maxTags} tags.'),
-        ),
+        SnackBar(content: Text('You can add up to ${widget.maxTags} tags.')),
       );
       return;
     }
@@ -240,36 +247,122 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
   }
 
   /// Records a tag into the user's personal collection immediately so
-  /// "Based on your history..." starts suggesting it on the next visit. The
-  /// returned DB id is stored so a later ✕ tap can delete the row as well.
+  /// "Based on your history..." starts suggesting it on the next visit.
+  ///
+  /// The call is non-blocking for the typing UI, but inside it we await the
+  /// public `users.id` if it hasn't resolved yet — a tag committed before
+  /// [currentPublicUserIdProvider] finished loading is no longer lost.
   Future<void> _recordUsage(String name) async {
-    final userId = _currentUserId;
-    if (userId == null || userId.isEmpty) return;
+    if (!mounted) return;
+
+    final container = ProviderScope.containerOf(context);
+    final service = ref.read(personalizedTagServiceProvider);
+
+    final userId = await _resolveUserId(container);
+    if (userId == null || userId.isEmpty) {
+      debugPrint(
+        'PersonalizedTagField: skipping usage record for "$name" '
+        '(${widget.fieldKey}) — public users.id is unavailable.',
+      );
+      return;
+    }
+
+    final params = UserTagParams(userId: userId, fieldKey: widget.fieldKey);
+    _historyTagParams ??= params;
+
     try {
-      final tag = await ref
-          .read(personalizedTagServiceProvider)
-          .ensureTag(userId, widget.fieldKey, name);
-      if (!mounted) return;
-      if (_containsName(name)) {
-        setState(() {
-          _selectedTagIds[name.toLowerCase()] = tag.id;
-        });
-      } else {
-        // User removed the chip before the DB write finished — delete the row
-        // we just ensured so the database always matches the UI.
-        try {
-          await ref.read(personalizedTagServiceProvider).deleteTag(tag.id);
-        } catch (e) {
-          debugPrint('Cleanup of unused tag failed (non-blocking): $e');
-        }
+      final tag = await service.ensureTag(userId, widget.fieldKey, name);
+
+      // Optimistic local update: the tag is available for future suggestions
+      // instantly, even before the invalidated provider refetch completes.
+      if (mounted && _historyTagParams == params) {
+        _upsertHistoryTag(tag);
+        if (_focusNode.hasFocus) _overlayEntry?.markNeedsBuild();
       }
+
+      // Invalidate the exact user + fieldKey provider so every other open
+      // field / future visit sees the created-or-bumped tag without needing a
+      // logout, refresh or restart. Using the container (captured above) also
+      // works if the widget was disposed while the write was in flight.
+      container.invalidate(userTagsProvider(params));
     } catch (e) {
-      debugPrint('Tag usage record failed (non-blocking): $e');
+      debugPrint(
+        'PersonalizedTagField: tag usage record failed for "$name" '
+        '(userId: $userId, fieldKey: ${widget.fieldKey}): $e',
+      );
     }
   }
 
-  /// Removes a tag from the UI and — when the tag already exists in the
-  /// database — deletes its `user_tags` row as well (entity links cascade).
+  /// Resolves the current public `users.id`, awaiting the provider future when
+  /// [_currentUserId] has not been populated yet.
+  Future<String?> _resolveUserId(ProviderContainer container) async {
+    final cached = _currentUserId;
+    if (cached != null && cached.isNotEmpty) return cached;
+
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final userId = await container.read(currentPublicUserIdProvider.future);
+        if (userId != null && userId.isNotEmpty) {
+          _currentUserId = userId;
+          return userId;
+        }
+        return null;
+      } catch (e) {
+        if (attempt == 0) {
+          container.invalidate(currentPublicUserIdProvider);
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+        } else {
+          debugPrint(
+            'PersonalizedTagField: failed to resolve public users.id: $e',
+          );
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Merges [tag] into the cached [_historyTags] list, keeping the ordering
+  /// contract: usage_count DESC, then last_used_at DESC, then name ASC.
+  void _upsertHistoryTag(PersonalizedTag tag) {
+    final target = tag.name.toLowerCase();
+    final updated = <PersonalizedTag>[];
+    var replaced = false;
+    for (final existing in _historyTags) {
+      if (existing.name.toLowerCase() == target) {
+        updated.add(tag);
+        replaced = true;
+      } else {
+        updated.add(existing);
+      }
+    }
+    if (!replaced) updated.add(tag);
+    updated.sort(_compareHistoryTags);
+    _historyTags = updated;
+  }
+
+  int _compareHistoryTags(PersonalizedTag a, PersonalizedTag b) {
+    final byUsage = b.usageCount.compareTo(a.usageCount);
+    if (byUsage != 0) return byUsage;
+    final aLast = a.lastUsedAt;
+    final bLast = b.lastUsedAt;
+    if (aLast != null && bLast != null) {
+      final byLast = bLast.compareTo(aLast);
+      if (byLast != 0) return byLast;
+    } else if (aLast != null) {
+      return -1;
+    } else if (bLast != null) {
+      return 1;
+    }
+    return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+  }
+
+  /// Removes a tag from the UI selection.
+  ///
+  /// For history-learning fields (`recordUsageOnAdd: true`, e.g. the OPD
+  /// investigation fields) ✕ only removes the chip from the current
+  /// prescription — the learned `user_tags` row is intentionally kept so the
+  /// doctor's personal history survives. For entity-linked fields the existing
+  /// behaviour is preserved: the tag row is deleted from the collection too.
   void _removeName(String name) {
     final key = name.toLowerCase();
     final tagId = _selectedTagIds.remove(key);
@@ -279,7 +372,7 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     _notifyChanged();
     _closeDropdown();
 
-    if (tagId != null) {
+    if (!widget.recordUsageOnAdd && tagId != null) {
       unawaited(_deleteTagFromDatabase(tagId));
     }
   }
@@ -527,20 +620,30 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     final userId = ref.watch(currentPublicUserIdProvider).valueOrNull;
     _currentUserId = userId;
     if (userId != null && userId.isNotEmpty) {
-      _historyTags =
-          ref
-                  .watch(
-                    userTagsProvider(
-                      UserTagParams(
-                        userId: userId,
-                        fieldKey: widget.fieldKey,
-                      ),
-                    ),
-                  )
-                  .valueOrNull ??
-          const [];
+      final params = UserTagParams(userId: userId, fieldKey: widget.fieldKey);
+      final previous = _historyTags;
+      if (_historyTagParams != params) {
+        // Never reuse history cached for another user/field context.
+        _historyTags = const [];
+        _historyTagParams = params;
+      }
+      final tags = ref.watch(userTagsProvider(params)).valueOrNull;
+      if (tags != null) {
+        _historyTags = tags;
+      }
+      if (!identical(previous, _historyTags)) {
+        // The provider delivered fresh data while the dropdown may already be
+        // open (focus-first / loading-then-resolved case). Rebuild the overlay
+        // so "Based on your history..." appears without typing a keystroke.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _focusNode.hasFocus) {
+            _overlayEntry?.markNeedsBuild();
+          }
+        });
+      }
     } else {
       _historyTags = const [];
+      _historyTagParams = null;
     }
 
     if (widget.entityId != null && widget.entityId!.isNotEmpty) {
