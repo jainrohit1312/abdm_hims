@@ -157,19 +157,34 @@ class DashboardScreen extends ConsumerWidget {
         () => context.push('/patients/register'),
       ),
       (
-        Icons.calendar_today,
-        'OPD Visit',
-        () => context.push('/opd/register'),
+        Icons.people,
+        'Patients',
+        () => context.push('/patients'),
       ),
       (
-        Icons.local_hotel,
-        'Admit IPD',
-        () => context.push('/ipd/admit'),
+        Icons.science,
+        'Diagnostics',
+        () => context.push('/diagnostics'),
       ),
       (
-        Icons.receipt_long,
-        'Billing',
-        () => context.push('/billing'),
+        Icons.account_balance_wallet,
+        'Vouchers',
+        () => context.push('/vouchers'),
+      ),
+      (
+        Icons.verified_user,
+        'Compliance',
+        () => context.push('/compliance'),
+      ),
+      (
+        Icons.fingerprint,
+        'ABDM',
+        () => context.push('/abha'),
+      ),
+      (
+        Icons.analytics,
+        'Reports',
+        () => context.push('/reports'),
       ),
     ];
 
