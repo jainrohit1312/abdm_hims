@@ -557,19 +557,41 @@ const List<_NavDestination> _navDestinations = [
     icon: Icons.dashboard_outlined,
   ),
   _NavDestination(
+    label: 'OPD',
+    route: '/opd/queue',
+    icon: Icons.medical_services_outlined,
+  ),
+  _NavDestination(
+    label: 'IPD',
+    route: '/ipd/queue',
+    icon: Icons.medical_information_outlined,
+    excludeRoutes: ['/ipd/wards'],
+  ),
+  _NavDestination(
+    label: 'ABHA',
+    route: '/abha',
+    icon: Icons.fingerprint,
+  ),
+  _NavDestination(
+    label: 'Ward',
+    route: '/ipd/wards',
+    icon: Icons.local_hotel_outlined,
+    exactMatch: true,
+  ),
+  _NavDestination(
     label: 'Patients',
     route: '/patients',
     icon: Icons.people_outline,
   ),
   _NavDestination(
-    label: 'Employees',
-    route: '/employees',
-    icon: Icons.badge_outlined,
+    label: 'Diagnostics',
+    route: '/diagnostics',
+    icon: Icons.biotech_outlined,
   ),
   _NavDestination(
-    label: 'Marketing',
-    route: '/marketing',
-    icon: Icons.campaign_outlined,
+    label: 'Pharmacy',
+    route: '/pharmacy',
+    icon: Icons.local_pharmacy,
   ),
   _NavDestination(
     label: 'Billing',
@@ -582,41 +604,29 @@ const List<_NavDestination> _navDestinations = [
     icon: Icons.account_balance_wallet_outlined,
   ),
   _NavDestination(
+    label: 'Employees',
+    route: '/employees',
+    icon: Icons.badge_outlined,
+  ),
+  _NavDestination(
+    label: 'PRO/Referrals',
+    route: '/marketing',
+    icon: Icons.campaign_outlined,
+  ),
+  _NavDestination(
     label: 'Compliance',
     route: '/compliance',
     icon: Icons.verified_user_outlined,
   ),
   _NavDestination(
-    label: 'OPD',
-    route: '/opd/queue',
-    icon: Icons.medical_services_outlined,
-  ),
-  _NavDestination(
-    label: 'IPD Patient Queue',
-    route: '/ipd/queue',
-    icon: Icons.medical_information_outlined,
-    excludeRoutes: ['/ipd/wards'],
-  ),
-  _NavDestination(
-    label: 'Ward Management',
-    route: '/ipd/wards',
-    icon: Icons.local_hotel_outlined,
-    exactMatch: true,
-  ),
-  _NavDestination(
-    label: 'Diagnostics',
-    route: '/diagnostics',
-    icon: Icons.biotech_outlined,
+    label: 'WhatsApp',
+    route: '/whatsapp',
+    icon: Icons.chat_outlined,
   ),
   _NavDestination(
     label: 'Reports',
     route: '/reports',
     icon: Icons.analytics_outlined,
-  ),
-  _NavDestination(
-    label: 'WhatsApp',
-    route: '/whatsapp',
-    icon: Icons.chat_outlined,
   ),
   _NavDestination(
     label: 'Settings',
