@@ -18,6 +18,7 @@ import '../services/database_service.dart';
 import '../services/local_db.dart';
 import '../services/personalized_tag_service.dart';
 import '../services/push_notification_service.dart';
+import '../services/report_generation_service.dart';
 import '../services/storage_service.dart';
 
 // Theme Provider
@@ -1962,6 +1963,12 @@ final reportDetailProvider =
       final dbService = ref.read(databaseServiceProvider);
       return dbService.getReportById(reportId);
     });
+
+/// Service that generates reports from real tenant-scoped database records
+/// and persists them into the existing `reports` table.
+final reportGenerationServiceProvider = Provider<ReportGenerationService>((ref) {
+  return ReportGenerationService(ref.watch(databaseServiceProvider));
+});
 
 // ---------------------------------------------------------------------------
 // Compliance & Renewal Reminder Module Providers

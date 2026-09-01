@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +13,7 @@ import 'package:printing/printing.dart';
 import '../../../app/providers.dart';
 import '../../../core/utils/pdf_font_helper.dart';
 import '../../../core/utils/share_utils.dart';
+import '../../../core/utils/web_file_download.dart';
 import '../../widgets/app_refresh_button.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/smart_navigation.dart';
@@ -175,6 +177,15 @@ class _ReportsDetailScreenState extends ConsumerState<ReportsDetailScreen> {
 
   Future<void> _download(Map<String, dynamic> report) async {
     await _runBusy(() async {
+      // Flutter Web has no dart:io / path_provider / open_file support, so
+      // generate the PDF bytes in memory and trigger a browser download.
+      if (kIsWeb) {
+        final bytes = await _buildPdfBytes(report);
+        await WebFileDownload.downloadBytes(bytes, _fileName(report));
+        _showSnack('Report download started');
+        return;
+      }
+
       final filePath = await _ensureLocalFile(report);
       if (filePath == null) {
         _showSnack('No file available for this report yet.');
@@ -711,7 +722,7 @@ class _TableData {
   });
 
   static const int maxRows = 20;
-  static const int maxColumns = 6;
+  static const int maxColumns = 9;
 
   final List<String> columns;
   final List<List<String>> rows;

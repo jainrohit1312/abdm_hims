@@ -6546,4 +6546,120 @@ class DatabaseService {
       AppLogger.w('Could not enrich report generated_by names: $e');
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Report generation data queries (tenant-scoped, date-range based)
+  // ---------------------------------------------------------------------------
+
+  /// OPD registrations for a date range with patient name/UHID/mobile/gender
+  /// embedded. Used by the Consultation and Doctor Performance reports.
+  Future<List<Map<String, dynamic>>> getOPDRegistrationsForRange({
+    required String hospitalId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final response = await fetchWithRetry(
+      () => _client
+          .from(ApiConstants.opdRegistrationsTable)
+          .select(
+            '*, patients(first_name, last_name, uhid, mobile_number, gender)',
+          )
+          .eq('hospital_id', hospitalId)
+          .gte('visit_date', _dateOnlyString(from))
+          .lte('visit_date', _dateOnlyString(to))
+          .order('visit_date', ascending: true)
+          .limit(1000),
+    );
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  /// Patient master rows registered during a date range.
+  Future<List<Map<String, dynamic>>> getPatientsForRange({
+    required String hospitalId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final response = await fetchWithRetry(
+      () => _client
+          .from(ApiConstants.patientsTable)
+          .select(
+            'id, uhid, first_name, last_name, date_of_birth, age, gender, '
+            'mobile_number, registration_date, created_at',
+          )
+          .eq('hospital_id', hospitalId)
+          .gte('registration_date', _dateOnlyString(from))
+          .lte('registration_date', _dateOnlyString(to))
+          .order('registration_date', ascending: true)
+          .limit(1000),
+    );
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  /// Billing rows for a date range with patient name/UHID embedded.
+  /// Used by the Revenue report. Only the materialised billing table is
+  /// queried so transactions are never double counted.
+  Future<List<Map<String, dynamic>>> getBillingForRange({
+    required String hospitalId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final response = await fetchWithRetry(
+      () => _client
+          .from(ApiConstants.billingTable)
+          .select('*, patients(first_name, last_name, uhid)')
+          .eq('hospital_id', hospitalId)
+          .gte('bill_date', _dateOnlyString(from))
+          .lte('bill_date', _dateOnlyString(to))
+          .order('bill_date', ascending: true)
+          .limit(1000),
+    );
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  /// Counseling records for a date range with patient name/UHID embedded.
+  Future<List<Map<String, dynamic>>> getCounselingRecordsForRange({
+    required String hospitalId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final response = await fetchWithRetry(
+      () => _client
+          .from(ApiConstants.counselingRecordsTable)
+          .select('*, patients(first_name, last_name, uhid)')
+          .eq('hospital_id', hospitalId)
+          .gte('counseling_date', _dateOnlyString(from))
+          .lte('counseling_date', _dateOnlyString(to))
+          .order('counseling_date', ascending: true)
+          .limit(1000),
+    );
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  /// OPD rows whose `follow_up_date` falls inside a date range. When the
+  /// follow-up data source is not configured (missing column/table) the
+  /// PostgrestException is rethrown so the caller can mark the report failed
+  /// with a clear message instead of fabricating data.
+  Future<List<Map<String, dynamic>>> getFollowUpRowsForRange({
+    required String hospitalId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final response = await fetchWithRetry(
+      () => _client
+          .from(ApiConstants.opdRegistrationsTable)
+          .select('*, patients(first_name, last_name, uhid, mobile_number)')
+          .eq('hospital_id', hospitalId)
+          .gte('follow_up_date', _dateOnlyString(from))
+          .lte('follow_up_date', _dateOnlyString(to))
+          .order('follow_up_date', ascending: true)
+          .limit(1000),
+    );
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  /// Returns `yyyy-MM-dd` for a DateTime without any time component.
+  String _dateOnlyString(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
 }

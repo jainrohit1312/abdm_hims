@@ -67,6 +67,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       appBar: SmartAppBar(
         title: const Text('Reports'),
         actions: [
+          IconButton(
+            tooltip: 'Generate Report',
+            icon: const Icon(Icons.add_chart),
+            onPressed: () => context.push('/reports/generate'),
+          ),
           AppRefreshButton(
             onRefresh: () => ref.invalidate(reportsProvider(hospitalId)),
           ),
@@ -88,15 +93,17 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               skipLoadingOnReload: true,
               data: (reports) {
                 final visible = _filteredReports(reports);
+                final hasFilters =
+                    _query.isNotEmpty ||
+                    _selectedType != null ||
+                    _selectedStatus != null;
                 return RefreshIndicator(
                   onRefresh: () => _refresh(hospitalId),
                   child: visible.isEmpty
                       ? _EmptyState(
-                          hasFilters:
-                              _query.isNotEmpty ||
-                              _selectedType != null ||
-                              _selectedStatus != null,
+                          hasFilters: hasFilters,
                           hasAnyReports: reports.isNotEmpty,
+                          onGenerate: () => context.push('/reports/generate'),
                         )
                       : ListView.builder(
                           physics: const AlwaysScrollableScrollPhysics(),
@@ -141,10 +148,15 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.hasFilters, required this.hasAnyReports});
+  const _EmptyState({
+    required this.hasFilters,
+    required this.hasAnyReports,
+    required this.onGenerate,
+  });
 
   final bool hasFilters;
   final bool hasAnyReports;
+  final VoidCallback onGenerate;
 
   @override
   Widget build(BuildContext context) {
@@ -176,6 +188,16 @@ class _EmptyState extends StatelessWidget {
             ),
           ),
         ),
+        if (!hasFilters) ...[
+          const SizedBox(height: 20),
+          Center(
+            child: FilledButton.icon(
+              onPressed: onGenerate,
+              icon: const Icon(Icons.add_chart),
+              label: const Text('Generate First Report'),
+            ),
+          ),
+        ],
       ],
     );
   }

@@ -186,6 +186,8 @@ class ReportCard extends StatelessWidget {
     final typeColor = ReportVisuals.colorForType(type);
     final title = report['title']?.toString() ?? 'Untitled Report';
     final createdAt = DateTime.tryParse(report['created_at']?.toString() ?? '');
+    final dateFrom = DateTime.tryParse(report['date_from']?.toString() ?? '');
+    final dateTo = DateTime.tryParse(report['date_to']?.toString() ?? '');
     final generatedBy =
         report['generated_by_name']?.toString() ??
         report['generated_by']?.toString();
@@ -243,6 +245,14 @@ class ReportCard extends StatelessWidget {
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
+                            if (dateFrom != null && dateTo != null)
+                              Text(
+                                '${dateFrom.toDisplayDate} → '
+                                '${dateTo.toDisplayDate}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
                             if (createdAt != null)
                               Text(
                                 createdAt.toDisplayDateTime,

@@ -53,6 +53,7 @@ import '../presentation/screens/whatsapp/whatsapp_templates_screen.dart';
 import '../presentation/screens/subscription/subscription_status_screen.dart';
 import '../presentation/screens/reports/reports_screen.dart';
 import '../presentation/screens/reports/reports_detail_screen.dart';
+import '../presentation/screens/reports/report_generate_screen.dart';
 import '../presentation/widgets/app_header.dart';
 import '../presentation/widgets/smart_navigation.dart';
 import 'providers.dart';
@@ -605,6 +606,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             name: 'reports',
             builder: (context, state) => const ReportsScreen(),
             routes: [
+              GoRoute(
+                path: 'generate',
+                name: 'report-generate',
+                builder: (context, state) => const ReportGenerateScreen(),
+              ),
               GoRoute(
                 path: ':id',
                 name: 'report-detail',
