@@ -535,10 +535,20 @@ class _ReportDetailBody extends StatelessWidget {
                           DataColumn(label: Text(column)),
                       ],
                       rows: [
-                        for (final row in table.rows)
+                        for (var i = 0; i < table.rows.length; i++)
                           DataRow(
                             cells: [
-                              for (final cell in row) DataCell(Text(cell)),
+                              for (final cell in table.rows[i])
+                                DataCell(
+                                  Text(
+                                    cell,
+                                    style: table.totalRowIndices.contains(i)
+                                        ? const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          )
+                                        : null,
+                                  ),
+                                ),
                             ],
                           ),
                       ],
@@ -712,13 +722,16 @@ class _StatCard extends StatelessWidget {
 /// `data` JSONB ko tabular form mein parse karta hai.
 ///
 /// Expected shape: `List<Map<String, dynamic>>` (har row ek object). Sirf
-/// pehle [maxRows] rows aur [maxColumns] columns UI/PDF mein dikhaye jaate
-/// hain.
+/// pehle [maxRows] detail rows aur [maxColumns] columns UI/PDF mein dikhaye
+/// jaate hain. Rows marked with `__total_row__: true` are total/footer rows —
+/// they are always appended after the detail rows so GRAND TOTAL remains
+/// visible even when the detail list is truncated.
 class _TableData {
   _TableData({
     required this.columns,
     required this.rows,
     this.truncated = false,
+    this.totalRowIndices = const [],
   });
 
   static const int maxRows = 20;
@@ -727,6 +740,9 @@ class _TableData {
   final List<String> columns;
   final List<List<String>> rows;
   final bool truncated;
+
+  /// Indexes in [rows] that are total/footer rows (rendered bold).
+  final List<int> totalRowIndices;
 
   static _TableData? from(dynamic data) {
     if (data is! List || data.isEmpty) return null;
@@ -748,27 +764,53 @@ class _TableData {
       );
     }
 
-    // Union of keys (order preserved from first occurrence).
-    final keys = <String>[];
+    final detailObjects = <Map>[];
+    final totalObjects = <Map>[];
     for (final object in objects) {
+      if (object['__total_row__'] == true) {
+        totalObjects.add(object);
+      } else {
+        detailObjects.add(object);
+      }
+    }
+
+    // Fallback for callers that only store total rows.
+    final source = detailObjects.isNotEmpty ? detailObjects : totalObjects;
+
+    // Union of keys (order preserved from first occurrence). Internal keys
+    // (`__total_row__`) are never exposed as columns.
+    final keys = <String>[];
+    for (final object in source) {
       for (final key in object.keys) {
-        if (!keys.contains(key.toString()) && keys.length < maxColumns) {
-          keys.add(key.toString());
+        final keyString = key.toString();
+        if (keyString.startsWith('__')) continue;
+        if (!keys.contains(keyString) && keys.length < maxColumns) {
+          keys.add(keyString);
         }
       }
       if (keys.length >= maxColumns) break;
     }
 
+    // A list with only a footer marker (empty report + total row) has no
+    // columns and must not render an empty DataTable.
+    if (keys.isEmpty) return null;
+
     final rows = <List<String>>[];
-    for (var i = 0; i < objects.length && i < maxRows; i++) {
-      final object = objects[i];
+    final totalRowIndices = <int>[];
+    for (var i = 0; i < detailObjects.length && i < maxRows; i++) {
+      final object = detailObjects[i];
+      rows.add([for (final key in keys) object[key]?.toString() ?? '']);
+    }
+    for (final object in totalObjects) {
+      totalRowIndices.add(rows.length);
       rows.add([for (final key in keys) object[key]?.toString() ?? '']);
     }
 
     return _TableData(
       columns: keys,
       rows: rows,
-      truncated: objects.length > maxRows,
+      truncated: detailObjects.length > maxRows,
+      totalRowIndices: totalRowIndices,
     );
   }
 }

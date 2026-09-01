@@ -11,6 +11,9 @@ class ReportVisuals {
   static const Map<String, IconData> _typeIcons = {
     'consultation': Icons.medical_services_outlined,
     'patient': Icons.person_outline,
+    'ipd': Icons.bed,
+    'diagnostic': Icons.science,
+    'voucher': Icons.account_balance_wallet,
     'counseling': Icons.psychology_outlined,
     'doctor_performance': Icons.insights_outlined,
     'revenue': Icons.payments_outlined,
@@ -20,6 +23,9 @@ class ReportVisuals {
   static const Map<String, Color> _typeColors = {
     'consultation': Color(0xFF1976D2),
     'patient': Color(0xFF00897B),
+    'ipd': Color(0xFF3949AB),
+    'diagnostic': Color(0xFF00ACC1),
+    'voucher': Color(0xFF546E7A),
     'counseling': Color(0xFF8E24AA),
     'doctor_performance': Color(0xFFF4511E),
     'revenue': Color(0xFF43A047),
@@ -42,6 +48,12 @@ class ReportVisuals {
         return 'Consultation';
       case 'patient':
         return 'Patient';
+      case 'ipd':
+        return 'IPD';
+      case 'diagnostic':
+        return 'Diagnostics';
+      case 'voucher':
+        return 'Voucher';
       case 'counseling':
         return 'Counseling';
       case 'doctor_performance':

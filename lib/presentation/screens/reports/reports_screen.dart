@@ -79,6 +79,17 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       ),
       body: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => context.push('/reports/generate'),
+                icon: const Icon(Icons.add_chart),
+                label: const Text('Generate New Report'),
+              ),
+            ),
+          ),
           ReportFilterBar(
             searchController: _searchController,
             selectedType: _selectedType,

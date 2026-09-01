@@ -26,6 +26,9 @@ class ReportFilterBar extends StatelessWidget {
   static const List<String> reportTypes = [
     'consultation',
     'patient',
+    'ipd',
+    'diagnostic',
+    'voucher',
     'counseling',
     'doctor_performance',
     'revenue',
@@ -92,6 +95,12 @@ class ReportFilterBar extends StatelessWidget {
         return 'Consultation';
       case 'patient':
         return 'Patient';
+      case 'ipd':
+        return 'IPD';
+      case 'diagnostic':
+        return 'Diagnostics';
+      case 'voucher':
+        return 'Voucher';
       case 'counseling':
         return 'Counseling';
       case 'doctor_performance':

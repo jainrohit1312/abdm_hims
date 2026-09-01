@@ -1,3 +1,4 @@
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../core/constants/api_constants.dart';
@@ -40,6 +41,12 @@ class ReportGenerationService {
   ReportGenerationService(this._db);
 
   final DatabaseService _db;
+
+  static final NumberFormat _inr = NumberFormat.currency(
+    locale: 'en_IN',
+    symbol: '₹',
+    decimalDigits: 2,
+  );
 
   static const String followUpUnavailableMessage =
       'Follow-up reporting is not available because no follow-up data source '
@@ -135,6 +142,12 @@ class ReportGenerationService {
         return _buildConsultationReport(hospitalId, from, to);
       case 'patient':
         return _buildPatientReport(hospitalId, from, to);
+      case 'ipd':
+        return _buildIPDReport(hospitalId, from, to);
+      case 'diagnostic':
+        return _buildDiagnosticReport(hospitalId, from, to);
+      case 'voucher':
+        return _buildVoucherReport(hospitalId, from, to);
       case 'counseling':
         return _buildCounselingReport(hospitalId, from, to);
       case 'doctor_performance':
@@ -203,16 +216,24 @@ class ReportGenerationService {
           'Department': _departmentName(row),
           'Type': _consultationTypeLabel(row['consultation_type']),
           'Status': _statusLabel(row['status']),
-          'Fee': _money(_toDouble(row['consultation_fee'])),
-          'Payment': _paymentStatusLabel(row['payment_status']),
+          'Payment Status': _paymentStatusLabel(row['payment_status']),
+          'Amount': _money(_toDouble(row['consultation_fee'])),
         },
     ];
+    data.add(
+      _makeTotalRow(
+        data,
+        label: 'GRAND TOTAL',
+        labelColumn: 'Patient',
+        totals: {'Amount': fee},
+      ),
+    );
 
     return GeneratedReportData(data: data, summary: summary);
   }
 
   // ---------------------------------------------------------------------------
-  // Patient report
+  // Patient report (no financial amount exists — do not invent one)
   // ---------------------------------------------------------------------------
 
   Future<GeneratedReportData> _buildPatientReport(
@@ -260,8 +281,6 @@ class ReportGenerationService {
       }
     }
 
-    // When age is unavailable, keep the age buckets out of the summary so
-    // the numbers are never misleading.
     final summary = <String, dynamic>{
       'Total Patients': rows.length,
       'Male': male,
@@ -289,8 +308,281 @@ class ReportGenerationService {
           'Age': row['age']?.toString() ?? '',
           'Gender': row['gender']?.toString() ?? '',
           'Mobile': row['mobile_number']?.toString() ?? '',
+          'Amount': '—',
         },
     ];
+
+    return GeneratedReportData(data: data, summary: summary);
+  }
+
+  // ---------------------------------------------------------------------------
+  // IPD report
+  // ---------------------------------------------------------------------------
+
+  Future<GeneratedReportData> _buildIPDReport(
+    String hospitalId,
+    DateTime from,
+    DateTime to,
+  ) async {
+    final rows = await _db.getIPDReportRowsForRange(
+      hospitalId: hospitalId,
+      from: from,
+      to: to,
+    );
+
+    var admitted = 0;
+    var discharged = 0;
+    var totalAmount = 0.0;
+    var losSum = 0;
+    var losCount = 0;
+    final wardCount = <String, int>{};
+    final departmentCount = <String, int>{};
+    final doctorCount = <String, int>{};
+
+    for (final row in rows) {
+      final status = (row['status']?.toString() ?? '').toLowerCase().trim();
+      if (status == 'admitted') {
+        admitted++;
+      } else if (status == 'discharged') {
+        discharged++;
+      }
+
+      totalAmount += _toDouble(row['ipd_amount']);
+      final los = _lengthOfStay(row);
+      if (los != null) {
+        losSum += los;
+        losCount++;
+      }
+      _increment(wardCount, _wardName(row));
+      _increment(departmentCount, _departmentName(row));
+      _increment(doctorCount, _doctorName(row));
+    }
+
+    final summary = <String, dynamic>{
+      'Total IPD Admissions': rows.length,
+      'Currently Admitted': admitted,
+      'Discharged': discharged,
+      if (losCount > 0)
+        'Average Length of Stay (days)': (losSum / losCount).round(),
+      'Total IPD Amount': _money(totalAmount),
+    };
+    _addTopEntries(summary, wardCount, limit: 3);
+    _addTopEntries(summary, departmentCount, limit: 3);
+    _addTopEntries(summary, doctorCount, limit: 3);
+
+    final data = <Map<String, dynamic>>[
+      for (final row in rows)
+        {
+          'Admission Date': _dateCell(row['admission_date']),
+          'UHID': _patientUhid(row),
+          'Patient': _patientName(row),
+          'Doctor': _doctorName(row),
+          'Department': _departmentName(row),
+          'Ward': _wardName(row),
+          'Bed': _bedNumber(row),
+          'Status': _ipdStatusLabel(row['status']),
+          'Amount': _money(_toDouble(row['ipd_amount'])),
+        },
+    ];
+    data.add(
+      _makeTotalRow(
+        data,
+        label: 'GRAND TOTAL',
+        labelColumn: 'Patient',
+        totals: {'Amount': totalAmount},
+      ),
+    );
+
+    return GeneratedReportData(data: data, summary: summary);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Diagnostic report — one row per diagnostic order
+  // ---------------------------------------------------------------------------
+
+  Future<GeneratedReportData> _buildDiagnosticReport(
+    String hospitalId,
+    DateTime from,
+    DateTime to,
+  ) async {
+    final orders = await _db.getDiagnosticOrdersForRange(
+      hospitalId: hospitalId,
+      from: from,
+      to: to,
+    );
+
+    var completedOrders = 0;
+    var pendingOrders = 0;
+    var totalTests = 0;
+    var totalAmount = 0.0;
+    final testCount = <String, int>{};
+    final doctorCount = <String, int>{};
+    final doctorIds = <String>{};
+
+    for (final order in orders) {
+      final status = (order['status']?.toString() ?? '')
+          .toLowerCase()
+          .trim();
+      if (status == 'completed') {
+        completedOrders++;
+      } else if (status == 'pending' || status == 'in_progress') {
+        pendingOrders++;
+      }
+
+      final items = _orderItems(order);
+      totalTests += items.length;
+      totalAmount += _toDouble(order['total_amount']);
+      for (final item in items) {
+        _increment(testCount, item['test_name']?.toString() ?? 'Unknown Test');
+      }
+
+      final doctorId = order['doctor_id']?.toString();
+      if (doctorId != null && doctorId.isNotEmpty) {
+        doctorIds.add(doctorId);
+      }
+    }
+
+    final usersById = await _db.getUsersByIds(doctorIds);
+    for (final order in orders) {
+      final doctorId = order['doctor_id']?.toString();
+      final doctor = _userName(usersById[doctorId]);
+      _increment(doctorCount, doctor.isEmpty ? doctorId ?? 'Unknown' : doctor);
+    }
+
+    // Lab/diagnostic bills are the only paid/outstanding source for
+    // diagnostics. They are aggregated separately (not per order) because the
+    // schema does not link a diagnostic billing row back to its order id.
+    var totalPaid = 0.0;
+    var totalOutstanding = 0.0;
+    final bills = await _db.getBillingForRange(
+      hospitalId: hospitalId,
+      from: from,
+      to: to,
+    );
+    for (final bill in bills) {
+      if (_billingSourceType(bill) != 'lab') continue;
+      totalPaid += _toDouble(bill['paid_amount']);
+      totalOutstanding += _toDouble(bill['balance_amount']);
+    }
+
+    final summary = <String, dynamic>{
+      'Total Orders': orders.length,
+      'Total Tests': totalTests,
+      'Completed Orders': completedOrders,
+      'Pending Orders': pendingOrders,
+      'Total Diagnostic Amount': _money(totalAmount),
+      'Total Paid': _money(totalPaid),
+      'Total Outstanding': _money(totalOutstanding),
+    };
+    _addTopEntries(summary, testCount, limit: 3);
+    _addTopEntries(summary, doctorCount, limit: 3);
+
+    final data = <Map<String, dynamic>>[
+      for (final order in orders)
+        {
+          'Order Date': _dateCell(order['order_date']),
+          'UHID': _patientUhid(order),
+          'Patient': _patientName(order),
+          'Doctor': _userName(usersById[order['doctor_id']?.toString()]),
+          'Test / Order': _testSummary(order),
+          'Status': _diagnosticStatusLabel(order['status']),
+          'Amount': _money(_toDouble(order['total_amount'])),
+          'Paid': '—',
+          'Balance': '—',
+        },
+    ];
+    data.add(
+      _makeTotalRow(
+        data,
+        label: 'TOTAL',
+        labelColumn: 'Patient',
+        totals: {
+          'Amount': totalAmount,
+          'Paid': totalPaid,
+          'Balance': totalOutstanding,
+        },
+      ),
+    );
+
+    return GeneratedReportData(data: data, summary: summary);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Voucher report
+  // ---------------------------------------------------------------------------
+
+  Future<GeneratedReportData> _buildVoucherReport(
+    String hospitalId,
+    DateTime from,
+    DateTime to,
+  ) async {
+    final rows = await _db.getVouchersForRange(
+      hospitalId: hospitalId,
+      from: from,
+      to: to,
+    );
+
+    var totalAmount = 0.0;
+    final typeCount = <String, int>{};
+    final categoryAmount = <String, double>{};
+    final modeAmount = <String, double>{};
+    final createdByIds = <String>{};
+
+    for (final row in rows) {
+      final amount = _toDouble(row['amount']);
+      totalAmount += amount;
+
+      final type = row['voucher_type']?.toString() ?? 'Expense';
+      _increment(typeCount, type);
+
+      final category = row['expense_category']?.toString() ?? '';
+      _addAmount(categoryAmount, category, amount);
+
+      final mode = row['payment_mode']?.toString() ?? '';
+      _addAmount(modeAmount, mode, amount);
+
+      final createdBy = row['created_by']?.toString();
+      if (createdBy != null && createdBy.isNotEmpty) {
+        createdByIds.add(createdBy);
+      }
+    }
+
+    final usersById = await _db.getUsersByIds(createdByIds);
+
+    final summary = <String, dynamic>{
+      'Total Vouchers': rows.length,
+      'Total Voucher Amount': _money(totalAmount),
+    };
+    for (final type in ['Expense', 'Payment', 'Adjustment']) {
+      if (typeCount[type] != null) {
+        summary['$type Vouchers'] = typeCount[type]!;
+      }
+    }
+    _addTopAmountEntries(summary, categoryAmount, limit: 3);
+    _addTopAmountEntries(summary, modeAmount, limit: 3);
+
+    final data = <Map<String, dynamic>>[
+      for (final row in rows)
+        {
+          'Date': _dateCell(row['voucher_date']),
+          'Voucher No': row['voucher_number']?.toString() ?? '',
+          'Type': _voucherTypeLabel(row['voucher_type']),
+          'Category': row['expense_category']?.toString() ?? '',
+          'Payee': row['payee_name']?.toString() ?? '',
+          'Description': row['description']?.toString() ?? '',
+          'Payment Mode': row['payment_mode']?.toString() ?? '',
+          'Amount': _money(_toDouble(row['amount'])),
+          'Created By': _userName(usersById[row['created_by']?.toString()]),
+        },
+    ];
+    data.add(
+      _makeTotalRow(
+        data,
+        label: 'GRAND TOTAL',
+        labelColumn: 'Payee',
+        totals: {'Amount': totalAmount},
+      ),
+    );
 
     return GeneratedReportData(data: data, summary: summary);
   }
@@ -342,7 +634,7 @@ class ReportGenerationService {
       'Total Consultations': rows.length,
       'Completed': completed,
       'Pending': pending,
-      'Total Consultation Fees': _money(totalFees),
+      'Total Consultation Amount': _money(totalFees),
     };
 
     final data = <Map<String, dynamic>>[
@@ -352,9 +644,17 @@ class ReportGenerationService {
           'Consultations': doctor.consultations,
           'Completed': doctor.completed,
           'Pending': doctor.pending,
-          'Fees': _money(doctor.fees),
+          'Amount': _money(doctor.fees),
         },
     ];
+    data.add(
+      _makeTotalRow(
+        data,
+        label: 'GRAND TOTAL',
+        labelColumn: 'Doctor',
+        totals: {'Amount': totalFees},
+      ),
+    );
 
     return GeneratedReportData(data: data, summary: summary);
   }
@@ -415,20 +715,31 @@ class ReportGenerationService {
           'Date': _dateCell(row['bill_date']),
           'Bill No': row['bill_number']?.toString() ?? '',
           'Patient': _patientName(row),
-          'Source': _billingSourceLabel(_billingSourceType(row)),
-          'Total': _money(_toDouble(row['total_amount'])),
-          'Net': _money(_toDouble(row['net_amount'])),
+          'Type': _billingSourceLabel(_billingSourceType(row)),
+          'Amount': _money(_toDouble(row['net_amount'])),
           'Paid': _money(_toDouble(row['paid_amount'])),
-          'Balance': _money(_toDouble(row['balance_amount'])),
+          'Outstanding': _money(_toDouble(row['balance_amount'])),
           'Status': _paymentStatusLabel(row['payment_status']),
         },
     ];
+    data.add(
+      _makeTotalRow(
+        data,
+        label: 'GRAND TOTAL',
+        labelColumn: 'Patient',
+        totals: {
+          'Amount': totalRevenue,
+          'Paid': paid,
+          'Outstanding': outstanding,
+        },
+      ),
+    );
 
     return GeneratedReportData(data: data, summary: summary);
   }
 
   // ---------------------------------------------------------------------------
-  // Counseling report
+  // Counseling report (no counseling fee column exists — do not invent one)
   // ---------------------------------------------------------------------------
 
   Future<GeneratedReportData> _buildCounselingReport(
@@ -442,9 +753,6 @@ class ReportGenerationService {
       to: to,
     );
 
-    // counseling_records has no status column — a saved record is a completed
-    // (documented) session. `completed` is therefore the same as the total;
-    // it is kept as an explicit metric because the Reports UI displays it.
     final patientIds = <String>{};
     var opdSessions = 0;
     var ipdSessions = 0;
@@ -489,6 +797,7 @@ class ReportGenerationService {
           'Duration (min)': ((_toInt(row['duration_seconds'])) / 60)
               .round()
               .toString(),
+          'Amount': '—',
         },
     ];
 
@@ -496,7 +805,7 @@ class ReportGenerationService {
   }
 
   // ---------------------------------------------------------------------------
-  // Follow-up report
+  // Follow-up report (follow_up_date rows carry their OPD consultation fee)
   // ---------------------------------------------------------------------------
 
   Future<GeneratedReportData> _buildFollowUpReport(
@@ -521,6 +830,7 @@ class ReportGenerationService {
 
     var pending = 0;
     var completed = 0;
+    var totalAmount = 0.0;
     for (final row in rows) {
       final status = _normalizeStatus(row['status']);
       if (status == 'completed') {
@@ -528,12 +838,14 @@ class ReportGenerationService {
       } else if (status != 'cancelled') {
         pending++;
       }
+      totalAmount += _toDouble(row['consultation_fee']);
     }
 
     final summary = <String, dynamic>{
       'Total Follow-ups': rows.length,
       'Pending': pending,
       'Completed': completed,
+      'Total Follow-up Amount': _money(totalAmount),
     };
 
     final data = <Map<String, dynamic>>[
@@ -545,8 +857,17 @@ class ReportGenerationService {
           'Doctor': _doctorName(row),
           'Department': _departmentName(row),
           'Status': _statusLabel(row['status']),
+          'Amount': _money(_toDouble(row['consultation_fee'])),
         },
     ];
+    data.add(
+      _makeTotalRow(
+        data,
+        label: 'GRAND TOTAL',
+        labelColumn: 'Patient',
+        totals: {'Amount': totalAmount},
+      ),
+    );
 
     return GeneratedReportData(data: data, summary: summary);
   }
@@ -561,6 +882,12 @@ class ReportGenerationService {
         return 'Consultation Report';
       case 'patient':
         return 'Patient Report';
+      case 'ipd':
+        return 'IPD Report';
+      case 'diagnostic':
+        return 'Diagnostics Report';
+      case 'voucher':
+        return 'Voucher Report';
       case 'counseling':
         return 'Counseling Report';
       case 'doctor_performance':
@@ -597,7 +924,7 @@ class ReportGenerationService {
     return int.tryParse(value.toString()) ?? 0;
   }
 
-  static String _money(double value) => value.toStringAsFixed(2);
+  static String _money(double value) => _inr.format(value);
 
   static String _dateCell(dynamic value) {
     final text = value?.toString() ?? '';
@@ -607,6 +934,37 @@ class ReportGenerationService {
     final day = date.day.toString().padLeft(2, '0');
     final month = date.month.toString().padLeft(2, '0');
     return '$day/$month/${date.year}';
+  }
+
+  /// Builds a footer row marked with `__total_row__` so `_TableData.from`
+  /// always renders it after the detail rows and styles it bold.
+  static Map<String, dynamic> _makeTotalRow(
+    List<Map<String, dynamic>> rows, {
+    required String label,
+    required Map<String, double> totals,
+    String? labelColumn,
+  }) {
+    final row = <String, dynamic>{'__total_row__': true};
+    if (rows.isEmpty) return row;
+
+    final keys = rows.first.keys
+        .where((key) => !key.startsWith('__'))
+        .toList();
+    for (final key in keys) {
+      row[key] = '';
+    }
+
+    final target = labelColumn != null && keys.contains(labelColumn)
+        ? labelColumn
+        : (keys.isNotEmpty ? keys.first : null);
+    if (target != null) row[target] = label;
+
+    for (final entry in totals.entries) {
+      if (row.containsKey(entry.key)) {
+        row[entry.key] = _money(entry.value);
+      }
+    }
+    return row;
   }
 
   static String _patientName(Map<String, dynamic> row) {
@@ -649,6 +1007,62 @@ class ReportGenerationService {
     return row['department_id']?.toString() ?? '';
   }
 
+  static String _wardName(Map<String, dynamic> row) {
+    final direct = row['ward_type']?.toString();
+    if (direct != null && direct.trim().isNotEmpty) return direct.trim();
+
+    final bed = row['beds'];
+    if (bed is Map) {
+      final bedWard = bed['ward_type']?.toString();
+      if (bedWard != null && bedWard.trim().isNotEmpty) return bedWard.trim();
+      final wardName = bed['ward_name']?.toString();
+      if (wardName != null && wardName.trim().isNotEmpty) {
+        return wardName.trim();
+      }
+    }
+    return row['ward_name']?.toString() ?? '';
+  }
+
+  static String _bedNumber(Map<String, dynamic> row) {
+    final bed = row['beds'];
+    if (bed is Map) {
+      final bedNumber = bed['bed_number']?.toString();
+      if (bedNumber != null && bedNumber.trim().isNotEmpty) {
+        return bedNumber.trim();
+      }
+    }
+    return row['bed_id']?.toString() ?? '';
+  }
+
+  static int? _lengthOfStay(Map<String, dynamic> row) {
+    final admissionDate = DateTime.tryParse(
+      row['admission_date']?.toString() ?? '',
+    );
+    if (admissionDate == null) return null;
+    final dischargeDate = DateTime.tryParse(
+      row['discharge_date']?.toString() ?? '',
+    );
+    final end = dischargeDate ?? DateTime.now();
+    final days = end.difference(admissionDate).inDays;
+    return days < 0 ? null : days;
+  }
+
+  static List<Map<String, dynamic>> _orderItems(Map<String, dynamic> order) {
+    final items = order['diagnostic_order_items'];
+    if (items is List) {
+      return items.whereType<Map<String, dynamic>>().toList();
+    }
+    return const [];
+  }
+
+  static String _testSummary(Map<String, dynamic> order) {
+    final items = _orderItems(order);
+    if (items.isEmpty) return '';
+    final first = items.first['test_name']?.toString() ?? 'Test';
+    if (items.length == 1) return first;
+    return '$first +${items.length - 1}';
+  }
+
   static String _userName(Map<String, dynamic>? user) {
     if (user == null) return '';
     final first = user['first_name']?.toString() ?? '';
@@ -663,6 +1077,11 @@ class ReportGenerationService {
     counts[resolved] = (counts[resolved] ?? 0) + 1;
   }
 
+  static void _addAmount(Map<String, double> amounts, String key, double value) {
+    final resolved = key.trim().isEmpty ? 'Unknown' : key;
+    amounts[resolved] = (amounts[resolved] ?? 0) + value;
+  }
+
   static void _addTopEntries(
     Map<String, dynamic> summary,
     Map<String, int> counts, {
@@ -674,6 +1093,20 @@ class ReportGenerationService {
       final key = entry.key.isEmpty ? 'Unknown' : entry.key;
       if (summary.containsKey(key)) continue;
       summary[key] = entry.value;
+    }
+  }
+
+  static void _addTopAmountEntries(
+    Map<String, dynamic> summary,
+    Map<String, double> amounts, {
+    required int limit,
+  }) {
+    final entries = amounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    for (final entry in entries.take(limit)) {
+      final key = entry.key.isEmpty ? 'Unknown' : entry.key;
+      if (summary.containsKey(key)) continue;
+      summary[key] = _money(entry.value);
     }
   }
 
@@ -708,6 +1141,48 @@ class ReportGenerationService {
         return 'No Show';
       default:
         return 'Unknown';
+    }
+  }
+
+  static String _ipdStatusLabel(dynamic status) {
+    switch ((status?.toString() ?? '').toLowerCase().trim()) {
+      case 'admitted':
+        return 'Admitted';
+      case 'discharged':
+        return 'Discharged';
+      case 'transferred':
+        return 'Transferred';
+      default:
+        return status?.toString() ?? '';
+    }
+  }
+
+  static String _diagnosticStatusLabel(dynamic status) {
+    switch ((status?.toString() ?? '').toLowerCase().trim()) {
+      case 'pending':
+        return 'Pending';
+      case 'in_progress':
+      case 'in-progress':
+        return 'In Progress';
+      case 'completed':
+        return 'Completed';
+      case 'cancelled':
+        return 'Cancelled';
+      default:
+        return status?.toString() ?? '';
+    }
+  }
+
+  static String _voucherTypeLabel(dynamic type) {
+    switch ((type?.toString() ?? '').toLowerCase().trim()) {
+      case 'expense':
+        return 'Expense';
+      case 'payment':
+        return 'Payment';
+      case 'adjustment':
+        return 'Adjustment';
+      default:
+        return type?.toString() ?? '';
     }
   }
 
@@ -796,6 +1271,9 @@ class ReportTypeKeys {
   static const List<String> all = [
     'consultation',
     'patient',
+    'ipd',
+    'diagnostic',
+    'voucher',
     'counseling',
     'doctor_performance',
     'revenue',

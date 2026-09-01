@@ -6657,6 +6657,157 @@ class DatabaseService {
     return List<Map<String, dynamic>>.from(response);
   }
 
+  /// IPD admissions for a date range with patient/bed embeds and a computed
+  /// per-admission `ipd_amount`. The amount prefers the latest materialised
+  /// IPD bill (`billing.net_amount`) and falls back to the sum of that
+  /// admission's `ipd_charges.amount` rows. One row per admission keeps the
+  /// IPD report free of payment-row double counting.
+  Future<List<Map<String, dynamic>>> getIPDReportRowsForRange({
+    required String hospitalId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final response = await fetchWithRetry(
+      () => _client
+          .from(ApiConstants.ipdAdmissionsTable)
+          .select('*, patients(first_name, last_name, uhid), beds(bed_number)')
+          .eq('hospital_id', hospitalId)
+          .gte('admission_date', _dateOnlyString(from))
+          .lte('admission_date', _dateOnlyString(to))
+          .order('admission_date', ascending: true)
+          .limit(1000),
+    );
+    final rows = List<Map<String, dynamic>>.from(response);
+    if (rows.isEmpty) return rows;
+
+    final admissionIds = rows
+        .map((row) => row['id']?.toString())
+        .whereType<String>()
+        .toList();
+    final billAmounts = await _latestIPDBillAmountsByAdmission(
+      hospitalId,
+      admissionIds,
+    );
+    final chargeAmounts = await _ipdChargeTotalsByAdmission(admissionIds);
+
+    for (final row in rows) {
+      final admissionId = row['id']?.toString() ?? '';
+      row['ipd_amount'] =
+          billAmounts[admissionId] ?? chargeAmounts[admissionId] ?? 0.0;
+    }
+    return rows;
+  }
+
+  Future<Map<String, double>> _latestIPDBillAmountsByAdmission(
+    String hospitalId,
+    List<String> admissionIds,
+  ) async {
+    final result = <String, double>{};
+    if (admissionIds.isEmpty) return result;
+
+    // Chunked so the Supabase `in` filter stays small and URL-safe.
+    const chunkSize = 100;
+    for (var i = 0; i < admissionIds.length; i += chunkSize) {
+      final chunk = admissionIds.sublist(
+        i,
+        i + chunkSize > admissionIds.length
+            ? admissionIds.length
+            : i + chunkSize,
+      );
+      final response = await fetchWithRetry(
+        () => _client
+            .from(ApiConstants.billingTable)
+            .select('ipd_admission_id, net_amount, bill_date, created_at')
+            .eq('hospital_id', hospitalId)
+            .inFilter('ipd_admission_id', chunk)
+            .order('created_at', ascending: false)
+            .limit(1000),
+      );
+      for (final row in response) {
+        final admissionId = row['ipd_admission_id']?.toString();
+        if (admissionId == null || admissionId.isEmpty) continue;
+        // `created_at` desc means the first row seen is the latest bill.
+        result.putIfAbsent(admissionId, () => _toDouble(row['net_amount']));
+      }
+    }
+    return result;
+  }
+
+  Future<Map<String, double>> _ipdChargeTotalsByAdmission(
+    List<String> admissionIds,
+  ) async {
+    final result = <String, double>{};
+    if (admissionIds.isEmpty) return result;
+
+    // Chunked so the Supabase `in` filter stays small and URL-safe.
+    const chunkSize = 100;
+    for (var i = 0; i < admissionIds.length; i += chunkSize) {
+      final chunk = admissionIds.sublist(
+        i,
+        i + chunkSize > admissionIds.length
+            ? admissionIds.length
+            : i + chunkSize,
+      );
+      final response = await fetchWithRetry(
+        () => _client
+            .from(ApiConstants.ipdChargesTable)
+            .select('admission_id, amount')
+            .inFilter('admission_id', chunk)
+            .limit(1000),
+      );
+      for (final row in response) {
+        final admissionId = row['admission_id']?.toString();
+        if (admissionId == null || admissionId.isEmpty) continue;
+        result[admissionId] =
+            (result[admissionId] ?? 0) + _toDouble(row['amount']);
+      }
+    }
+    return result;
+  }
+
+  /// Diagnostic orders for a date range with patient and order-item embeds.
+  /// One row per order; `diagnostic_order_items` carries the per-test prices
+  /// so the report service can derive test counts/names without N+1 queries.
+  Future<List<Map<String, dynamic>>> getDiagnosticOrdersForRange({
+    required String hospitalId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final response = await fetchWithRetry(
+      () => _client
+          .from(ApiConstants.diagnosticOrdersTable)
+          .select(
+            '*, patients(first_name, last_name, uhid), '
+            'diagnostic_order_items(test_name, price, category)',
+          )
+          .eq('hospital_id', hospitalId)
+          .gte('order_date', _dateOnlyString(from))
+          .lte('order_date', _dateOnlyString(to))
+          .order('order_date', ascending: true)
+          .limit(1000),
+    );
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  /// Vouchers for a date range, tenant-scoped. Used by the Voucher report.
+  Future<List<Map<String, dynamic>>> getVouchersForRange({
+    required String hospitalId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final response = await fetchWithRetry(
+      () => _client
+          .from(ApiConstants.vouchersTable)
+          .select()
+          .eq('hospital_id', hospitalId)
+          .gte('voucher_date', _dateOnlyString(from))
+          .lte('voucher_date', _dateOnlyString(to))
+          .order('voucher_date', ascending: true)
+          .limit(1000),
+    );
+    return List<Map<String, dynamic>>.from(response);
+  }
+
   /// Returns `yyyy-MM-dd` for a DateTime without any time component.
   String _dateOnlyString(DateTime value) =>
       '${value.year.toString().padLeft(4, '0')}-'
