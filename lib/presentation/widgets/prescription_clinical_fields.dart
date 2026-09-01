@@ -326,70 +326,7 @@ class PrescriptionHistoryFields extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        Card(
-          clipBehavior: Clip.antiAlias,
-          child: ExpansionTile(
-            key: const PageStorageKey('more-history-options'),
-            title: const Text('More History Options'),
-            subtitle: const Text(
-              'Past / Personal / Family / Allergy / Examination — optional',
-            ),
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextFormField(
-                      controller: controller.pastHistory,
-                      maxLines: 2,
-                      decoration: _fieldDecoration(
-                        'Past History',
-                        hint: 'DM / HTN / TB / Surgery / previous illness',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: controller.personalHistory,
-                      maxLines: 2,
-                      decoration: _fieldDecoration(
-                        'Personal History',
-                        hint: 'Diet, sleep, habits, occupation',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: controller.familyHistory,
-                      maxLines: 2,
-                      decoration: _fieldDecoration(
-                        'Family History',
-                        hint: 'Relevant illness in family',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: controller.allergies,
-                      maxLines: 2,
-                      decoration: _fieldDecoration(
-                        'Allergies / Drug Reactions',
-                        hint: 'Known drug/food allergies',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: controller.examinationFindings,
-                      maxLines: 2,
-                      decoration: _fieldDecoration(
-                        'Examination Findings (G/E + Systemic)',
-                        hint: 'Pallor, icterus, CVS, RS, CNS, local exam',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+        _MoreHistoryOptionsCard(controller: controller),
       ],
     );
   }
@@ -440,6 +377,145 @@ class PrescriptionHistoryFields extends StatelessWidget {
           hintText: hint,
           isDense: true,
                   ),
+      ),
+    );
+  }
+}
+
+/// Controlled collapsible "More History Options" card.
+///
+/// [ExpansionTile] yahan isliye use nahi hota kyunki uske `PageStorageKey` se
+/// save hua `bool` expanded-state, andar ke multi-line [TextFormField]s ke
+/// internal `Scrollable` scroll-offset storage se collide kar jaata hai
+/// (`bool` is not a subtype of `double?`). Iske bajaye ek simple local
+/// `_expanded` flag + [AnimatedSize] use hota hai — koi PageStorage write
+/// nahi hota, isliye fields hamesha cleanly render hote hain.
+class _MoreHistoryOptionsCard extends StatefulWidget {
+  final PrescriptionClinicalController controller;
+
+  const _MoreHistoryOptionsCard({required this.controller});
+
+  @override
+  State<_MoreHistoryOptionsCard> createState() =>
+      _MoreHistoryOptionsCardState();
+}
+
+class _MoreHistoryOptionsCardState extends State<_MoreHistoryOptionsCard> {
+  bool _expanded = false;
+
+  void _toggle() => setState(() => _expanded = !_expanded);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: _toggle,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'More History Options',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Past / Personal / Family / Allergy / Examination '
+                          '— optional',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedRotation(
+                    turns: _expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeInOut,
+                    child: Icon(
+                      _expanded ? Icons.expand_less : Icons.expand_more,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: _expanded
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TextFormField(
+                          controller: widget.controller.pastHistory,
+                          maxLines: 2,
+                          decoration: _fieldDecoration(
+                            'Past History',
+                            hint: 'DM / HTN / TB / Surgery / previous illness',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: widget.controller.personalHistory,
+                          maxLines: 2,
+                          decoration: _fieldDecoration(
+                            'Personal History',
+                            hint: 'Diet, sleep, habits, occupation',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: widget.controller.familyHistory,
+                          maxLines: 2,
+                          decoration: _fieldDecoration(
+                            'Family History',
+                            hint: 'Relevant illness in family',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: widget.controller.allergies,
+                          maxLines: 2,
+                          decoration: _fieldDecoration(
+                            'Allergies / Drug Reactions',
+                            hint: 'Known drug/food allergies',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: widget.controller.examinationFindings,
+                          maxLines: 2,
+                          decoration: _fieldDecoration(
+                            'Examination Findings (G/E + Systemic)',
+                            hint: 'Pallor, icterus, CVS, RS, CNS, local exam',
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
       ),
     );
   }
