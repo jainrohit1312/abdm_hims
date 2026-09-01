@@ -10,13 +10,13 @@ import '../../../app/providers.dart';
 import '../../../core/utils/pdf_font_helper.dart';
 import '../../widgets/smart_navigation.dart';
 
-/// Half-A4 portrait page: A4 width (210 mm) x half A4 height (148.5 mm).
+/// Half-A4 portrait page: 148.5 mm wide x 210 mm high.
 ///
-/// The generated PDF page itself is this custom size. It is not a full A4
-/// page and it is not an A5 page in any orientation.
+/// This is half of an A4 sheet cut vertically, so the slip prints upright in
+/// portrait orientation and uses one vertical half of the A4 sheet.
 final PdfPageFormat halfA4Portrait = PdfPageFormat(
-  210 * PdfPageFormat.mm,
   148.5 * PdfPageFormat.mm,
+  210 * PdfPageFormat.mm,
 );
 
 /// OPD payment slip PDF generator + printer.
