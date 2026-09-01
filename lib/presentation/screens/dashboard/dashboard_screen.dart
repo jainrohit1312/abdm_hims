@@ -434,6 +434,12 @@ class DashboardScreen extends ConsumerWidget {
         'color': Colors.orange,
       },
       {
+        'icon': Icons.biotech,
+        'label': 'ABHA',
+        'route': '/abha',
+        'color': Colors.teal,
+      },
+      {
         'icon': Icons.local_hotel_outlined,
         'label': 'Ward',
         'route': '/ipd/wards',
@@ -450,6 +456,12 @@ class DashboardScreen extends ConsumerWidget {
         'label': 'Diagnostics',
         'route': '/diagnostics',
         'color': Colors.purple,
+      },
+      {
+        'icon': Icons.local_pharmacy,
+        'label': 'Pharmacy',
+        'route': '/pharmacy',
+        'color': Colors.red,
       },
       {
         'icon': Icons.receipt,
@@ -542,12 +554,12 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   /// Picks the module grid column count from the available width so the
-  /// 14 cards wrap into balanced rows without horizontal scrolling:
-  /// 7-7, 5-5-4, 4-4-4-2, 3-3-3-3-2 or 2 columns on phones.
+  /// 16 cards wrap into balanced rows without horizontal scrolling:
+  /// 8-8, 6-6-4, 4-4-4-4 or 2 columns on phones.
   int _moduleColumnCount(double availableWidth) {
     const spacing = 12.0;
     const minCardWidth = 150.0;
-    for (final count in const [7, 5, 4, 3, 2]) {
+    for (final count in const [8, 6, 4, 2]) {
       final needed = count * minCardWidth + (count - 1) * spacing;
       if (availableWidth >= needed) return count;
     }

@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
+import '../../core/utils/keyboard_inset.dart';
+import 'app_footer.dart';
+import 'keyboard_safe_content.dart';
 import 'smart_navigation.dart';
 
 /// Height of the header content. The system status-bar inset is added on top
@@ -37,12 +40,25 @@ class AppNavigationShell extends ConsumerStatefulWidget {
 }
 
 class _AppNavigationShellState extends ConsumerState<AppNavigationShell> {
+  /// Browser-reported virtual keyboard height (web). Native par hamesha 0
+  /// rahta hai — wahan `MediaQuery.viewInsets` already reliable hai.
+  double _webKeyboardInset = 0;
+
   @override
   void initState() {
     super.initState();
+    KeyboardInset.ensureConfigured();
+    _webKeyboardInset = KeyboardInset.current;
+    KeyboardInset.addListener(_onWebKeyboardInsetChanged);
     // Riverpod forbids provider mutation during the build/lifecycle phase, so
     // the initial mirror is scheduled after the first frame.
     WidgetsBinding.instance.addPostFrameCallback((_) => _mirrorCurrentTab());
+  }
+
+  @override
+  void dispose() {
+    KeyboardInset.removeListener(_onWebKeyboardInsetChanged);
+    super.dispose();
   }
 
   @override
@@ -51,6 +67,18 @@ class _AppNavigationShellState extends ConsumerState<AppNavigationShell> {
     if (oldWidget.currentPath != widget.currentPath) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _mirrorCurrentTab());
     }
+  }
+
+  /// Web/mobile browser se aayi keyboard height change hone par footer ko
+  /// re-evaluate karta hai (Android Chrome mein engine `viewInsets` report
+  /// nahi karta, isliye browser value alag se track karte hain) aur focused
+  /// field ko keyboard ke upar scroll karta hai.
+  void _onWebKeyboardInsetChanged() {
+    if (!mounted) return;
+    final value = KeyboardInset.current;
+    if ((value - _webKeyboardInset).abs() < 1) return;
+    setState(() => _webKeyboardInset = value);
+    ensureFocusedFieldVisible();
   }
 
   /// Mirrors the active location into [currentTabProvider] for widgets that
@@ -70,19 +98,66 @@ class _AppNavigationShellState extends ConsumerState<AppNavigationShell> {
     // (which lives outside the shell) to renew.
     final authState = ref.watch(authStateProvider);
     if (authState.subscriptionExpired) {
-      return Scaffold(
-        appBar: AppHeader(currentPath: widget.currentPath),
-        drawer: AppNavDrawer(currentPath: widget.currentPath),
+      return _buildShellScaffold(
+        context,
         body: _SubscriptionExpiredView(
           onRenew: () => context.go('/subscription'),
         ),
       );
     }
 
+    return _buildShellScaffold(context, body: widget.child);
+  }
+
+  /// Shared authenticated shell scaffold.
+  ///
+  /// The routed child is almost always its own [Scaffold] (most module screens
+  /// build `Scaffold(appBar: SmartAppBar(...), body: ...)`), so it is placed in
+  /// an [Expanded] and the branding footer is appended below it in the shell's
+  /// normal body layout — never as an overlay, never as a `bottomNavigationBar`
+  /// and never inside the child's scrollable.
+  ///
+  /// `resizeToAvoidBottomInset` is intentionally `false` here: the shell must
+  /// NOT consume the keyboard inset for its body, otherwise every child
+  /// scaffold would see `viewInsets.bottom == 0` and screens with their own
+  /// keyboard strategy (e.g. OPD Consultation with
+  /// `resizeToAvoidBottomInset: false`) would break. Child scaffolds keep
+  /// seeing the real inset and keep applying their existing keyboard behavior.
+  /// The footer is hidden while a keyboard is open so it never competes with
+  /// form space or sits above/over the keyboard.
+  Widget _buildShellScaffold(BuildContext context, {required Widget body}) {
+    final keyboardInset = keyboardInsetOf(context);
+    final isKeyboardOpen = keyboardInset > 0;
+
+    // Mobile web (Android Chrome + `interactive-widget=overlays-content`):
+    // engine `viewInsets` 0 reh sakta hai, isliye browser-reported keyboard
+    // height ko shell khud reserve karta hai. Native par `viewInsets` already
+    // non-zero hota hai aur child Scaffolds usse khud consume karte hain —
+    // wahan shell padding nahi lagate, warna double-padding ho jayega.
+    final webKeyboardPadding = engineReportsKeyboardInset(context)
+        ? 0.0
+        : _webKeyboardInset;
+
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppHeader(currentPath: widget.currentPath),
       drawer: AppNavDrawer(currentPath: widget.currentPath),
-      body: widget.child,
+      body: Column(
+        children: [
+          Expanded(
+            child: AnimatedPadding(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              padding: EdgeInsets.only(bottom: webKeyboardPadding),
+              child: body,
+            ),
+          ),
+          // Branding footer stays below page content. Keyboard khula ho to
+          // footer hide kar dete hain — form ko poora viewport milta hai aur
+          // footer keyboard ke upar ya content ke beech nahi aata.
+          if (!isKeyboardOpen) const AppFooter(),
+        ],
+      ),
     );
   }
 }

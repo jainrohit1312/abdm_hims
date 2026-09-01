@@ -360,14 +360,14 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
     // keyboard-height bottom padding leta hai aur typing ke time bottom
     // action bar + saved-prescription panel + patient card hide ho jaate hain.
     //
-    // Web par `MediaQuery.viewInsets` Android Chrome mein 0 reh sakta hai
-    // (engine canvas ko hi shrink kar deta hai), isliye browser-reported
-    // `KeyboardInset.current` ko bhi consider karte hain.
+    // Web par `MediaQuery.viewInsets` Android Chrome mein 0 reh sakta hai;
+    // browser-reported `KeyboardInset.current` sirf visibility ke liye use
+    // karte hain. Web keyboard ki height ab global AppNavigationShell reserve
+    // kar leta hai, isliye yahan padding sirf native overlay inset ke liye
+    // chahiye — dono jagah add karne par double-padding ho jayegi.
     final mediaInset = MediaQuery.viewInsetsOf(context).bottom;
-    final keyboardInset = mediaInset > _webKeyboardInset
-        ? mediaInset
-        : _webKeyboardInset;
-    final isKeyboardOpen = keyboardInset > 0;
+    final keyboardInset = mediaInset;
+    final isKeyboardOpen = keyboardInset > 0 || _webKeyboardInset > 0;
 
     return Scaffold(
       // `false` isliye: keyboard khulte hi poori screen squeeze/push-up nahi
