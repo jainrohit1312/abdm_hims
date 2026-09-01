@@ -1882,19 +1882,59 @@ class BillingFilter {
   int get hashCode => Object.hash(hospitalId, visitType, sourceType);
 }
 
-/// All bills for a hospital, optionally filtered by source type
-/// (`opd` / `ipd` / `lab` / `pharmacy` / `manual`; null = every source).
+/// Page size used by the unified billing history list.
+const int billingPageSize = 30;
+
+/// Paginated unified billing history notifier (30 records per page).
+///
+/// One notifier instance exists per [BillingFilter] (hospital + source tab)
+/// and stays cached by Riverpod, so switching tabs back and forth does not
+/// re-download data.
+class BillingListNotifier
+    extends PaginationListNotifier<Map<String, dynamic>> {
+  BillingListNotifier(
+    super.dbService,
+    super.hospitalIdReader, {
+    required this.sourceType,
+  }) : super(limit: billingPageSize);
+
+  final String? sourceType;
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchPage(
+    DatabaseService db,
+    int page,
+    int limit,
+    String hospitalId,
+  ) {
+    return db.getBillingHistoryPage(
+      hospitalId: hospitalId,
+      sourceType: sourceType,
+      page: page,
+      limit: limit,
+    );
+  }
+}
+
+/// Unified billing history for a hospital, optionally filtered by source
+/// type (`opd` / `ipd` / `lab` / `manual`; null = every source).
+///
+/// Only the active tab's provider instance is created and fetched; Riverpod
+/// keeps already-visited tab instances alive so switching back is instant.
 final allBillsProvider =
-    FutureProvider.family<List<Map<String, dynamic>>, BillingFilter>((
-      ref,
-      filter,
-    ) async {
-      final dbService = ref.read(databaseServiceProvider);
-      return dbService.getAllBills(
-        hospitalId: filter.hospitalId,
-        visitType: filter.visitType,
+    StateNotifierProvider.family<
+      BillingListNotifier,
+      PaginationState<Map<String, dynamic>>,
+      BillingFilter
+    >((ref, filter) {
+      final notifier = BillingListNotifier(
+        ref.watch(databaseServiceProvider),
+        () => filter.hospitalId ?? ref.read(authStateProvider).hospitalId ?? '',
         sourceType: filter.sourceType,
       );
+      // Load the first page as soon as the provider is created.
+      Future.microtask(notifier.refresh);
+      return notifier;
     });
 
 /// One bill with items, payment logs, edit history and billing audit attached.

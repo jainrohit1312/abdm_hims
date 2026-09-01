@@ -36,6 +36,10 @@ class ApiConstants {
   static const String billEditsTable = 'bill_edits';
   static const String paymentLogsTable = 'payment_logs';
   static const String billingAuditTable = 'billing_audit';
+
+  /// Read-only unified billing history view (billing + raw OPD rows,
+  /// deduplicated in SQL). See `20260901000000_billing_history_view.sql`.
+  static const String billingHistoryView = 'billing_history_view';
   static const String paymentsTable = 'payments';
   static const String insuranceClaimsTable = 'insurance_claims';
   static const String careContextsTable = 'care_contexts';

@@ -26,8 +26,7 @@ import '../presentation/screens/counseling/counseling_playback_screen.dart';
 import '../presentation/screens/abha/abha_verify_screen.dart';
 import '../presentation/screens/abha/abha_create_screen.dart';
 import '../presentation/screens/billing/billing_screen.dart';
-import '../presentation/screens/billing/bill_edit_screen.dart';
-import '../presentation/screens/billing/bill_create_screen.dart';
+import '../presentation/screens/billing/bill_detail_screen.dart';
 import '../presentation/screens/settings/settings_screen.dart';
 import '../presentation/screens/users/user_management_screen.dart';
 import '../presentation/screens/notifications/notifications_screen.dart';
@@ -426,17 +425,15 @@ final routerProvider = Provider<GoRouter>((ref) {
             name: 'billing',
             builder: (context, state) => const BillingScreen(),
             routes: [
+              // Read-only detail for historical manual/legacy bills that have
+              // no source workflow to open. Normal OPD/IPD/Lab tiles navigate
+              // to their source workflows instead.
               GoRoute(
-                path: 'new',
-                name: 'billing-new',
-                builder: (context, state) => const BillCreateScreen(),
-              ),
-              GoRoute(
-                path: 'edit/:billId',
-                name: 'billing-edit',
+                path: 'view/:billId',
+                name: 'billing-view',
                 builder: (context, state) {
                   final billId = state.pathParameters['billId']!;
-                  return BillEditScreen(billId: billId);
+                  return BillDetailScreen(billId: billId);
                 },
               ),
             ],
@@ -561,7 +558,9 @@ final routerProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: 'results',
                 name: 'diagnostics-results',
-                builder: (context, state) => const DiagnosticResultScreen(),
+                builder: (context, state) => DiagnosticResultScreen(
+                  orderId: state.uri.queryParameters['orderId'],
+                ),
               ),
               GoRoute(
                 path: 'revenue',

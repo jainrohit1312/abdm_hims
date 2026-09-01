@@ -2701,6 +2701,196 @@ class DatabaseService {
     }
   }
 
+  /// Returns one page of the unified billing history, newest first.
+  ///
+  /// The primary path queries the read-only `billing_history_view` (see
+  /// `20260901000000_billing_history_view.sql`) which already:
+  /// * merges materialised `billing` rows with raw OPD registration payment
+  ///   rows,
+  /// * deduplicates raw OPD rows that already have a materialised bill,
+  /// * exposes lightweight card fields only (no `billing_items` /
+  ///   `payment_logs` payloads).
+  ///
+  /// When the view has not been applied to the Supabase project yet, the
+  /// method falls back to a lightweight client-side merge with the same
+  /// deduplication behaviour.
+  Future<List<Map<String, dynamic>>> getBillingHistoryPage({
+    required String hospitalId,
+    String? sourceType,
+    required int page,
+    required int limit,
+  }) async {
+    final from = page * limit;
+    final to = from + limit - 1;
+    try {
+      final response = await fetchWithRetry(
+        () {
+          dynamic query = _client
+              .from(ApiConstants.billingHistoryView)
+              .select()
+              .eq('hospital_id', hospitalId);
+          if (sourceType != null && sourceType.isNotEmpty) {
+            query = query.eq('source_type', sourceType);
+          }
+          return query
+              .order('bill_date', ascending: false)
+              .order('created_at', ascending: false)
+              .range(from, to);
+        },
+      );
+      final rows = List<Map<String, dynamic>>.from(response);
+      return rows.map(_normalizeBillingHistoryRow).toList();
+    } on PostgrestException catch (e) {
+      if (!_isMissingRelationError(e)) rethrow;
+      AppLogger.e(
+        'billing_history_view missing — falling back to client-side merge',
+        e,
+      );
+      return _getBillingHistoryPageFallback(
+        hospitalId: hospitalId,
+        sourceType: sourceType,
+        page: page,
+        limit: limit,
+      );
+    } catch (e) {
+      AppLogger.e('Error fetching billing history page', e);
+      rethrow;
+    }
+  }
+
+  bool _isMissingRelationError(PostgrestException e) {
+    final message = e.message.toLowerCase();
+    return message.contains('could not find the table') ||
+        message.contains('could not find the') ||
+        message.contains('syntax error') ||
+        message.contains('does not exist');
+  }
+
+  /// Lightweight fallback used only when `billing_history_view` is absent.
+  Future<List<Map<String, dynamic>>> _getBillingHistoryPageFallback({
+    required String hospitalId,
+    String? sourceType,
+    required int page,
+    required int limit,
+  }) async {
+    final normalized = <Map<String, dynamic>>[];
+
+    final billingRows = await _fetchBillingLight(hospitalId, sourceType);
+    final materialisedOpdIds = <String>{};
+    for (final row in billingRows) {
+      if (_billingSourceType(row) == 'opd') {
+        final opdId = row['opd_registration_id']?.toString();
+        if (opdId != null && opdId.isNotEmpty) {
+          materialisedOpdIds.add(opdId);
+        }
+      }
+      normalized.add(_normalizeBillingRow(row));
+    }
+
+    final includeRawOpd = sourceType == null || sourceType == 'opd';
+    if (includeRawOpd) {
+      final opdRows = await _fetchOpdLight(hospitalId);
+      for (final row in opdRows) {
+        final id = row['id']?.toString();
+        if (id == null || materialisedOpdIds.contains(id)) continue;
+        normalized.add(_normalizeOpdBill(row));
+      }
+    }
+
+    normalized.sort((a, b) {
+      final aDate = _parseDate(a['bill_date'] ?? a['created_at']);
+      final bDate = _parseDate(b['bill_date'] ?? b['created_at']);
+      return (bDate ?? DateTime(1970)).compareTo(aDate ?? DateTime(1970));
+    });
+
+    final start = page * limit;
+    if (start >= normalized.length) return const [];
+    final end = math.min(start + limit, normalized.length);
+    return normalized.sublist(start, end);
+  }
+
+  /// Lightweight `billing` rows for the fallback merge — no embedded
+  /// `billing_items` / `payment_logs` payloads.
+  Future<List<Map<String, dynamic>>> _fetchBillingLight(
+    String hospitalId,
+    String? sourceType,
+  ) async {
+    dynamic query = _client
+        .from(ApiConstants.billingTable)
+        .select(
+          'id, patient_id, source_type, visit_type, opd_registration_id, '
+          'ipd_admission_id, diagnostic_order_id, bill_number, bill_date, '
+          'bill_type, created_at, subtotal, total_amount, discount_amount, '
+          'net_amount, paid_amount, balance_amount, payment_status, '
+          'payment_mode, patients(first_name, last_name, uhid)',
+        )
+        .eq('hospital_id', hospitalId);
+    if (sourceType != null && sourceType.isNotEmpty) {
+      query = query.eq('source_type', sourceType);
+    }
+    final response = await fetchWithRetry(
+      () => query
+          .order('bill_date', ascending: false)
+          .order('created_at', ascending: false)
+          .limit(500),
+    );
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  /// Lightweight `opd_registrations` rows for the fallback merge.
+  Future<List<Map<String, dynamic>>> _fetchOpdLight(String hospitalId) async {
+    final response = await fetchWithRetry(
+      () => _client
+          .from(ApiConstants.opdRegistrationsTable)
+          .select(
+            'id, patient_id, visit_date, created_at, consultation_fee, '
+            'paid_amount, balance_amount, payment_status, payment_mode, '
+            'token_number, patients(first_name, last_name, uhid)',
+          )
+          .eq('hospital_id', hospitalId)
+          .order('visit_date', ascending: false)
+          .order('created_at', ascending: false)
+          .limit(500),
+    );
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  /// Normalises a `billing_history_view` row into the unified bill shape.
+  Map<String, dynamic> _normalizeBillingHistoryRow(Map<String, dynamic> row) {
+    final billingId = row['billing_id']?.toString();
+    final sourceRecordId = row['source_record_id']?.toString();
+    final isBillingBacked = billingId != null && billingId.isNotEmpty;
+    final sourceType = row['source_type']?.toString() ?? 'manual';
+
+    return {
+      'id': isBillingBacked ? billingId : sourceRecordId ?? '',
+      'source': isBillingBacked ? 'billing' : 'opd',
+      'source_type': sourceType,
+      'patient_id': row['patient_id'],
+      'patient_name':
+          row['patient_name']?.toString().isNotEmpty == true
+          ? row['patient_name'].toString()
+          : 'Unknown Patient',
+      'uhid': row['uhid']?.toString() ?? 'N/A',
+      'bill_number': row['bill_number'],
+      'bill_date': row['bill_date'],
+      'created_at': row['created_at'],
+      'visit_type': row['visit_type'] ?? sourceType,
+      'opd_registration_id': row['opd_registration_id'],
+      'ipd_admission_id': row['ipd_admission_id'],
+      'diagnostic_order_id': row['diagnostic_order_id'],
+      'subtotal': _toDouble(row['total_amount']),
+      'total_amount': _toDouble(row['total_amount']),
+      'discount_amount': 0,
+      'net_amount': _toDouble(row['net_amount']),
+      'paid_amount': _toDouble(row['paid_amount']),
+      'balance_amount': _toDouble(row['balance_amount']),
+      'payment_status': row['payment_status']?.toString() ?? 'unpaid',
+      'payment_mode': row['payment_mode'],
+      'status': row['payment_status']?.toString() == 'paid' ? 'paid' : 'generated',
+    };
+  }
+
   /// Fetches all bills for the unified billing screen.
   ///
   /// * IPD/Lab/materialised-OPD/Manual bills come from the `billing` table
@@ -4480,6 +4670,7 @@ class DatabaseService {
       paidAmount: paidAmount,
       paymentMode: paymentMode,
       items: items,
+      diagnosticOrderId: order['id']?.toString(),
     );
 
     if (paidAmount > 0) {
@@ -4504,6 +4695,7 @@ class DatabaseService {
     required double paidAmount,
     required String paymentMode,
     required List<Map<String, dynamic>> items,
+    String? diagnosticOrderId,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
     final today = DateTime.now().toIso8601String().split('T')[0];
@@ -4518,6 +4710,7 @@ class DatabaseService {
           'hospital_id': hospitalId,
           'patient_id': patientId,
           'source_type': 'lab',
+          'diagnostic_order_id': diagnosticOrderId,
           'bill_number': billNumber,
           'bill_date': today,
           'bill_type': 'diagnostics',

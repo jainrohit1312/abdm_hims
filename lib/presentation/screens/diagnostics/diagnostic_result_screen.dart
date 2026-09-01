@@ -12,8 +12,15 @@ import '../../widgets/smart_navigation.dart';
 /// Diagnostic result entry screen — technician picks a pending order and
 /// enters results per test (pathology values / radiology findings / cardiology
 /// interpretation + images). Results can be Draft, Final or Amended.
+///
+/// When [orderId] is provided (e.g. from a unified-billing history tile) the
+/// screen focuses on that exact diagnostic order and shows a read-only order
+/// card, with an option to go back to the full pending/completed lists.
 class DiagnosticResultScreen extends ConsumerStatefulWidget {
-  const DiagnosticResultScreen({super.key});
+  const DiagnosticResultScreen({super.key, this.orderId});
+
+  /// Optional deep link to one `diagnostic_orders.id`.
+  final String? orderId;
 
   @override
   ConsumerState<DiagnosticResultScreen> createState() =>
@@ -21,6 +28,15 @@ class DiagnosticResultScreen extends ConsumerStatefulWidget {
 }
 
 class _DiagnosticResultScreenState extends ConsumerState<DiagnosticResultScreen> {
+  String? _focusOrderId;
+
+  @override
+  void initState() {
+    super.initState();
+    final orderId = widget.orderId?.trim();
+    _focusOrderId = (orderId == null || orderId.isEmpty) ? null : orderId;
+  }
+
   Future<void> _reload() async {
     final hospitalId = ref.read(authStateProvider).hospitalId;
     if (hospitalId != null) {
@@ -43,20 +59,27 @@ class _DiagnosticResultScreenState extends ConsumerState<DiagnosticResultScreen>
       diagnosticOrdersProvider(DiagnosticOrdersParams(hospitalId: hospitalId)),
     );
 
+    final focusedOrderId = _focusOrderId;
+
     return DefaultTabController(
       length: 2,
       child: Scaffold(
         appBar: SmartAppBar(
           title: const Text('Diagnostic Results'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Pending Orders'),
-              Tab(text: 'Completed'),
-            ],
-          ),
+          bottom: focusedOrderId == null
+              ? const TabBar(
+                  tabs: [
+                    Tab(text: 'Pending Orders'),
+                    Tab(text: 'Completed'),
+                  ],
+                )
+              : null,
         ),
         body: ordersAsync.when(
           data: (orders) {
+            if (focusedOrderId != null) {
+              return _buildFocusedOrder(context, orders, focusedOrderId);
+            }
             final pending = orders
                 .where(
                   (o) =>
@@ -90,6 +113,71 @@ class _DiagnosticResultScreenState extends ConsumerState<DiagnosticResultScreen>
     );
   }
 
+  /// Read-only, single-order view used when the screen is opened with an
+  /// [orderId] (e.g. from a unified-billing history tile).
+  Widget _buildFocusedOrder(
+    BuildContext context,
+    List<Map<String, dynamic>> orders,
+    String orderId,
+  ) {
+    final focused = orders
+        .where((o) => o['id']?.toString() == orderId)
+        .toList();
+
+    if (focused.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Diagnostic order not found.'),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () => setState(() => _focusOrderId = null),
+              child: const Text('Show All Orders'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final order = focused.first;
+    final isCompleted = order['status']?.toString() == 'completed';
+
+    return Column(
+      children: [
+        Material(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+            child: Row(
+              children: [
+                const Icon(Icons.link, size: 16),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('Opened from Billing history')),
+                TextButton(
+                  onPressed: () => setState(() => _focusOrderId = null),
+                  child: const Text('Show All Orders'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              _OrderTile(
+                order: order,
+                isCompleted: isCompleted,
+                initiallyExpanded: true,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildOrderList(List<Map<String, dynamic>> orders, {required bool isCompleted}) {
     if (orders.isEmpty) {
       return Center(
@@ -116,8 +204,13 @@ class _DiagnosticResultScreenState extends ConsumerState<DiagnosticResultScreen>
 class _OrderTile extends ConsumerWidget {
   final Map<String, dynamic> order;
   final bool isCompleted;
+  final bool initiallyExpanded;
 
-  const _OrderTile({required this.order, required this.isCompleted});
+  const _OrderTile({
+    required this.order,
+    required this.isCompleted,
+    this.initiallyExpanded = false,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -136,6 +229,7 @@ class _OrderTile extends ConsumerWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: ExpansionTile(
+        initiallyExpanded: initiallyExpanded,
         leading: CircleAvatar(
           child: Icon(isCompleted ? Icons.check : Icons.pending_outlined),
         ),
