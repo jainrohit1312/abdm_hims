@@ -11,6 +11,10 @@ import 'smart_navigation.dart';
 /// of this value by the [Scaffold] when [AppHeader] is used as its `appBar`.
 const double kAppHeaderHeight = 56;
 
+/// Height of the header content on desktop widths (two-row global nav + a
+/// clearly visible MediFlux logo block).
+const double kAppHeaderDesktopHeight = 96;
+
 /// Width below which the horizontal desktop header collapses into a compact
 /// bar with a hamburger button that opens [AppNavDrawer].
 const double kAppHeaderDesktopBreakpoint = 900;
@@ -132,9 +136,14 @@ class _AppNavigationShellState extends ConsumerState<AppNavigationShell> {
         ? 0.0
         : _webKeyboardInset;
 
+    final headerHeight =
+        MediaQuery.sizeOf(context).width >= kAppHeaderDesktopBreakpoint
+        ? kAppHeaderDesktopHeight
+        : kAppHeaderHeight;
+
     return Scaffold(
       resizeToAvoidBottomInset: false,
-      appBar: AppHeader(currentPath: widget.currentPath),
+      appBar: AppHeader(currentPath: widget.currentPath, height: headerHeight),
       drawer: AppNavDrawer(currentPath: widget.currentPath),
       body: AnimatedPadding(
         duration: const Duration(milliseconds: 180),
@@ -191,17 +200,25 @@ class _SubscriptionExpiredView extends StatelessWidget {
 
 /// Desktop-style top navigation bar used as the global header.
 ///
-/// On wide screens it renders the brand plus a horizontal row of module links;
-/// on narrow screens it collapses to a hamburger button that opens
-/// [AppNavDrawer]. The active module is derived from [currentPath].
+/// On wide screens it renders the dedicated MediFlux branding block plus a
+/// symmetric two-row (8 + 8) module navigation; on narrow screens it collapses
+/// to a hamburger button that opens [AppNavDrawer]. The active module is
+/// derived from [currentPath].
 class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
-  const AppHeader({required this.currentPath, super.key});
+  const AppHeader({
+    required this.currentPath,
+    this.height = kAppHeaderHeight,
+    super.key,
+  });
 
   /// Full route path of the current location.
   final String currentPath;
 
+  /// Content height of this header (excluding the status-bar top inset).
+  final double height;
+
   @override
-  Size get preferredSize => const Size.fromHeight(kAppHeaderHeight);
+  Size get preferredSize => Size.fromHeight(height);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -216,7 +233,7 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
       child: Padding(
         padding: EdgeInsets.only(top: topPadding),
         child: SizedBox(
-          height: kAppHeaderHeight,
+          height: height,
           child: LayoutBuilder(
             builder: (context, constraints) {
               final isDesktop =
@@ -242,13 +259,21 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
         : ref.watch(unreadNotificationCountProvider(publicUserId)).value ?? 0;
     final isRootPage = isRootModulePath(currentPath);
 
+    final row1 = _navDestinations.take(8).toList(growable: false);
+    final row2 = _navDestinations.skip(8).toList(growable: false);
+
     return Row(
       children: [
-        const SizedBox(width: 16),
-        const _Brand(height: 38),
+        const SizedBox(width: 12),
+        // LEFT: dedicated, non-compressed MediFlux branding block. The logo
+        // gets its own fixed-width area and is vertically centred across both
+        // navigation rows.
+        SizedBox(
+          width: 170,
+          child: Center(child: _Brand(height: 40)),
+        ),
         const SizedBox(width: 4),
-        // Smart Navbar: Home icon is always visible and gets high-priority
-        // styling on root module pages.
+        // Home control stays right after the branding area.
         IconButton(
           tooltip: 'Go to Dashboard',
           onPressed: () => context.go('/dashboard'),
@@ -265,23 +290,19 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
               : null,
         ),
         const SizedBox(width: 8),
+        // CENTER: two equal 8-module navigation rows. No horizontal scrolling
+        // on desktop; all 16 modules are visible at the same time.
         Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final destination in _navDestinations) ...[
-                  _NavButton(
-                    destination: destination,
-                    active: _isActive(currentPath, destination),
-                    colorScheme: colorScheme,
-                  ),
-                  const SizedBox(width: 4),
-                ],
-              ],
-            ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildDesktopNavRow(row1, currentPath, colorScheme),
+              const SizedBox(height: 6),
+              _buildDesktopNavRow(row2, currentPath, colorScheme),
+            ],
           ),
         ),
+        // RIGHT: existing global actions.
         IconButton(
           tooltip: 'Notifications',
           onPressed: () => context.go('/notifications'),
@@ -297,6 +318,25 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
           icon: const Icon(Icons.logout),
         ),
         const SizedBox(width: 8),
+      ],
+    );
+  }
+
+  Widget _buildDesktopNavRow(
+    List<_NavDestination> destinations,
+    String currentPath,
+    ColorScheme colorScheme,
+  ) {
+    return Row(
+      children: [
+        for (final destination in destinations)
+          Expanded(
+            child: _NavButton(
+              destination: destination,
+              active: _isActive(currentPath, destination),
+              colorScheme: colorScheme,
+            ),
+          ),
       ],
     );
   }
@@ -391,7 +431,8 @@ class _NavButton extends StatelessWidget {
       hoverColor: colorScheme.primary.withValues(alpha: 0.06),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         decoration: BoxDecoration(
           color: active
               ? colorScheme.primaryContainer.withValues(alpha: 0.45)
@@ -404,19 +445,25 @@ class _NavButton extends StatelessWidget {
             ),
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(destination.icon, size: 18, color: foreground),
-            const SizedBox(width: 6),
-            Text(
-              destination.label,
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                color: foreground,
-              ),
+        child: Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(destination.icon, size: 18, color: foreground),
+                const SizedBox(width: 6),
+                Text(
+                  destination.label,
+                  maxLines: 1,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                    color: foreground,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
