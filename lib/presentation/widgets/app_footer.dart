@@ -22,7 +22,17 @@ class AppFooter extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final textTheme = theme.textTheme;
     final year = DateTime.now().year;
-    final isCompact = MediaQuery.sizeOf(context).width < 600;
+    final mediaSize = MediaQuery.sizeOf(context);
+    final isCompact = mediaSize.width < 600;
+
+    // Mobile-only scroll runway: pages need extra scrollable content below
+    // their last TextField so the field (and any suggestion dropdown) can be
+    // scrolled well above the on-screen keyboard. The reserve is intentionally
+    // plain whitespace appended after the branding and only applies on phones;
+    // tablet/desktop keep the compact footer.
+    final mobileScrollReserve = isCompact
+        ? (mediaSize.height * 0.30).clamp(220.0, 340.0).toDouble()
+        : 0.0;
 
     return Material(
       color: colorScheme.surface,
@@ -42,7 +52,13 @@ class AppFooter extends StatelessWidget {
         child: SafeArea(
           top: false,
           child: isCompact
-              ? _buildCompactLayout(colorScheme, textTheme, year)
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildCompactLayout(colorScheme, textTheme, year),
+                    SizedBox(height: mobileScrollReserve),
+                  ],
+                )
               : _buildWideLayout(colorScheme, textTheme, year),
         ),
       ),
