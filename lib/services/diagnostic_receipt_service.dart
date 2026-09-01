@@ -20,6 +20,19 @@ final PdfPageFormat halfA4Portrait = PdfPageFormat(
 /// This is the cash receipt handed to the patient when a test order is cut
 /// and payment is collected.
 class DiagnosticReceiptService {
+  /// Returns the amount actually charged for a test on this receipt.
+  ///
+  /// Uses the editable per-order `charged_price` when present, otherwise the
+  /// master/default `price`.
+  static double _testAmount(Map<String, dynamic> test) {
+    final charged = test['charged_price'];
+    if (charged != null && charged.toString().trim().isNotEmpty) {
+      final parsed = double.tryParse(charged.toString());
+      if (parsed != null) return parsed < 0 ? 0 : parsed;
+    }
+    return double.tryParse(test['price']?.toString() ?? '') ?? 0;
+  }
+
   static Future<Uint8List> generateDiagnosticReceipt({
     required String hospitalName,
     required String hospitalAddress,
@@ -114,9 +127,7 @@ class DiagnosticReceiptService {
                   [
                     '${i + 1}',
                     tests[i]['test_name']?.toString() ?? '-',
-                    PDFFontHelper.formatCurrency(
-                      double.tryParse(tests[i]['price']?.toString() ?? '') ?? 0,
-                    ),
+                    PDFFontHelper.formatCurrency(_testAmount(tests[i])),
                   ],
                 ['', 'TOTAL', PDFFontHelper.formatCurrency(totalAmount)],
                 ['', 'PAID', PDFFontHelper.formatCurrency(paidAmount)],

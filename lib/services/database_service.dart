@@ -4585,6 +4585,20 @@ class DatabaseService {
     );
   }
 
+  /// Returns the amount actually charged for a diagnostic order item.
+  ///
+  /// Prefers the editable per-order `charged_price`; when it is absent or
+  /// invalid it falls back to the master/default `price`. This keeps the
+  /// master test price untouched while the order item stores the real amount.
+  double _diagnosticItemChargedPrice(Map<String, dynamic> item) {
+    final charged = item['charged_price'];
+    if (charged != null && charged.toString().trim().isNotEmpty) {
+      final parsed = double.tryParse(charged.toString());
+      if (parsed != null) return parsed < 0 ? 0 : parsed;
+    }
+    return _toDouble(item['price']);
+  }
+
   Future<Map<String, dynamic>> _insertDiagnosticOrder({
     required String hospitalId,
     required String patientId,
@@ -4598,7 +4612,7 @@ class DatabaseService {
 
     final total = items.fold<double>(
       0,
-      (sum, item) => sum + _toDouble(item['price']),
+      (sum, item) => sum + _diagnosticItemChargedPrice(item),
     );
     final today = DateTime.now().toIso8601String().split('T')[0];
 
@@ -4624,7 +4638,7 @@ class DatabaseService {
         'test_id': item['test_id'],
         'test_name': item['test_name'],
         'category': item['category'],
-        'price': item['price'],
+        'price': _diagnosticItemChargedPrice(item),
       });
     }
 
@@ -4739,13 +4753,14 @@ class DatabaseService {
 
     final billId = bill['id'] as String;
     for (final item in items) {
+      final chargedPrice = _diagnosticItemChargedPrice(item);
       await _client.from(ApiConstants.billingItemsTable).insert({
         'bill_id': billId,
         'item_type': 'lab_test',
         'item_name': item['test_name'],
         'quantity': 1,
-        'unit_price': item['price'],
-        'total_price': item['price'],
+        'unit_price': chargedPrice,
+        'total_price': chargedPrice,
       });
     }
 

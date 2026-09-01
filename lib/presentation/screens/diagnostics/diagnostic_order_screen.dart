@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -42,12 +43,14 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
   final _walkInLastNameController = TextEditingController();
   final _walkInMobileController = TextEditingController();
   final _paidAmountController = TextEditingController();
+  final Map<String, TextEditingController> _chargedControllers = {};
   Timer? _debounce;
 
   bool _searching = false;
   bool _resolvingPatient = false;
   bool _creatingWalkIn = false;
   bool _submitting = false;
+  bool _paidManuallyEdited = false;
 
   String _patientMode = 'existing'; // existing | walkin
   String _debouncedQuery = '';
@@ -58,18 +61,66 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
   String _urgency = 'routine';
   String _paymentMode = 'cash';
 
-  static const Map<String, String> _categoryLabels = {
-    'pathology': 'Pathology',
-    'radiology': 'Radiology',
-    'cardiology': 'Cardiology',
-    'other': 'Other',
-  };
-
   double get _totalPrice => _selectedTests.fold<double>(
     0,
-    (sum, test) =>
-        sum + (double.tryParse(test['price']?.toString() ?? '') ?? 0),
+    (sum, test) => sum + _chargedPriceOf(test),
   );
+
+  double _masterPriceOf(Map<String, dynamic> test) =>
+      double.tryParse(test['price']?.toString() ?? '') ?? 0;
+
+  double _chargedPriceOf(Map<String, dynamic> test) {
+    final charged = test['charged_price'];
+    if (charged != null && charged.toString().trim().isNotEmpty) {
+      final parsed = double.tryParse(charged.toString());
+      if (parsed != null) return parsed < 0 ? 0 : parsed;
+    }
+    return _masterPriceOf(test);
+  }
+
+  String _testKey(Map<String, dynamic> test) {
+    final id = test['test_id']?.toString();
+    return (id == null || id.isEmpty)
+        ? 'index-${_selectedTests.indexOf(test)}'
+        : id;
+  }
+
+  void _syncChargedControllers() {
+    final selectedKeys = _selectedTests.map(_testKey).toSet();
+
+    final staleKeys = _chargedControllers.keys
+        .where((key) => !selectedKeys.contains(key))
+        .toList();
+    for (final key in staleKeys) {
+      _chargedControllers.remove(key)?.dispose();
+    }
+
+    for (final test in _selectedTests) {
+      final key = _testKey(test);
+      if (!_chargedControllers.containsKey(key)) {
+        _chargedControllers[key] = TextEditingController(
+          text: _chargedPriceOf(test).toStringAsFixed(2),
+        );
+      }
+    }
+  }
+
+  void _onChargedChanged(int index, String value) {
+    final test = _selectedTests[index];
+    final trimmed = value.trim();
+    final parsed = trimmed.isEmpty ? null : double.tryParse(trimmed);
+
+    setState(() {
+      if (parsed == null) {
+        test.remove('charged_price');
+      } else {
+        test['charged_price'] = parsed < 0 ? 0 : parsed;
+      }
+      if (!_paidManuallyEdited) {
+        _paidAmountController.text = _totalPrice.toStringAsFixed(2);
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -90,6 +141,9 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
     _walkInLastNameController.dispose();
     _walkInMobileController.dispose();
     _paidAmountController.dispose();
+    for (final controller in _chargedControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -234,19 +288,42 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
     );
 
     if (chosen != null && mounted) {
+      final previous = <String, Map<String, dynamic>>{};
+      for (final test in _selectedTests) {
+        final id = test['test_id']?.toString();
+        if (id != null && id.isNotEmpty) previous[id] = test;
+      }
+
       setState(() {
         _selectedTests
           ..clear()
-          ..addAll(chosen);
-        _paidAmountController.text = _totalPrice.toStringAsFixed(2);
+          ..addAll(
+            chosen.map((test) {
+              final master = _masterPriceOf(test);
+              final previousTest = previous[test['test_id']?.toString()];
+              return {
+                ...test,
+                'test_code': test['test_code'],
+                'charged_price': previousTest?['charged_price'] ?? master,
+              };
+            }),
+          );
+        _syncChargedControllers();
+        if (!_paidManuallyEdited) {
+          _paidAmountController.text = _totalPrice.toStringAsFixed(2);
+        }
       });
     }
   }
 
   void _removeTest(int index) {
+    final test = _selectedTests[index];
     setState(() {
+      _chargedControllers.remove(_testKey(test))?.dispose();
       _selectedTests.removeAt(index);
-      _paidAmountController.text = _totalPrice.toStringAsFixed(2);
+      if (!_paidManuallyEdited) {
+        _paidAmountController.text = _totalPrice.toStringAsFixed(2);
+      }
     });
   }
 
@@ -452,6 +529,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
                     _searchController.clear();
                     _searchResults = [];
                     _paidAmountController.clear();
+                    _paidManuallyEdited = false;
                   });
                 },
                 child: const Text('Change'),
@@ -622,28 +700,95 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
             child: Column(
               children: [
                 for (var i = 0; i < _selectedTests.length; i++)
-                  ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      radius: 14,
-                      backgroundColor: _categoryColor(
-                        _selectedTests[i]['category']?.toString() ?? 'other',
-                      ).withValues(alpha: 0.15),
-                      child: Text(
-                        '${i + 1}',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                    title: Text(
-                      _selectedTests[i]['test_name']?.toString() ?? '-',
-                    ),
-                    subtitle: Text(
-                      '${_categoryLabels[_selectedTests[i]['category']] ?? 'Other'} • '
-                      '₹ ${(double.tryParse(_selectedTests[i]['price']?.toString() ?? '') ?? 0).toStringAsFixed(2)}',
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.remove_circle_outline),
-                      onPressed: () => _removeTest(i),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CircleAvatar(
+                              radius: 14,
+                              backgroundColor: _categoryColor(
+                                _selectedTests[i]['category']?.toString() ??
+                                    'other',
+                              ).withValues(alpha: 0.15),
+                              child: Text(
+                                '${i + 1}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _selectedTests[i]['test_name']
+                                            ?.toString() ??
+                                        '-',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  if ((_selectedTests[i]['test_code']
+                                              ?.toString() ??
+                                          '')
+                                      .isNotEmpty)
+                                    Text(
+                                      'Code: ${_selectedTests[i]['test_code']}',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  Text(
+                                    'Default: ₹ ${_masterPriceOf(_selectedTests[i]).toStringAsFixed(2)}',
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(color: Colors.grey.shade600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Remove test',
+                              icon: const Icon(Icons.remove_circle_outline),
+                              onPressed: () => _removeTest(i),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Text('Charged Amount:'),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller:
+                                    _chargedControllers[_testKey(
+                                      _selectedTests[i],
+                                    )],
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                inputFormatters: [_DecimalAmountFormatter()],
+                                decoration: InputDecoration(
+                                  isDense: true,
+                                  prefixText: '₹ ',
+                                  border: const OutlineInputBorder(),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 10,
+                                  ),
+                                ),
+                                onChanged: (value) =>
+                                    _onChargedChanged(i, value),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 const Divider(height: 1),
@@ -752,12 +897,15 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
             suffixIcon: IconButton(
               tooltip: 'Full amount',
               onPressed: () => setState(() {
+                _paidManuallyEdited = false;
                 _paidAmountController.text = _totalPrice.toStringAsFixed(2);
               }),
               icon: const Icon(Icons.all_inclusive),
             ),
           ),
-          onChanged: (_) => setState(() {}),
+          onChanged: (_) => setState(() {
+            _paidManuallyEdited = true;
+          }),
         ),
       ],
     );
@@ -900,6 +1048,7 @@ class _TestPickerDialogState extends State<_TestPickerDialog> {
                   (test) => {
                     'test_id': test['id'],
                     'test_name': test['test_name'],
+                    'test_code': test['test_code'],
                     'category': test['category'],
                     'price':
                         double.tryParse(test['price']?.toString() ?? '') ?? 0,
@@ -925,5 +1074,20 @@ class _TestPickerDialogState extends State<_TestPickerDialog> {
       default:
         return Icons.science_outlined;
     }
+  }
+}
+
+/// Restricts an amount field to a non-negative decimal with up to two decimal
+/// places (e.g. `450`, `450.5`, `450.00`). No minus sign, no extra dots.
+class _DecimalAmountFormatter extends TextInputFormatter {
+  static final RegExp _pattern = RegExp(r'^\d*\.?\d{0,2}$');
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (newValue.text.isEmpty) return newValue;
+    return _pattern.hasMatch(newValue.text) ? newValue : oldValue;
   }
 }
