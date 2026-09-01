@@ -492,6 +492,11 @@ const List<_NavDestination> _navDestinations = [
     icon: Icons.badge_outlined,
   ),
   _NavDestination(
+    label: 'Marketing',
+    route: '/marketing',
+    icon: Icons.campaign_outlined,
+  ),
+  _NavDestination(
     label: 'Billing',
     route: '/billing',
     icon: Icons.receipt_long_outlined,

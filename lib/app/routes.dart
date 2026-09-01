@@ -34,6 +34,12 @@ import '../presentation/screens/diagnostics/diagnostic_tests_master_screen.dart'
 import '../presentation/screens/diagnostics/diagnostic_order_screen.dart';
 import '../presentation/screens/employees/employee_management_screen.dart';
 import '../presentation/screens/employees/employee_form_screen.dart';
+import '../presentation/screens/marketing/marketing_screen.dart';
+import '../presentation/screens/marketing/referral_doctor_form_screen.dart';
+import '../presentation/screens/marketing/referral_doctor_detail_screen.dart';
+import '../presentation/screens/marketing/marketing_area_detail_screen.dart';
+import '../presentation/screens/marketing/marketing_visit_form_screen.dart';
+import '../presentation/screens/marketing/marketing_referral_form_screen.dart';
 import '../presentation/screens/diagnostics/diagnostic_result_screen.dart';
 import '../presentation/screens/diagnostics/lab_revenue_dashboard.dart';
 import '../presentation/screens/voucher/voucher_entry_screen.dart';
@@ -468,6 +474,59 @@ final routerProvider = Provider<GoRouter>((ref) {
                 builder: (context, state) {
                   final id = state.pathParameters['id']!;
                   return EmployeeFormScreen(employeeId: id);
+                },
+              ),
+            ],
+          ),
+
+          // PRO / Marketing module: referral doctors, visit punches, areas and
+          // patient referral history. Referral doctors are a completely
+          // separate domain from hospital doctors.
+          GoRoute(
+            path: '/marketing',
+            name: 'marketing',
+            builder: (context, state) => const MarketingScreen(),
+            routes: [
+              GoRoute(
+                path: 'referral-doctors/new',
+                name: 'marketing-referral-doctor-new',
+                builder: (context, state) => const ReferralDoctorFormScreen(),
+              ),
+              GoRoute(
+                path: 'referral-doctors/:id',
+                name: 'marketing-referral-doctor-detail',
+                builder: (context, state) {
+                  final id = state.pathParameters['id']!;
+                  return ReferralDoctorDetailScreen(doctorId: id);
+                },
+                routes: [
+                  GoRoute(
+                    path: 'edit',
+                    name: 'marketing-referral-doctor-edit',
+                    builder: (context, state) {
+                      final id = state.pathParameters['id']!;
+                      return ReferralDoctorFormScreen(doctorId: id);
+                    },
+                  ),
+                ],
+              ),
+              GoRoute(
+                path: 'visits/new',
+                name: 'marketing-visit-new',
+                builder: (context, state) => const MarketingVisitFormScreen(),
+              ),
+              GoRoute(
+                path: 'referrals/new',
+                name: 'marketing-referral-new',
+                builder: (context, state) =>
+                    const MarketingReferralFormScreen(),
+              ),
+              GoRoute(
+                path: 'areas/:id',
+                name: 'marketing-area-detail',
+                builder: (context, state) {
+                  final id = state.pathParameters['id']!;
+                  return MarketingAreaDetailScreen(areaId: id);
                 },
               ),
             ],

@@ -426,6 +426,12 @@ class DashboardScreen extends ConsumerWidget {
         'color': Colors.indigo,
       },
       {
+        'icon': Icons.campaign,
+        'label': 'Marketing',
+        'route': '/marketing',
+        'color': Colors.pink,
+      },
+      {
         'icon': Icons.medical_services,
         'label': 'OPD',
         'route': '/opd',

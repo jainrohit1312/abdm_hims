@@ -104,6 +104,12 @@ class ApiConstants {
   static const String employeeAttendancePunchesTable =
       'employee_attendance_punches';
 
+  // PRO / Marketing Module
+  static const String marketingAreasTable = 'marketing_areas';
+  static const String referralDoctorsTable = 'referral_doctors';
+  static const String marketingVisitsTable = 'marketing_visits';
+  static const String patientReferralsTable = 'patient_referrals';
+
   // Compliance & Renewal Reminder Module
   static const String complianceRecordsTable = 'compliance_records';
   static const String complianceDocumentsTable = 'compliance_documents';

@@ -17,6 +17,7 @@ const Set<String> kRootModulePaths = {
   '/settings',
   '/users',
   '/employees',
+  '/marketing',
   '/notifications',
   '/whatsapp',
   '/reports',

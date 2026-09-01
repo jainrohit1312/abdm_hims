@@ -10,11 +10,20 @@ import '../models/compliance_models.dart';
 import '../models/employee_attendance_summary.dart';
 import '../models/employee_model.dart';
 import '../models/employee_salary_summary.dart';
+import '../models/marketing_models.dart';
 import '../models/personalized_tag_models.dart';
 import '../repositories/attendance_repository.dart';
 import '../repositories/employee_repository.dart';
+import '../repositories/marketing_area_repository.dart';
+import '../repositories/marketing_visit_repository.dart';
+import '../repositories/patient_referral_repository.dart';
+import '../repositories/referral_doctor_repository.dart';
 import '../repositories/supabase_attendance_repository.dart';
 import '../repositories/supabase_employee_repository.dart';
+import '../repositories/supabase_marketing_area_repository.dart';
+import '../repositories/supabase_marketing_visit_repository.dart';
+import '../repositories/supabase_patient_referral_repository.dart';
+import '../repositories/supabase_referral_doctor_repository.dart';
 import '../services/attendance_calculator.dart';
 import '../services/salary_calculator.dart';
 import '../services/abdm_service.dart';
@@ -24,7 +33,9 @@ import '../services/cache_service.dart';
 import '../services/compliance_service.dart';
 import '../services/counseling_recording_service.dart';
 import '../services/database_service.dart';
+import '../services/geofence_service.dart';
 import '../services/local_db.dart';
+import '../services/marketing_analytics_service.dart';
 import '../services/personalized_tag_service.dart';
 import '../services/push_notification_service.dart';
 import '../services/report_generation_service.dart';
@@ -2477,3 +2488,474 @@ final employeeSalarySummaryProvider =
             ),
       ];
     });
+
+// ---------------------------------------------------------------------------
+// PRO / Marketing Module Providers
+// ---------------------------------------------------------------------------
+// Dependency Inversion: UI depends on the focused repository abstractions and
+// pure services (GeoFenceService / MarketingAnalyticsService) below, never on
+// SupabaseClient directly.
+
+/// Persistence for marketing areas (CRUD only).
+final marketingAreaRepositoryProvider = Provider<MarketingAreaRepository>((ref) {
+  return SupabaseMarketingAreaRepository(ref.watch(supabaseClientProvider));
+});
+
+/// Persistence for the REFERRAL DOCTOR master (separate from `doctors`).
+final referralDoctorRepositoryProvider = Provider<ReferralDoctorRepository>((
+  ref,
+) {
+  return SupabaseReferralDoctorRepository(ref.watch(supabaseClientProvider));
+});
+
+/// Persistence for marketing visit punches.
+final marketingVisitRepositoryProvider = Provider<MarketingVisitRepository>((
+  ref,
+) {
+  return SupabaseMarketingVisitRepository(ref.watch(supabaseClientProvider));
+});
+
+/// Persistence for patient referral history.
+final patientReferralRepositoryProvider = Provider<PatientReferralRepository>((
+  ref,
+) {
+  return SupabasePatientReferralRepository(ref.watch(supabaseClientProvider));
+});
+
+/// Pure geofence verification (Haversine, no Supabase, no UI).
+final geofenceServiceProvider = Provider<GeoFenceService>((ref) {
+  return const GeoFenceService();
+});
+
+/// Pure marketing analytics (no Supabase queries inside).
+final marketingAnalyticsServiceProvider = Provider<MarketingAnalyticsService>((
+  ref,
+) {
+  return const MarketingAnalyticsService();
+});
+
+/// Refresh tick for all marketing lists/stats.
+final marketingRefreshProvider = StateProvider<int>((ref) => 0);
+
+/// All marketing areas for the current hospital (name ascending).
+final marketingAreasProvider =
+    FutureProvider.family<List<MarketingArea>, String>((ref, hospitalId) {
+      ref.watch(marketingRefreshProvider);
+      return ref
+          .read(marketingAreaRepositoryProvider)
+          .getAreas(hospitalId: hospitalId);
+    });
+
+/// All referral doctors for the current hospital (including inactive).
+final referralDoctorsProvider =
+    FutureProvider.family<List<ReferralDoctor>, String>((ref, hospitalId) {
+      ref.watch(marketingRefreshProvider);
+      return ref
+          .read(referralDoctorRepositoryProvider)
+          .getReferralDoctors(hospitalId: hospitalId);
+    });
+
+/// Identifies one referral doctor inside the current hospital.
+class ReferralDoctorDetailParams {
+  final String hospitalId;
+  final String doctorId;
+
+  const ReferralDoctorDetailParams({
+    required this.hospitalId,
+    required this.doctorId,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is ReferralDoctorDetailParams &&
+      other.hospitalId == hospitalId &&
+      other.doctorId == doctorId;
+
+  @override
+  int get hashCode => Object.hash(hospitalId, doctorId);
+}
+
+final referralDoctorByIdProvider =
+    FutureProvider.family<ReferralDoctor?, ReferralDoctorDetailParams>((
+      ref,
+      params,
+    ) {
+      ref.watch(marketingRefreshProvider);
+      return ref
+          .read(referralDoctorRepositoryProvider)
+          .getReferralDoctorById(
+            hospitalId: params.hospitalId,
+            id: params.doctorId,
+          );
+    });
+
+/// Date range for visit queries. `==`/`hashCode` compare date parts only so
+/// Riverpod can cache per-range results.
+class MarketingVisitRangeParams {
+  final String hospitalId;
+  final DateTime from;
+  final DateTime to;
+
+  const MarketingVisitRangeParams({
+    required this.hospitalId,
+    required this.from,
+    required this.to,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is MarketingVisitRangeParams &&
+      other.hospitalId == hospitalId &&
+      _sameDay(other.from, from) &&
+      _sameDay(other.to, to);
+
+  @override
+  int get hashCode =>
+      Object.hash(hospitalId, from.year, from.month, from.day, to.year, to.month, to.day);
+
+  static bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+/// Visit punches in `[from, to)`, newest first.
+final marketingVisitsProvider =
+    FutureProvider.family<List<MarketingVisit>, MarketingVisitRangeParams>((
+      ref,
+      params,
+    ) {
+      ref.watch(marketingRefreshProvider);
+      return ref
+          .read(marketingVisitRepositoryProvider)
+          .getVisitsForRange(
+            hospitalId: params.hospitalId,
+            from: params.from,
+            to: params.to,
+          );
+    });
+
+/// Date range for patient-referral queries.
+class PatientReferralRangeParams {
+  final String hospitalId;
+  final DateTime from;
+  final DateTime to;
+
+  const PatientReferralRangeParams({
+    required this.hospitalId,
+    required this.from,
+    required this.to,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is PatientReferralRangeParams &&
+      other.hospitalId == hospitalId &&
+      _sameDay(other.from, from) &&
+      _sameDay(other.to, to);
+
+  @override
+  int get hashCode =>
+      Object.hash(hospitalId, from.year, from.month, from.day, to.year, to.month, to.day);
+
+  static bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+/// Patient referrals in `[from, to)`, newest first.
+final patientReferralsProvider =
+    FutureProvider.family<List<PatientReferral>, PatientReferralRangeParams>((
+      ref,
+      params,
+    ) {
+      ref.watch(marketingRefreshProvider);
+      return ref
+          .read(patientReferralRepositoryProvider)
+          .getReferralsForRange(
+            hospitalId: params.hospitalId,
+            from: params.from,
+            to: params.to,
+          );
+    });
+
+/// Search params for the patient picker in the referral entry screen.
+class MarketingPatientSearchParams {
+  final String query;
+  final String hospitalId;
+
+  const MarketingPatientSearchParams({
+    required this.query,
+    required this.hospitalId,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is MarketingPatientSearchParams &&
+      other.query == query &&
+      other.hospitalId == hospitalId;
+
+  @override
+  int get hashCode => Object.hash(query, hospitalId);
+}
+
+/// Patient search enriched with the patient's recent OPD/IPD visits so the
+/// referral form can offer an optional OPD/IPD link without N+1 queries.
+final marketingPatientSearchProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, MarketingPatientSearchParams>((
+      ref,
+      params,
+    ) {
+      if (params.query.trim().isEmpty) return Future.value(const []);
+      return ref
+          .read(databaseServiceProvider)
+          .searchPatientsAcrossVisits(
+            params.query,
+            hospitalId: params.hospitalId,
+          );
+    });
+
+/// Identifies the dashboard context: hospital + reference date.
+class MarketingDashboardParams {
+  final String hospitalId;
+  final DateTime date;
+
+  const MarketingDashboardParams({required this.hospitalId, required this.date});
+
+  @override
+  bool operator ==(Object other) =>
+      other is MarketingDashboardParams &&
+      other.hospitalId == hospitalId &&
+      other.date.year == date.year &&
+      other.date.month == date.month &&
+      other.date.day == date.day;
+
+  @override
+  int get hashCode => Object.hash(hospitalId, date.year, date.month, date.day);
+}
+
+/// Dashboard summary: fetches doctors, the current month's visits and the
+/// current month's referrals ONCE each, then aggregates via the pure
+/// [MarketingAnalyticsService] (never N+1).
+final marketingDashboardProvider =
+    FutureProvider.family<MarketingDashboardSummary, MarketingDashboardParams>((
+      ref,
+      params,
+    ) async {
+      ref.watch(marketingRefreshProvider);
+
+      final monthStart = DateTime(params.date.year, params.date.month, 1);
+      final nextMonth = DateTime(params.date.year, params.date.month + 1, 1);
+
+      final doctors = await ref.watch(
+        referralDoctorsProvider(params.hospitalId).future,
+      );
+      final areas = await ref.watch(
+        marketingAreasProvider(params.hospitalId).future,
+      );
+      final visits = await ref
+          .read(marketingVisitRepositoryProvider)
+          .getVisitsForRange(
+            hospitalId: params.hospitalId,
+            from: monthStart,
+            to: nextMonth,
+          );
+      final referrals = await ref
+          .read(patientReferralRepositoryProvider)
+          .getReferralsForRange(
+            hospitalId: params.hospitalId,
+            from: monthStart,
+            to: nextMonth,
+          );
+
+      return ref.read(marketingAnalyticsServiceProvider).buildDashboard(
+        doctors: doctors,
+        visits: visits,
+        referrals: referrals,
+        areas: areas,
+        now: params.date,
+      );
+    });
+
+/// Identifies the area-activity context: hospital + area + month.
+class MarketingAreaActivityParams {
+  final String hospitalId;
+  final String areaId;
+  final DateTime month;
+
+  const MarketingAreaActivityParams({
+    required this.hospitalId,
+    required this.areaId,
+    required this.month,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is MarketingAreaActivityParams &&
+      other.hospitalId == hospitalId &&
+      other.areaId == areaId &&
+      other.month.year == month.year &&
+      other.month.month == month.month;
+
+  @override
+  int get hashCode =>
+      Object.hash(hospitalId, areaId, month.year, month.month);
+}
+
+/// Area detail: doctors of one area + that area's month activity.
+final marketingAreaActivityProvider =
+    FutureProvider.family<AreaActivitySummary, MarketingAreaActivityParams>((
+      ref,
+      params,
+    ) async {
+      ref.watch(marketingRefreshProvider);
+
+      final monthStart = DateTime(params.month.year, params.month.month, 1);
+      final nextMonth = DateTime(params.month.year, params.month.month + 1, 1);
+
+      final doctors = await ref.watch(
+        referralDoctorsProvider(params.hospitalId).future,
+      );
+      final areas = await ref.watch(
+        marketingAreasProvider(params.hospitalId).future,
+      );
+      final visits = await ref
+          .read(marketingVisitRepositoryProvider)
+          .getVisitsForRange(
+            hospitalId: params.hospitalId,
+            from: monthStart,
+            to: nextMonth,
+          );
+      final referrals = await ref
+          .read(patientReferralRepositoryProvider)
+          .getReferralsForRange(
+            hospitalId: params.hospitalId,
+            from: monthStart,
+            to: nextMonth,
+          );
+
+      final summary = ref
+          .read(marketingAnalyticsServiceProvider)
+          .areaSummaries(
+            doctors: doctors,
+            visits: visits,
+            referrals: referrals,
+            areas: areas,
+            now: params.month,
+          )
+          .where((s) => s.areaId == params.areaId)
+          .firstOrNull;
+
+      return summary ??
+          AreaActivitySummary(
+            areaId: params.areaId,
+            areaName: params.areaId,
+            referralDoctorCount: 0,
+            visitedToday: 0,
+            visitedThisMonth: 0,
+            referralsThisMonth: 0,
+          );
+    });
+
+/// Identifies the bounded detail window for one referral doctor.
+class ReferralDoctorDetailAnalyticsParams {
+  final String hospitalId;
+  final String doctorId;
+  final DateTime now;
+
+  const ReferralDoctorDetailAnalyticsParams({
+    required this.hospitalId,
+    required this.doctorId,
+    required this.now,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is ReferralDoctorDetailAnalyticsParams &&
+      other.hospitalId == hospitalId &&
+      other.doctorId == doctorId &&
+      other.now.year == now.year &&
+      other.now.month == now.month &&
+      other.now.day == now.day;
+
+  @override
+  int get hashCode =>
+      Object.hash(hospitalId, doctorId, now.year, now.month, now.day);
+}
+
+/// Aggregated detail for the referral-doctor detail screen.
+///
+/// Fetches a bounded 90-day window of visits/referrals (never the entire
+/// lifetime history) plus two cheap lifetime COUNT queries.
+final referralDoctorDetailProvider =
+    FutureProvider.family<ReferralDoctorDetail?, ReferralDoctorDetailAnalyticsParams>((
+      ref,
+      params,
+    ) async {
+      ref.watch(marketingRefreshProvider);
+
+      final doctor = await ref.read(
+        referralDoctorByIdProvider(
+          ReferralDoctorDetailParams(
+            hospitalId: params.hospitalId,
+            doctorId: params.doctorId,
+          ),
+        ).future,
+      );
+      if (doctor == null) return null;
+
+      final from = DateTime(params.now.year, params.now.month, params.now.day)
+          .subtract(const Duration(days: 90));
+      final to = DateTime(params.now.year, params.now.month, params.now.day)
+          .add(const Duration(days: 1));
+
+      final visitRepo = ref.read(marketingVisitRepositoryProvider);
+      final referralRepo = ref.read(patientReferralRepositoryProvider);
+
+      final results = await Future.wait([
+        visitRepo.getVisitsForDoctorRange(
+          hospitalId: params.hospitalId,
+          doctorId: doctor.id,
+          from: from,
+          to: to,
+        ),
+        referralRepo.getReferralsForDoctorRange(
+          hospitalId: params.hospitalId,
+          doctorId: doctor.id,
+          from: from,
+          to: to,
+        ),
+        visitRepo.countVisitsForDoctor(
+          hospitalId: params.hospitalId,
+          doctorId: doctor.id,
+        ),
+        referralRepo.countReferralsForDoctor(
+          hospitalId: params.hospitalId,
+          doctorId: doctor.id,
+        ),
+      ]);
+
+      final visits = (results[0] as List).cast<MarketingVisit>();
+      final referrals = (results[1] as List).cast<PatientReferral>();
+      final totalVisits = results[2] as int;
+      final totalReferrals = results[3] as int;
+
+      final summaries = ref
+          .read(marketingAnalyticsServiceProvider)
+          .referralDoctorSummaries(
+            doctors: [doctor],
+            visits: visits,
+            referrals: referrals,
+            now: params.now,
+          );
+      final doctorSummary = summaries.firstOrNull;
+
+      return ReferralDoctorDetail(
+        doctor: doctor,
+        totalVisits: totalVisits,
+        visitsThisMonth: doctorSummary?.visitsThisMonth ?? 0,
+        patientsReferred: totalReferrals,
+        patientsReferredThisMonth: doctorSummary?.referralsThisMonth ?? 0,
+        lastVisit: doctorSummary?.lastVisit,
+        recentVisits: visits.take(5).toList(),
+        recentReferrals: referrals.take(5).toList(),
+      );
+    });
+
