@@ -114,6 +114,17 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
   /// query text.
   bool _pendingBlurConvert = false;
 
+  /// Deferred blur handlers. The text field can lose focus on pointer-down
+  /// (desktop/web) before a suggestion row's onTap fires on pointer-up. Both
+  /// actions are therefore deferred a little so an explicit suggestion tap can
+  /// cancel them; otherwise the overlay was removed before the tap landed.
+  Timer? _blurConvertTimer;
+  Timer? _blurCloseTimer;
+
+  /// True while a pointer is pressed on a suggestion row. While active, the
+  /// deferred blur-close and blur-convert timers must not fire.
+  bool _suggestionPressActive = false;
+
   /// Maps selected tag name (lowercase) → `user_tags.id`. Used by the ✕ delete
   /// button for entity-linked fields (where removing the chip is allowed to
   /// delete the DB row). For `recordUsageOnAdd` fields the mapping is kept
@@ -154,6 +165,8 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
 
   @override
   void dispose() {
+    _blurConvertTimer?.cancel();
+    _blurCloseTimer?.cancel();
     _closeDropdown();
     _focusNode.removeListener(_handleFocusChange);
     _searchController.dispose();
@@ -165,18 +178,27 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     if (_focusNode.hasFocus) {
       // A pending blur-conversion is no longer needed — the user is back.
       _pendingBlurConvert = false;
+      _suggestionPressActive = false;
+      _blurConvertTimer?.cancel();
+      _blurCloseTimer?.cancel();
       _openDropdown();
     } else {
-      // Let taps on dropdown items land before the overlay is removed, and
-      // convert any leftover typed text into a tag once we know the user did
-      // not tap a suggestion (which cancels this conversion).
+      // The text field can lose focus on pointer-down (desktop/web) before a
+      // suggestion row's onTap fires on pointer-up. Defer both the raw-query
+      // conversion and the overlay close so an explicit suggestion tap can
+      // cancel them via _handleSuggestionTapDown/_commitName.
       _pendingBlurConvert = true;
-      Future.microtask(() {
-        if (!mounted || !_pendingBlurConvert) return;
+      _blurConvertTimer?.cancel();
+      _blurConvertTimer = Timer(const Duration(milliseconds: 120), () {
+        if (!mounted || !_pendingBlurConvert || _suggestionPressActive) return;
         _pendingBlurConvert = false;
         _convertTypedTextToTag();
       });
-      Future.microtask(_closeDropdown);
+      _blurCloseTimer?.cancel();
+      _blurCloseTimer = Timer(const Duration(milliseconds: 180), () {
+        if (!mounted || _suggestionPressActive) return;
+        if (!_focusNode.hasFocus) _closeDropdown();
+      });
     }
   }
 
@@ -202,6 +224,28 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     _commitName(tag.name, tagId: tag.id);
   }
 
+  /// Pointer-down on a suggestion row. This runs before the text field's blur
+  /// timers can fire (same pointer event), so it cancels the pending blur
+  /// conversion and prevents the blur-close timer from removing the overlay
+  /// before the row's onTap lands on pointer-up.
+  void _handleSuggestionTapDown(TapDownDetails details) {
+    _suggestionPressActive = true;
+    _pendingBlurConvert = false;
+    _blurConvertTimer?.cancel();
+  }
+
+  /// Pointer-up outside the row / gesture canceled — release the guard so the
+  /// deferred blur handlers can behave normally again.
+  void _handleSuggestionTapCancel() {
+    _suggestionPressActive = false;
+  }
+
+  /// Selection wrapper for a history suggestion row.
+  void _selectExistingTag(PersonalizedTag tag) {
+    _addExistingTag(tag);
+    _suggestionPressActive = false;
+  }
+
   /// Converts whatever is still sitting in the search field into a tag when
   /// the field loses focus (so "type + move on" also creates a tag). Does not
   /// yank focus back.
@@ -215,6 +259,8 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     if (!mounted) return;
     // Any explicit selection wins over the pending blur-conversion.
     _pendingBlurConvert = false;
+    _blurConvertTimer?.cancel();
+    _suggestionPressActive = false;
     final clean = PersonalizedTagService.normalizeTagName(name);
     if (clean.isEmpty) return;
     if (_containsName(clean)) {
@@ -452,10 +498,13 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     final theme = Theme.of(context);
     return Stack(
       children: [
-        // Transparent barrier: any tap outside the panel closes the dropdown.
+        // Outside-dismiss barrier. It is BEHIND the suggestion panel, so it
+        // can never intercept a suggestion tap; the panel (last child) is
+        // hit-tested first. Opaque so taps outside the panel close the
+        // dropdown without leaking to the page behind the overlay.
         Positioned.fill(
           child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
+            behavior: HitTestBehavior.opaque,
             onTap: _closeDropdown,
           ),
         ),
@@ -546,7 +595,9 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
                 icon: Icons.sell_outlined,
                 title: tag.name,
                 subtitle: tag.usageLabel,
-                onTap: () => _addExistingTag(tag),
+                onTap: () => _selectExistingTag(tag),
+                onTapDown: _handleSuggestionTapDown,
+                onTapCancel: _handleSuggestionTapCancel,
               ),
           ],
           if (showCreateRow) ...[
@@ -558,6 +609,8 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
               subtitle: 'Create new tag',
               emphasize: true,
               onTap: () => _addName(query),
+              onTapDown: _handleSuggestionTapDown,
+              onTapCancel: _handleSuggestionTapCancel,
             ),
           ],
         ],
@@ -730,12 +783,18 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
 }
 
 /// One tappable row inside the suggestion dropdown.
+///
+/// Built on [InkWell] (not [ListTile]) so the whole row is reliably clickable
+/// and so `onTapDown`/`onTapCancel` can be observed to cancel the text field's
+/// blur-conversion/close race before `onTap` fires.
 class _SuggestionTile extends StatelessWidget {
   const _SuggestionTile({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.onTapDown,
+    this.onTapCancel,
     this.emphasize = false,
   });
 
@@ -743,6 +802,8 @@ class _SuggestionTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final GestureTapDownCallback? onTapDown;
+  final GestureTapCancelCallback? onTapCancel;
   final bool emphasize;
 
   @override
@@ -751,22 +812,39 @@ class _SuggestionTile extends StatelessWidget {
     final color = emphasize
         ? theme.colorScheme.primary
         : theme.colorScheme.onSurfaceVariant;
-    return ListTile(
-      dense: true,
-      visualDensity: VisualDensity.compact,
-      leading: Icon(icon, size: 20, color: color),
-      title: Text(
-        title,
-        style: TextStyle(
-          fontWeight: emphasize ? FontWeight.w700 : FontWeight.w500,
-          color: emphasize ? theme.colorScheme.primary : null,
+    return InkWell(
+      onTap: onTap,
+      onTapDown: onTapDown,
+      onTapCancel: onTapCancel,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: emphasize ? FontWeight.w700 : FontWeight.w500,
+                      color: emphasize ? theme.colorScheme.primary : null,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodySmall?.copyWith(color: color),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
-      subtitle: Text(
-        subtitle,
-        style: theme.textTheme.bodySmall?.copyWith(color: color),
-      ),
-      onTap: onTap,
     );
   }
 }
