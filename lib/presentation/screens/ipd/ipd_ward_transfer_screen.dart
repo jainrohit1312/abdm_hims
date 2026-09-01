@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
 import '../../../core/extensions/datetime_extensions.dart';
+import '../../widgets/app_page_content.dart';
 import '../../widgets/smart_navigation.dart';
 
 class IPDWardTransferScreen extends ConsumerStatefulWidget {
@@ -148,7 +149,7 @@ class _IPDWardTransferScreenState extends ConsumerState<IPDWardTransferScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: SmartAppBar(title: const Text('IPD Ward Transfer')),
-      body: SingleChildScrollView(
+      body: AppPageScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

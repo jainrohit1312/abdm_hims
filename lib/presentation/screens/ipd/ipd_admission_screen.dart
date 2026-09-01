@@ -5,6 +5,7 @@ import '../../../app/providers.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../models/personalized_tag_models.dart';
 import '../../../services/database_service.dart';
+import '../../widgets/app_page_content.dart';
 import '../../widgets/personalized_tag_field.dart';
 import '../../widgets/smart_navigation.dart';
 
@@ -263,7 +264,7 @@ class _IPDAdmissionScreenState extends ConsumerState<IPDAdmissionScreen> {
 
     return Scaffold(
       appBar: SmartAppBar(title: const Text('IPD Admission')),
-      body: SingleChildScrollView(
+      body: AppPageScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,

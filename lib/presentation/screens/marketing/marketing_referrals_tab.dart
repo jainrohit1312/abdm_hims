@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../../app/providers.dart';
 import '../../../models/employee_model.dart';
 import '../../../models/marketing_models.dart';
+import '../../widgets/app_footer.dart';
 import '../../widgets/app_ui.dart';
 import 'marketing_widgets.dart';
 
@@ -183,9 +184,12 @@ class _MarketingReferralsTabState extends ConsumerState<MarketingReferralsTab> {
                 child: ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  itemCount: filtered.length,
+                  itemCount: filtered.length + 1,
                   separatorBuilder: (_, _) => AppGap.xs,
                   itemBuilder: (context, index) {
+                    if (index == filtered.length) {
+                      return const AppFooter();
+                    }
                     final referral = filtered[index];
                     final doctor = doctorById[referral.referralDoctorId];
                     return _ReferralCard(

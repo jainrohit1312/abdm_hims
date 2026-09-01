@@ -6,6 +6,7 @@ import '../../../app/providers.dart';
 import '../../../models/personalized_tag_models.dart';
 import '../../../services/abdm_service.dart';
 import '../../widgets/app_ui.dart';
+import '../../widgets/app_page_content.dart';
 import '../../widgets/personalized_tag_field.dart';
 import '../../widgets/smart_navigation.dart';
 
@@ -452,7 +453,7 @@ class _PatientRegistrationScreenState
           ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: AppPageScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,

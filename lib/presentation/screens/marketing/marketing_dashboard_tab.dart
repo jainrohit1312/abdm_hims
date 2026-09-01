@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/providers.dart';
 import '../../../models/employee_model.dart';
 import '../../../models/marketing_models.dart';
+import '../../widgets/app_page_content.dart';
 import '../../widgets/app_ui.dart';
 import 'marketing_widgets.dart';
 
@@ -46,7 +47,7 @@ class MarketingDashboardTab extends ConsumerWidget {
       data: (summary) => RefreshIndicator(
         onRefresh: () async =>
             ref.invalidate(marketingDashboardProvider(params)),
-        child: ListView(
+        child: AppPageListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           children: [

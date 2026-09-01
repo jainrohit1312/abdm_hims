@@ -9,6 +9,7 @@ import '../../../app/providers.dart';
 import '../../widgets/app_refresh_button.dart';
 import '../../../core/extensions/datetime_extensions.dart';
 import '../../../services/diagnostic_receipt_service.dart';
+import '../../widgets/app_page_content.dart';
 import '../../widgets/smart_navigation.dart';
 
 /// Diagnostic test ordering screen — the cash-receipt workflow.
@@ -471,7 +472,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
           ),
         ],
       ),
-      body: ListView(
+      body: AppPageListView(
         padding: const EdgeInsets.all(16),
         children: [
           _buildPatientSection(),

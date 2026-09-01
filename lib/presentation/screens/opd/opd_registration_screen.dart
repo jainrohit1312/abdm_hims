@@ -5,6 +5,7 @@ import '../../../app/providers.dart';
 import '../../../core/constants/api_constants.dart';
 import '../../../models/personalized_tag_models.dart';
 import '../../widgets/app_ui.dart';
+import '../../widgets/app_page_content.dart';
 import '../../widgets/personalized_tag_field.dart';
 import '../../widgets/smart_navigation.dart';
 import 'opd_slip_print.dart';
@@ -569,7 +570,7 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: AppPageScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,

@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
 import '../../core/utils/keyboard_inset.dart';
-import 'app_footer.dart';
 import 'keyboard_safe_content.dart';
 import 'smart_navigation.dart';
 
@@ -112,10 +111,10 @@ class _AppNavigationShellState extends ConsumerState<AppNavigationShell> {
   /// Shared authenticated shell scaffold.
   ///
   /// The routed child is almost always its own [Scaffold] (most module screens
-  /// build `Scaffold(appBar: SmartAppBar(...), body: ...)`), so it is placed in
-  /// an [Expanded] and the branding footer is appended below it in the shell's
-  /// normal body layout — never as an overlay, never as a `bottomNavigationBar`
-  /// and never inside the child's scrollable.
+  /// build `Scaffold(appBar: SmartAppBar(...), body: ...)`). The shell only
+  /// provides the global header/drawer and the web keyboard padding; the
+  /// branding footer is appended inside each screen's own scroll flow via
+  /// `AppPageScrollView` / `AppPageListView`.
   ///
   /// `resizeToAvoidBottomInset` is intentionally `false` here: the shell must
   /// NOT consume the keyboard inset for its body, otherwise every child
@@ -123,12 +122,7 @@ class _AppNavigationShellState extends ConsumerState<AppNavigationShell> {
   /// keyboard strategy (e.g. OPD Consultation with
   /// `resizeToAvoidBottomInset: false`) would break. Child scaffolds keep
   /// seeing the real inset and keep applying their existing keyboard behavior.
-  /// The footer is hidden while a keyboard is open so it never competes with
-  /// form space or sits above/over the keyboard.
   Widget _buildShellScaffold(BuildContext context, {required Widget body}) {
-    final keyboardInset = keyboardInsetOf(context);
-    final isKeyboardOpen = keyboardInset > 0;
-
     // Mobile web (Android Chrome + `interactive-widget=overlays-content`):
     // engine `viewInsets` 0 reh sakta hai, isliye browser-reported keyboard
     // height ko shell khud reserve karta hai. Native par `viewInsets` already
@@ -142,21 +136,11 @@ class _AppNavigationShellState extends ConsumerState<AppNavigationShell> {
       resizeToAvoidBottomInset: false,
       appBar: AppHeader(currentPath: widget.currentPath),
       drawer: AppNavDrawer(currentPath: widget.currentPath),
-      body: Column(
-        children: [
-          Expanded(
-            child: AnimatedPadding(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              padding: EdgeInsets.only(bottom: webKeyboardPadding),
-              child: body,
-            ),
-          ),
-          // Branding footer stays below page content. Keyboard khula ho to
-          // footer hide kar dete hain — form ko poora viewport milta hai aur
-          // footer keyboard ke upar ya content ke beech nahi aata.
-          if (!isKeyboardOpen) const AppFooter(),
-        ],
+      body: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(bottom: webKeyboardPadding),
+        child: body,
       ),
     );
   }

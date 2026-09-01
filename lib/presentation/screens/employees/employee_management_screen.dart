@@ -7,6 +7,7 @@ import '../../../app/providers.dart';
 import '../../../models/employee_attendance_summary.dart';
 import '../../../models/employee_model.dart';
 import '../../../models/employee_salary_summary.dart';
+import '../../widgets/app_footer.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/smart_navigation.dart';
 
@@ -158,9 +159,12 @@ class _EmployeesTabState extends ConsumerState<_EmployeesTab> {
                 child: ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  itemCount: filtered.length,
+                  itemCount: filtered.length + 1,
                   separatorBuilder: (_, _) => AppGap.xs,
                   itemBuilder: (context, index) {
+                    if (index == filtered.length) {
+                      return const AppFooter();
+                    }
                     final employee = filtered[index];
                     return _EmployeeCard(
                       employee: employee,
@@ -406,9 +410,12 @@ class _DailyAttendanceTabState extends ConsumerState<_DailyAttendanceTab> {
                 child: ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  itemCount: summaries.length,
+                  itemCount: summaries.length + 1,
                   separatorBuilder: (_, _) => AppGap.xs,
                   itemBuilder: (context, index) {
+                    if (index == summaries.length) {
+                      return const AppFooter();
+                    }
                     final summary = summaries[index];
                     final employee = employeesById[summary.employeeId];
                     return _DailyAttendanceRow(
@@ -733,9 +740,12 @@ class _MonthlyAttendanceTabState extends ConsumerState<_MonthlyAttendanceTab> {
                 child: ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  itemCount: relevant.length,
+                  itemCount: relevant.length + 1,
                   separatorBuilder: (_, _) => AppGap.xs,
                   itemBuilder: (context, index) {
+                    if (index == relevant.length) {
+                      return const AppFooter();
+                    }
                     final summary = relevant[index];
                     final employee = employeesById[summary.employeeId];
                     return _MonthlyAttendanceRow(
@@ -937,6 +947,7 @@ class _SalaryTabState extends ConsumerState<_SalaryTab> {
                     _SalaryRow(row: row),
                     AppGap.xs,
                   ],
+                  const AppFooter(),
                 ],
               );
             },

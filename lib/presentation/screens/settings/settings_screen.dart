@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
+import '../../widgets/app_page_content.dart';
 import '../../widgets/smart_navigation.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -15,7 +16,7 @@ class SettingsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: SmartAppBar(title: const Text('Settings')),
-      body: ListView(
+      body: AppPageListView(
         children: [
           const SizedBox(height: 8),
           _buildSectionHeader('Appearance', theme),

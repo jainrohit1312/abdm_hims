@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
+import '../../widgets/app_footer.dart';
 import '../../widgets/app_refresh_button.dart';
 import '../../widgets/smart_navigation.dart';
 import 'widgets/report_card.dart';
@@ -119,8 +120,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                       : ListView.builder(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-                          itemCount: visible.length,
+                          itemCount: visible.length + 1,
                           itemBuilder: (context, index) {
+                            if (index == visible.length) {
+                              return const AppFooter();
+                            }
                             final report = visible[index];
                             return Padding(
                               padding: const EdgeInsets.symmetric(vertical: 6),

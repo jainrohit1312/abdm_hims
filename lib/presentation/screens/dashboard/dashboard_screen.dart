@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../app/providers.dart';
+import '../../widgets/app_page_content.dart';
 import '../../widgets/app_refresh_button.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/smart_navigation.dart';
@@ -34,7 +35,7 @@ class DashboardScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: AppPageScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

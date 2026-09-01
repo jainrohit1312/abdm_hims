@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/providers.dart';
 import '../../../models/marketing_models.dart';
 import '../../../repositories/marketing_area_repository.dart';
+import '../../widgets/app_footer.dart';
 import '../../widgets/app_ui.dart';
 import 'marketing_widgets.dart';
 
@@ -65,9 +66,12 @@ class _MarketingAreasTabState extends ConsumerState<MarketingAreasTab> {
                 child: ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  itemCount: areas.length,
+                  itemCount: areas.length + 1,
                   separatorBuilder: (_, _) => AppGap.xs,
                   itemBuilder: (context, index) {
+                    if (index == areas.length) {
+                      return const AppFooter();
+                    }
                     final area = areas[index];
                     return _AreaCard(
                       area: area,

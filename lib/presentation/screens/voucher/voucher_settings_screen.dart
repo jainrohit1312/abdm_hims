@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
+import '../../widgets/app_page_content.dart';
 import '../../widgets/smart_navigation.dart';
 
 /// Voucher Settings screen (`/vouchers/settings`).
@@ -215,7 +216,7 @@ class _VoucherSettingsScreenState extends ConsumerState<VoucherSettingsScreen> {
 
     return Scaffold(
       appBar: SmartAppBar(title: const Text('Voucher Settings')),
-      body: ListView(
+      body: AppPageListView(
         padding: const EdgeInsets.all(16),
         children: [
           _sectionHeader('Voucher Custom Categories'),

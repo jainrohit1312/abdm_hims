@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../../app/providers.dart';
 import '../../../core/extensions/datetime_extensions.dart';
 import '../../../services/ipd_bill_service.dart';
+import '../../widgets/app_page_content.dart';
 import '../../widgets/smart_navigation.dart';
 
 // ---------------------------------------------------------------------------
@@ -482,7 +483,7 @@ class _IPDBillingScreenState extends ConsumerState<IPDBillingScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: SmartAppBar(title: const Text('IPD Billing')),
-      body: SingleChildScrollView(
+      body: AppPageScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
