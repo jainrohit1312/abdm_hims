@@ -10,13 +10,13 @@ import '../../../app/providers.dart';
 import '../../../core/utils/pdf_font_helper.dart';
 import '../../widgets/smart_navigation.dart';
 
-/// Exact half of an A4 sheet (A4 width x A4 height / 2).
+/// Half-A4 portrait page: A4 width (210 mm) x half A4 height (148.5 mm).
 ///
-/// The generated PDF page itself is physically half-A4; the printer is never
-/// asked to scale a full A4 page down to half A4.
-final PdfPageFormat _halfA4PageFormat = PdfPageFormat(
-  PdfPageFormat.a4.width,
-  PdfPageFormat.a4.height / 2,
+/// The generated PDF page itself is this custom size. It is not a full A4
+/// page and it is not an A5 page in any orientation.
+final PdfPageFormat halfA4Portrait = PdfPageFormat(
+  210 * PdfPageFormat.mm,
+  148.5 * PdfPageFormat.mm,
 );
 
 /// OPD payment slip PDF generator + printer.
@@ -43,7 +43,8 @@ class OPDSlipPrintService {
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: _halfA4PageFormat,
+        pageFormat: halfA4Portrait,
+        orientation: pw.PageOrientation.natural,
         margin: const pw.EdgeInsets.all(20),
         build: (pw.Context context) {
           return [
@@ -130,8 +131,8 @@ class OPDSlipPrintService {
     );
 
     await Printing.layoutPdf(
+      format: halfA4Portrait,
       onLayout: (PdfPageFormat format) async => bytes,
-      format: _halfA4PageFormat,
     );
   }
 }
