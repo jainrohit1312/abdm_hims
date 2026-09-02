@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../core/utils/display_names.dart';
 import '../../../services/counseling_recording_service.dart';
 import '../../../services/storage_service.dart';
 import '../../widgets/smart_navigation.dart';
@@ -518,10 +519,11 @@ class _CounselingScreenState extends ConsumerState<CounselingScreen> {
   /// Stamp mein dikhne wali lines — sirf bhare hue fields include hote hain.
   List<String> get _infoStampLines {
     final complaint = widget.patientComplaint.trim();
+    final stampDoctor = cleanDoctorDisplayName(_doctorName);
     return [
       if (_hospitalName.isNotEmpty) _hospitalName,
       if (_hospitalAddress.isNotEmpty) _hospitalAddress,
-      if (_doctorName.isNotEmpty) 'Dr. $_doctorName',
+      if (stampDoctor.isNotEmpty) 'Dr. $stampDoctor',
       'Patient: ${widget.patientName.isEmpty ? 'Patient' : widget.patientName}',
       if (complaint.isNotEmpty) 'Complaint: $complaint',
     ];

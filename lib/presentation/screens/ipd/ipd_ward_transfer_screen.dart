@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/providers.dart';
 import '../../../core/extensions/datetime_extensions.dart';
+import '../../../core/utils/display_names.dart';
 import '../../widgets/app_page_content.dart';
 import '../../widgets/smart_navigation.dart';
 
@@ -229,14 +230,20 @@ class _IPDWardTransferScreenState extends ConsumerState<IPDWardTransferScreen> {
 
     final patientName =
         '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'.trim();
-    final doctorName = doctor['first_name'] != null
-        ? 'Dr. ${doctor['first_name']} ${doctor['last_name'] ?? ''}'.trim()
-        : 'N/A';
+    final rawDoctorName = doctor['first_name'] != null
+        ? '${doctor['first_name']} ${doctor['last_name'] ?? ''}'.trim()
+        : (doctor['name']?.toString() ?? '');
+    final doctorName = cleanDoctorDisplayName(rawDoctorName);
+    final doctorDisplay = doctorName.isEmpty ? 'N/A' : 'Dr. $doctorName';
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    final cardPadding = compact
+        ? const EdgeInsets.fromLTRB(12, 10, 12, 10)
+        : const EdgeInsets.all(16);
 
     return Card(
       color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: cardPadding,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -281,7 +288,7 @@ class _IPDWardTransferScreenState extends ConsumerState<IPDWardTransferScreen> {
               'Current Bed',
               bed['bed_number']?.toString() ?? 'N/A',
             ),
-            _infoRow(theme, Icons.medical_services, 'Doctor', doctorName),
+            _infoRow(theme, Icons.medical_services, 'Doctor', doctorDisplay),
           ],
         ),
       ),

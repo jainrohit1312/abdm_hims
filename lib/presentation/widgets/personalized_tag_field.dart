@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
+import '../../core/utils/keyboard_inset.dart';
 import '../../models/personalized_tag_models.dart';
 import '../../services/personalized_tag_service.dart';
+import 'keyboard_safe_content.dart';
 
 /// ---------------------------------------------------------------------------
 /// PersonalizedTagField — the reusable "AI-personalized" tag input.
@@ -88,6 +91,7 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final LayerLink _layerLink = LayerLink();
+  final GlobalKey _targetKey = GlobalKey();
   final List<String> _selectedNames = [];
 
   OverlayEntry? _overlayEntry;
@@ -161,10 +165,15 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
   void initState() {
     super.initState();
     _focusNode.addListener(_handleFocusChange);
+    // Web/browser keyboard height (Android Chrome etc.) — reuse the shared
+    // KeyboardInset infrastructure so the dropdown can reposition itself when
+    // the keyboard opens/closes.
+    KeyboardInset.addListener(_handleKeyboardInsetChanged);
   }
 
   @override
   void dispose() {
+    KeyboardInset.removeListener(_handleKeyboardInsetChanged);
     _blurConvertTimer?.cancel();
     _blurCloseTimer?.cancel();
     _closeDropdown();
@@ -172,6 +181,17 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     _searchController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  /// Browser-reported keyboard height changed (mobile web). Reposition the
+  /// open dropdown so it never stays behind the keyboard and bring the focused
+  /// field back into view when needed.
+  void _handleKeyboardInsetChanged() {
+    if (!mounted) return;
+    _overlayEntry?.markNeedsBuild();
+    if (_focusNode.hasFocus) {
+      _ensureFieldVisibleIfNeeded();
+    }
   }
 
   void _handleFocusChange() {
@@ -182,6 +202,13 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
       _blurConvertTimer?.cancel();
       _blurCloseTimer?.cancel();
       _openDropdown();
+      // Keyboard open hone ke baad field ko visible area mein le aao (native
+      // Android par viewInsets change hota hai; web par KeyboardInset listener
+      // bhi handle karta hai). Delay isliye taaki keyboard open/close animation
+      // settle ho jaye aur ensureVisible final viewport par measure kare.
+      Future.delayed(const Duration(milliseconds: 250), () {
+        if (mounted && _focusNode.hasFocus) _ensureFieldVisibleIfNeeded();
+      });
     } else {
       // The text field can lose focus on pointer-down (desktop/web) before a
       // suggestion row's onTap fires on pointer-up. Defer both the raw-query
@@ -200,6 +227,44 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
         if (!_focusNode.hasFocus) _closeDropdown();
       });
     }
+  }
+
+  /// Scrolls the field back into the visible (non-keyboard) area only when it
+  /// is actually clipped. Avoids forced jumps when the field is already fully
+  /// visible — the shared goal of the keyboard-safe layout helpers.
+  void _ensureFieldVisibleIfNeeded() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final targetContext = _targetKey.currentContext;
+      if (targetContext == null) return;
+      final renderBox = targetContext.findRenderObject() as RenderBox?;
+      if (renderBox == null || !renderBox.hasSize) return;
+
+      final media = MediaQuery.of(context);
+      final keyboardHeight = keyboardInsetOf(context);
+      final visibleBottom = media.size.height - keyboardHeight;
+      final top = renderBox.localToGlobal(Offset.zero).dy;
+      final bottom = top + renderBox.size.height;
+
+      final fullyVisible = top >= media.padding.top && bottom <= visibleBottom;
+      if (fullyVisible) return;
+
+      final scrollable = Scrollable.maybeOf(targetContext);
+      if (scrollable == null) return;
+
+      Scrollable.ensureVisible(
+        targetContext,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+
+      // Dropdown anchors are computed from the field position; re-run the
+      // overlay builder once the scroll settles so above/below stays correct.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _overlayEntry?.markNeedsBuild();
+      });
+    });
   }
 
   void _notifyChanged() {
@@ -496,6 +561,60 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
 
   Widget _buildDropdownOverlay(BuildContext context) {
     final theme = Theme.of(context);
+    final media = MediaQuery.of(context);
+    final keyboardHeight = keyboardInsetOf(context);
+
+    // Measure the space actually available around the field AFTER the keyboard
+    // has claimed its share of the screen. Prefer opening BELOW when there is
+    // enough room; otherwise open ABOVE. The panel's maxHeight is clamped to
+    // the chosen side so it never renders behind the keyboard.
+    const gap = 8.0;
+    const maxPanelHeight = 320.0;
+    const minBelowSpace = 140.0;
+
+    final targetBox =
+        _targetKey.currentContext?.findRenderObject() as RenderBox?;
+    double? belowSpace;
+    double? aboveSpace;
+    if (targetBox != null && targetBox.hasSize) {
+      final top = targetBox.localToGlobal(Offset.zero).dy;
+      final bottom = targetBox
+          .localToGlobal(Offset(0, targetBox.size.height))
+          .dy;
+      belowSpace = media.size.height - keyboardHeight - bottom - gap;
+      aboveSpace = top - media.padding.top - gap;
+    }
+
+    final bool openAbove;
+    final double panelMaxHeight;
+    if (belowSpace != null && aboveSpace != null) {
+      if (belowSpace >= minBelowSpace) {
+        // Enough room below — keep the current below-anchor behaviour.
+        openAbove = false;
+        panelMaxHeight = math.min(maxPanelHeight, belowSpace);
+      } else if (aboveSpace > belowSpace) {
+        // Below is too tight and above has more room — open above.
+        openAbove = true;
+        panelMaxHeight = math.min(maxPanelHeight, aboveSpace);
+      } else {
+        // Both sides are tight; pick the larger one and still clamp so the
+        // panel stays inside the visible area.
+        openAbove = aboveSpace > belowSpace;
+        panelMaxHeight = math.max(
+          48.0,
+          math.min(maxPanelHeight, math.max(belowSpace, aboveSpace)),
+        );
+      }
+    } else {
+      // Fallback (e.g. field not laid out yet): below anchors, clamped to the
+      // screen area above the keyboard so the panel cannot go behind it.
+      openAbove = false;
+      panelMaxHeight = math.min(
+        maxPanelHeight,
+        math.max(48.0, media.size.height - keyboardHeight - gap * 2),
+      );
+    }
+
     return Stack(
       children: [
         // Outside-dismiss barrier. It is BEHIND the suggestion panel, so it
@@ -513,14 +632,16 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
           child: CompositedTransformFollower(
             link: _layerLink,
             showWhenUnlinked: false,
-            targetAnchor: Alignment.bottomLeft,
-            followerAnchor: Alignment.topLeft,
-            offset: const Offset(0, 8),
+            targetAnchor: openAbove ? Alignment.topLeft : Alignment.bottomLeft,
+            followerAnchor: openAbove
+                ? Alignment.bottomLeft
+                : Alignment.topLeft,
+            offset: Offset(0, openAbove ? -gap : gap),
             child: Material(
               elevation: 8,
               borderRadius: BorderRadius.circular(12),
               color: theme.colorScheme.surface,
-              child: _buildSuggestionPanel(theme),
+              child: _buildSuggestionPanel(theme, maxHeight: panelMaxHeight),
             ),
           ),
         ),
@@ -528,7 +649,7 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     );
   }
 
-  Widget _buildSuggestionPanel(ThemeData theme) {
+  Widget _buildSuggestionPanel(ThemeData theme, {required double maxHeight}) {
     final suggestions = _computeSuggestions();
     final query = PersonalizedTagService.normalizeTagName(
       _searchController.text,
@@ -563,7 +684,7 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
     }
 
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 320),
+      constraints: BoxConstraints(maxHeight: maxHeight),
       child: ListView(
         padding: const EdgeInsets.symmetric(vertical: 6),
         shrinkWrap: true,
@@ -748,6 +869,7 @@ class PersonalizedTagFieldState extends ConsumerState<PersonalizedTagField> {
           const SizedBox(height: 10),
         ],
         CompositedTransformTarget(
+          key: _targetKey,
           link: _layerLink,
           child: LayoutBuilder(
             builder: (context, constraints) {

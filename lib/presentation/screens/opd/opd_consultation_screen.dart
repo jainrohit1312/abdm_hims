@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/providers.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../core/utils/display_names.dart';
 import '../../../core/utils/keyboard_inset.dart';
 import '../../../services/print_prescription.dart';
 import '../../../services/receipt_service.dart';
@@ -358,13 +359,16 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
     // Keyboard visibility. `resizeToAvoidBottomInset: false` ke saath screen
     // resize nahi hoti — keyboard overlay karta hai. Tab content khud
     // keyboard-height bottom padding leta hai aur typing ke time bottom
-    // action bar + saved-prescription panel + patient card hide ho jaate hain.
+    // action bar + saved-prescription panel hide ho jaate hain (ye dono
+    // screen ke bottom par hain aur keyboard ke peeche chale jaate).
     //
-    // Web par `MediaQuery.viewInsets` Android Chrome mein 0 reh sakta hai;
-    // browser-reported `KeyboardInset.current` sirf visibility ke liye use
-    // karte hain. Web keyboard ki height ab global AppNavigationShell reserve
-    // kar leta hai, isliye yahan padding sirf native overlay inset ke liye
-    // chahiye — dono jagah add karne par double-padding ho jayegi.
+    // Patient card ab scroll flow mein hai (header sliver) — typing ke time ye
+    // naturally scroll ho kar upar nikal sakta hai, isliye ise alag se hide
+    // nahi karte. Web par `MediaQuery.viewInsets` Android Chrome mein 0 reh
+    // sakta hai; browser-reported `KeyboardInset.current` sirf visibility ke
+    // liye use karte hain. Web keyboard ki height ab global AppNavigationShell
+    // reserve kar leta hai, isliye yahan padding sirf native overlay inset ke
+    // liye chahiye — dono jagah add karne par double-padding ho jayegi.
     final mediaInset = MediaQuery.viewInsetsOf(context).bottom;
     final keyboardInset = mediaInset;
     final isKeyboardOpen = keyboardInset > 0 || _webKeyboardInset > 0;
@@ -407,73 +411,77 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
       ),
       body: Column(
         children: [
-          // Keyboard khula ho to patient card bhi hide kar dete hain — mobile
-          // web par shrunken viewport mein ye form ke liye jagah chheen leta
-          // hai. Keyboard band karte hi wapas aa jata hai.
-          Visibility(
-            visible: !isKeyboardOpen,
-            maintainState: true,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: _buildPatientCard(theme),
-            ),
-          ),
-          const SizedBox(height: 12),
           Expanded(
             child: DefaultTabController(
               length: 5,
-              child: Column(
-                children: [
-                  // 5 tabs ab kaafi hain aur "Advice & Follow-up" lamba label
-                  // hai — isliye scrollable + start-aligned rakha hai taaki
-                  // chhoti screens (mobile web) par tabs overflow na hon.
-                  TabBar(
-                    isScrollable: true,
-                    tabAlignment: TabAlignment.start,
-                    labelColor: theme.colorScheme.primary,
-                    tabs: const [
-                      Tab(text: 'History'),
-                      Tab(text: 'Prescription'),
-                      Tab(text: 'Investigations'),
-                      Tab(text: 'Advice & Follow-up'),
-                      Tab(text: 'Counseling'),
-                    ],
-                  ),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _KeepAliveTab(
-                          child: _buildHistoryTab(theme, keyboardInset),
-                        ),
-                        _KeepAliveTab(
-                          child: _buildPrescriptionTab(theme, keyboardInset),
-                        ),
-                        _KeepAliveTab(
-                          child: _buildInvestigationsTab(theme, keyboardInset),
-                        ),
-                        _KeepAliveTab(
-                          child: _buildAdviceFollowUpTab(theme, keyboardInset),
-                        ),
-                        _KeepAliveTab(
-                          child: _buildCounselingTab(theme, keyboardInset),
-                        ),
-                      ],
+              child: NestedScrollView(
+                headerSliverBuilder: (context, innerBoxIsScrolled) {
+                  return [
+                    // Patient context card ab normal scroll flow ka hissa hai:
+                    // initial screen par dikhta hai aur doctor jab clinical
+                    // fields par scroll karta hai to naturally upar scroll ho
+                    // kar view se bahar chala jata hai. Ye pinned/fixed NAHI
+                    // hai — sirf TabBar neeche pinned rehta hai taaki tab
+                    // switching aasaan rahe.
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                        child: _buildPatientCard(theme),
+                      ),
                     ),
-                  ),
-                  // ALL screen sizes: stacked. Working area upar, neeche
-                  // single-line collapsible saved-prescription card
-                  // (collapsed by default, tap to expand preview).
-                  // Keyboard khula ho to panel hide kar dete hain taaki typing
-                  // ke time ye upar aa kar form ka view block na kare. State
-                  // maintain hota hai (expand/collapse wahi rehta hai).
-                  Visibility(
-                    visible: !isKeyboardOpen,
-                    maintainState: true,
-                    child: _buildSavedPrescriptionsSection(theme),
-                  ),
-                ],
+                    const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _TabBarSliverDelegate(
+                        tabBar: TabBar(
+                          isScrollable: true,
+                          tabAlignment: TabAlignment.start,
+                          labelColor: theme.colorScheme.primary,
+                          tabs: const [
+                            Tab(text: 'History'),
+                            Tab(text: 'Prescription'),
+                            Tab(text: 'Investigations'),
+                            Tab(text: 'Advice & Follow-up'),
+                            Tab(text: 'Counseling'),
+                          ],
+                        ),
+                        backgroundColor: theme.scaffoldBackgroundColor,
+                      ),
+                    ),
+                  ];
+                },
+                body: TabBarView(
+                  children: [
+                    _KeepAliveTab(
+                      child: _buildHistoryTab(theme, keyboardInset),
+                    ),
+                    _KeepAliveTab(
+                      child: _buildPrescriptionTab(theme, keyboardInset),
+                    ),
+                    _KeepAliveTab(
+                      child: _buildInvestigationsTab(theme, keyboardInset),
+                    ),
+                    _KeepAliveTab(
+                      child: _buildAdviceFollowUpTab(theme, keyboardInset),
+                    ),
+                    _KeepAliveTab(
+                      child: _buildCounselingTab(theme, keyboardInset),
+                    ),
+                  ],
+                ),
               ),
             ),
+          ),
+          // ALL screen sizes: stacked. Working area upar, neeche
+          // single-line collapsible saved-prescription card
+          // (collapsed by default, tap to expand preview).
+          // Keyboard khula ho to panel hide kar dete hain taaki typing
+          // ke time ye upar aa kar form ka view block na kare. State
+          // maintain hota hai (expand/collapse wahi rehta hai).
+          Visibility(
+            visible: !isKeyboardOpen,
+            maintainState: true,
+            child: _buildSavedPrescriptionsSection(theme),
           ),
           // Keyboard khula ho to bottom action bar chhupa dete hain — ye
           // resize:false mein keyboard ke peeche chala jaata hai. Keyboard
@@ -509,20 +517,49 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
   }
 
   Widget _buildPatientCard(ThemeData theme) {
-    final name = _patientName ?? 'Patient Name';
-    final uhid = _uhid ?? 'XXXXX';
+    final name = (_patientName == null || _patientName!.trim().isEmpty)
+        ? 'Patient Name'
+        : _patientName!.trim();
+    final uhid = (_uhid == null || _uhid!.trim().isEmpty)
+        ? 'XXXXX'
+        : _uhid!.trim();
     final ageSex = [
       if (_age != null && _age!.isNotEmpty) _age!,
       if (_gender != null && _gender!.isNotEmpty) _gender!,
     ].join(' / ');
 
+    // Presentation-only cleanup: no "Dr. Dr.", no raw UUID/internal ids, no
+    // repeated department token. Backend values are untouched.
+    final doctorName = cleanDoctorDisplayName(
+      _doctorName,
+      department: _department,
+    );
+    final departmentName = (_department == null || _department!.trim().isEmpty)
+        ? 'N/A'
+        : _department!.trim();
+    final doctorLine = [
+      'Doctor: ${doctorName.isEmpty ? 'N/A' : 'Dr. $doctorName'}',
+      'Department: $departmentName',
+    ].join(' • ');
+
+    // Mobile par compact context card (chhota avatar + tight padding + single
+    // line ellipsis); desktop/tablet thoda roomier reh sakta hai.
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    final avatarRadius = compact ? 18.0 : 24.0;
+    final cardPadding = compact
+        ? const EdgeInsets.fromLTRB(10, 8, 12, 8)
+        : const EdgeInsets.all(16);
+    final nameStyle = compact
+        ? theme.textTheme.titleSmall
+        : theme.textTheme.titleMedium;
+
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: cardPadding,
         child: Row(
           children: [
             CircleAvatar(
-              radius: 24,
+              radius: avatarRadius,
               backgroundColor: theme.colorScheme.primaryContainer,
               child: Icon(
                 Icons.person,
@@ -536,22 +573,25 @@ class _OPDConsultationScreenState extends ConsumerState<OPDConsultationScreen> {
                 children: [
                   Text(
                     name,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: nameStyle?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   Text(
                     'UHID: $uhid${ageSex.isNotEmpty ? ' | $ageSex' : ''}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall,
                   ),
-                  if (_doctorName != null && _doctorName!.isNotEmpty)
-                    Text(
-                      'Dr. $_doctorName',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
+                  Text(
+                    doctorLine,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w600,
                     ),
+                  ),
                 ],
               ),
             ),
@@ -1441,4 +1481,39 @@ class _KeepAliveTabState extends State<_KeepAliveTab>
     super.build(context);
     return widget.child;
   }
+}
+
+/// Pinned sliver delegate for the OPD tab bar.
+///
+/// Only the tab bar is pinned so switching tabs stays quick. The patient
+/// context card above it is a normal [SliverToBoxAdapter] and therefore scrolls
+/// away — it is never pinned/fixed.
+class _TabBarSliverDelegate extends SliverPersistentHeaderDelegate {
+  const _TabBarSliverDelegate({
+    required this.tabBar,
+    required this.backgroundColor,
+  });
+
+  final TabBar tabBar;
+  final Color backgroundColor;
+
+  @override
+  double get minExtent => tabBar.preferredSize.height;
+
+  @override
+  double get maxExtent => tabBar.preferredSize.height;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Material(color: backgroundColor, child: tabBar);
+  }
+
+  @override
+  bool shouldRebuild(_TabBarSliverDelegate oldDelegate) =>
+      oldDelegate.tabBar != tabBar ||
+      oldDelegate.backgroundColor != backgroundColor;
 }

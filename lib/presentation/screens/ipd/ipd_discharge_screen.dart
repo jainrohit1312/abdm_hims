@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../core/extensions/datetime_extensions.dart';
+import '../../../core/utils/display_names.dart';
 import '../../../services/discharge_summary_service.dart';
 import '../../widgets/smart_navigation.dart';
 
@@ -210,20 +211,27 @@ class _IPDDischargeScreenState extends ConsumerState<IPDDischargeScreen> {
         bed['ward_type']?.toString() ??
         'N/A';
     final bedNumber = bed['bed_number']?.toString() ?? 'N/A';
-    final doctorName = doctor['first_name'] != null
-        ? 'Dr. ${doctor['first_name']} ${doctor['last_name'] ?? ''}'.trim()
-        : 'N/A';
+    final rawDoctorName = doctor['first_name'] != null
+        ? '${doctor['first_name']} ${doctor['last_name'] ?? ''}'.trim()
+        : (doctor['name']?.toString() ?? '');
+    final doctorName = cleanDoctorDisplayName(rawDoctorName);
+    final doctorDisplay = doctorName.isEmpty ? 'N/A' : 'Dr. $doctorName';
+    final compact = MediaQuery.sizeOf(context).width < 600;
+    final cardPadding = compact
+        ? const EdgeInsets.fromLTRB(12, 10, 12, 10)
+        : const EdgeInsets.all(16);
+    final avatarRadius = compact ? 18.0 : 24.0;
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: cardPadding,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 CircleAvatar(
-                  radius: 24,
+                  radius: avatarRadius,
                   backgroundColor: theme.colorScheme.primaryContainer,
                   child: Icon(
                     Icons.person,
@@ -261,7 +269,7 @@ class _IPDDischargeScreenState extends ConsumerState<IPDDischargeScreen> {
               _formatWardType(wardType),
             ),
             _infoRow(theme, Icons.bed, 'Bed', bedNumber),
-            _infoRow(theme, Icons.medical_services, 'Doctor', doctorName),
+            _infoRow(theme, Icons.medical_services, 'Doctor', doctorDisplay),
             _infoRow(
               theme,
               Icons.timelapse,
