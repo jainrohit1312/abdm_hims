@@ -44,6 +44,16 @@ class BackgroundSyncService extends ChangeNotifier {
   DateTime? _lastSyncedAt;
   String? _lastError;
 
+  /// Shared connectivity probe — one `Connectivity()` instance reused for every
+  /// 30-second tick instead of constructing a new plugin object per pass.
+  final Connectivity _connectivity = Connectivity();
+
+  /// Last values broadcast to listeners. The dashboard watches only
+  /// [syncStatus] and [pendingCount], so a no-op pass (still synced, still 0
+  /// pending) doesn't trigger any widget rebuilds.
+  SyncStatus? _lastNotifiedStatus;
+  int? _lastNotifiedPendingCount;
+
   /// Records currently waiting in the local database.
   int get pendingCount => _pendingCount;
 
@@ -135,7 +145,7 @@ class BackgroundSyncService extends ChangeNotifier {
   /// True jab usable network connection available ho.
   Future<bool> _checkOnline() async {
     try {
-      final result = await Connectivity().checkConnectivity();
+      final result = await _connectivity.checkConnectivity();
       return result != ConnectivityResult.none;
     } catch (_) {
       // Fail open — connectivity probe fail hone par sync block nahi hona
@@ -144,8 +154,19 @@ class BackgroundSyncService extends ChangeNotifier {
     }
   }
 
+  /// Notifies listeners only when the dashboard-visible state (status or
+  /// pending count) actually changed. Idle 30-second passes with nothing to
+  /// sync therefore no longer rebuild the header/dashboard.
   void _notify() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    final status = syncStatus;
+    final pending = _pendingCount;
+    if (status == _lastNotifiedStatus && pending == _lastNotifiedPendingCount) {
+      return;
+    }
+    _lastNotifiedStatus = status;
+    _lastNotifiedPendingCount = pending;
+    notifyListeners();
   }
 
   @override

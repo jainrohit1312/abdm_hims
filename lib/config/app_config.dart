@@ -114,10 +114,11 @@ class AppConfig {
     // "Instance is already initialized" from Supabase.
     if (_isInitialized) return;
 
-    // Firebase Core — push notifications (FCM) aur future Firebase services
-    // ke liye pehle initialize karo. Firebase configure na ho (e.g. platform
-    // support missing) toh app ka baaki flow chalta rehta hai.
-    await _initFirebase();
+    // NOTE: Firebase Core is NOT initialized here anymore. Startup stays
+    // fast and Firebase is initialized lazily inside
+    // `PushNotificationService.initialize` (the only feature that needs FCM).
+    // That path has its own duplicate-app guard and silently disables FCM
+    // when Firebase is not configured for the current platform/build.
 
     // Initialize Secure Storage PEHLE — Supabase ka session ab secure storage
     // mein persist hoga (SharedPreferences mein JWT store nahi hoga).
@@ -140,32 +141,5 @@ class AppConfig {
     sharedPreferences = await SharedPreferences.getInstance();
 
     _isInitialized = true;
-  }
-
-  /// Firebase ko explicitly provided options ke saath initialize karta hai.
-  ///
-  /// Fail hone par bhi app chalti rehti hai — `PushNotificationService`
-  /// Firebase missing hone par khud ko silently disable kar leta hai.
-  static Future<void> _initFirebase() async {
-    try {
-      await _initializeFirebaseApp();
-    } catch (e) {
-      // ignore: avoid_print — startup ke waqt logger abhi ready nahi hota.
-      print('Firebase initialization skipped: $e');
-    }
-  }
-
-  /// `Firebase.initializeApp()` ko cross-platform safe tareeke se call karta
-  /// hai. NOTE: web par `Firebase.apps.isEmpty` check khud hi
-  /// `core/not-initialized` throw kar deta hai (firebase_core_web ka
-  /// `guardNotInitialized`), isliye pehle check karne ke bajaye seedha
-  /// initialize karte hain aur `duplicate-app` (already initialized) ko
-  /// ignore kar dete hain.
-  static Future<void> _initializeFirebaseApp() async {
-    try {
-      await Firebase.initializeApp(options: firebaseOptions);
-    } on FirebaseException catch (e) {
-      if (e.code != 'duplicate-app') rethrow;
-    }
   }
 }

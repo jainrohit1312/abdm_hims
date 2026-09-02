@@ -57,9 +57,11 @@ class _AppBootstrapGateState extends ConsumerState<AppBootstrapGate> {
       }
 
       // Start the offline-first background sync engine (30-second timer) once
-      // we have a valid session. Pending records saved while offline will now
-      // upload and the dashboard Sync Status indicator will reflect it.
-      ref.read(backgroundSyncServiceProvider).start();
+      // we have a valid session AND hospital context. When logged out there is
+      // nothing to sync, so the timer/connectivity polling stays off.
+      if (session != null && hospitalId != null && hospitalId.isNotEmpty) {
+        ref.read(backgroundSyncServiceProvider).start();
+      }
 
       // Register this device for FCM push notifications and subscribe it to
       // the hospital topic (`hospital_{hospitalId}`). `user_devices.user_id`

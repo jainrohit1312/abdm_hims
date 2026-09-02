@@ -21,6 +21,7 @@ class VoucherListScreen extends ConsumerStatefulWidget {
 class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
   late DateTime _fromDate;
   late DateTime _toDate;
+  final _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -29,6 +30,36 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
     final now = DateTime.now();
     _fromDate = DateTime(now.year, now.month, 1);
     _toDate = DateTime(now.year, now.month + 1, 0);
+    _scrollController.addListener(_maybeLoadMore);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_maybeLoadMore);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// Scroll-end detection: jab list ke end ke paas pahunch jayein toh next
+  /// page fetch karo (server-side pagination).
+  void _maybeLoadMore() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.extentAfter < 300) {
+      final hospitalId = ref.read(authStateProvider).hospitalId;
+      if (hospitalId == null || hospitalId.isEmpty) return;
+      ref
+          .read(
+            voucherListProvider(
+              VoucherFilter(
+                hospitalId: hospitalId,
+                from: _fromDate,
+                to: _toDate,
+              ),
+            ).notifier,
+          )
+          .nextPage();
+    }
   }
 
   Future<void> _pickDateRange() async {
@@ -70,7 +101,8 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
       from: _fromDate,
       to: _toDate,
     );
-    final vouchersAsync = ref.watch(vouchersProvider(filter));
+    final vouchersState = ref.watch(voucherListProvider(filter));
+    final summaryAsync = ref.watch(voucherRangeSummaryProvider(filter));
 
     return Scaffold(
       appBar: SmartAppBar(
@@ -92,59 +124,130 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
         children: [
           _buildFilterBar(context),
           Expanded(
-            child: vouchersAsync.when(
-              data: (vouchers) {
-                final total = vouchers.fold<double>(
-                  0,
-                  (sum, voucher) => sum + _toDouble(voucher['amount']),
-                );
-                return RefreshIndicator(
-                  onRefresh: () async {
-                    ref.invalidate(vouchersProvider(filter));
-                  },
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      _buildTotalCard(total, vouchers.length),
-                      const SizedBox(height: 12),
-                      if (vouchers.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 48),
-                          child: Center(
-                            child: Text('No vouchers found in this date range.'),
-                          ),
-                        )
-                      else
-                        ...vouchers.map(
-                          (voucher) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _buildVoucherCard(voucher),
-                          ),
+            child: vouchersState.isLoading && vouchersState.items.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : vouchersState.error != null && vouchersState.items.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('Failed to load vouchers: ${vouchersState.error}'),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          onPressed: () =>
+                              ref.invalidate(voucherListProvider(filter)),
+                          child: const Text('Retry'),
                         ),
-                    ],
-                  ),
-                );
-              },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, _) => Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Failed to load vouchers: $error'),
-                    const SizedBox(height: 12),
-                    FilledButton(
-                      onPressed: () =>
-                          ref.invalidate(vouchersProvider(filter)),
-                      child: const Text('Retry'),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            ),
+                  )
+                : _buildVoucherList(filter, vouchersState, summaryAsync),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildVoucherList(
+    VoucherFilter filter,
+    PaginationState<Map<String, dynamic>> state,
+    AsyncValue<Map<String, dynamic>> summaryAsync,
+  ) {
+    // Summary header is independent of loaded pages (full range total).
+    final summary = summaryAsync.valueOrNull;
+    final total = summary == null ? null : _toDouble(summary['total']);
+    final count = summary == null ? null : (summary['count'] as int? ?? 0);
+
+    // If the first page doesn't fill the viewport, load the next page.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _maybeLoadMore();
+    });
+
+    return RefreshIndicator(
+      onRefresh: () async {
+        ref.invalidate(voucherListProvider(filter));
+        ref.invalidate(voucherRangeSummaryProvider(filter));
+      },
+      child: ListView.builder(
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        itemCount: state.items.length + 2,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            if (total == null || count == null) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            return Column(
+              children: [
+                _buildTotalCard(total, count),
+                const SizedBox(height: 12),
+                if (state.items.isEmpty && count == 0)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 48),
+                    child: Center(
+                      child: Text('No vouchers found in this date range.'),
+                    ),
+                  ),
+              ],
+            );
+          }
+          final itemIndex = index - 1;
+          if (itemIndex < state.items.length) {
+            final voucher = state.items[itemIndex];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _buildVoucherCard(voucher),
+            );
+          }
+          return _buildFooter(state);
+        },
+      ),
+    );
+  }
+
+  Widget _buildFooter(PaginationState<Map<String, dynamic>> state) {
+    if (state.isLoadingMore) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (state.error != null && state.hasMore) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Center(
+          child: TextButton.icon(
+            onPressed: () => ref
+                .read(voucherListProvider(VoucherFilter(
+                  hospitalId: ref.read(authStateProvider).hospitalId ?? '',
+                  from: _fromDate,
+                  to: _toDate,
+                )).notifier)
+                .nextPage(),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Failed to load more — Retry'),
+          ),
+        ),
+      );
+    }
+    if (!state.hasMore && state.items.isNotEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Center(
+          child: Text(
+            'No more vouchers',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+        ),
+      );
+    }
+    return const SizedBox(height: 16);
   }
 
   Widget _buildFilterBar(BuildContext context) {

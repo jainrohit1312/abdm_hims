@@ -48,9 +48,14 @@ class _ComplianceDashboardScreenState
     final hospitalId = ref.read(authStateProvider).hospitalId;
     if (hospitalId == null || hospitalId.isEmpty) return;
     try {
+      // Reuse the already-fetched records (the dashboard grid provider) so the
+      // reminder engine doesn't download the full record set again.
+      final records = ref
+          .read(complianceRecordsProvider(hospitalId))
+          .valueOrNull;
       final counts = await ref
           .read(complianceServiceProvider)
-          .processDueReminders(hospitalId);
+          .processDueReminders(hospitalId, records: records);
       final total = counts.values.fold<int>(0, (sum, c) => sum + c);
       if (total > 0 && mounted) {
         ref.invalidate(complianceRefreshProvider);

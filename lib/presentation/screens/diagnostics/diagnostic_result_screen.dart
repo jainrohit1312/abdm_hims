@@ -40,7 +40,8 @@ class _DiagnosticResultScreenState extends ConsumerState<DiagnosticResultScreen>
   Future<void> _reload() async {
     final hospitalId = ref.read(authStateProvider).hospitalId;
     if (hospitalId != null) {
-      ref.invalidate(diagnosticOrdersProvider(DiagnosticOrdersParams(hospitalId: hospitalId)));
+      ref.invalidate(diagnosticOrdersListProvider);
+      ref.invalidate(diagnosticOrderDetailProvider);
     }
   }
 
@@ -55,153 +56,267 @@ class _DiagnosticResultScreenState extends ConsumerState<DiagnosticResultScreen>
       );
     }
 
-    final ordersAsync = ref.watch(
-      diagnosticOrdersProvider(DiagnosticOrdersParams(hospitalId: hospitalId)),
-    );
-
     final focusedOrderId = _focusOrderId;
+
+    if (focusedOrderId != null) {
+      return _buildFocusedOrderView(context, focusedOrderId);
+    }
 
     return DefaultTabController(
       length: 2,
       child: Scaffold(
         appBar: SmartAppBar(
           title: const Text('Diagnostic Results'),
-          bottom: focusedOrderId == null
-              ? const TabBar(
-                  tabs: [
-                    Tab(text: 'Pending Orders'),
-                    Tab(text: 'Completed'),
-                  ],
-                )
-              : null,
-        ),
-        body: ordersAsync.when(
-          data: (orders) {
-            if (focusedOrderId != null) {
-              return _buildFocusedOrder(context, orders, focusedOrderId);
-            }
-            final pending = orders
-                .where(
-                  (o) =>
-                      o['status'] == 'pending' || o['status'] == 'in_progress',
-                )
-                .toList();
-            final completed = orders
-                .where((o) => o['status'] == 'completed')
-                .toList();
-
-            return TabBarView(
-              children: [
-                _buildOrderList(pending, isCompleted: false),
-                _buildOrderList(completed, isCompleted: true),
-              ],
-            );
-          },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Failed to load orders: $error'),
-                const SizedBox(height: 12),
-                FilledButton(onPressed: _reload, child: const Text('Retry')),
-              ],
-            ),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Pending Orders'),
+              Tab(text: 'Completed'),
+            ],
           ),
+        ),
+        body: TabBarView(
+          children: [
+            _DiagnosticOrdersTab(hospitalId: hospitalId, status: 'pending'),
+            _DiagnosticOrdersTab(hospitalId: hospitalId, status: 'completed'),
+          ],
         ),
       ),
     );
   }
 
   /// Read-only, single-order view used when the screen is opened with an
-  /// [orderId] (e.g. from a unified-billing history tile).
-  Widget _buildFocusedOrder(
-    BuildContext context,
-    List<Map<String, dynamic>> orders,
-    String orderId,
-  ) {
-    final focused = orders
-        .where((o) => o['id']?.toString() == orderId)
-        .toList();
+  /// [orderId] (e.g. from a unified-billing history tile). Fetched directly
+  /// by id — never by scanning the paginated list.
+  Widget _buildFocusedOrderView(BuildContext context, String orderId) {
+    final orderAsync = ref.watch(diagnosticOrderDetailProvider(orderId));
 
-    if (focused.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Diagnostic order not found.'),
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: () => setState(() => _focusOrderId = null),
-              child: const Text('Show All Orders'),
-            ),
-          ],
-        ),
-      );
-    }
+    return Scaffold(
+      appBar: SmartAppBar(title: const Text('Diagnostic Results')),
+      body: orderAsync.when(
+        data: (order) {
+          if (order == null) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Diagnostic order not found.'),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: () => setState(() => _focusOrderId = null),
+                    child: const Text('Show All Orders'),
+                  ),
+                ],
+              ),
+            );
+          }
 
-    final order = focused.first;
-    final isCompleted = order['status']?.toString() == 'completed';
+          final isCompleted = order['status']?.toString() == 'completed';
 
-    return Column(
-      children: [
-        Material(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-            child: Row(
-              children: [
-                const Icon(Icons.link, size: 16),
-                const SizedBox(width: 8),
-                const Expanded(child: Text('Opened from Billing history')),
-                TextButton(
-                  onPressed: () => setState(() => _focusOrderId = null),
-                  child: const Text('Show All Orders'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.all(12),
+          return Column(
             children: [
-              _OrderTile(
-                order: order,
-                isCompleted: isCompleted,
-                initiallyExpanded: true,
+              Material(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.link, size: 16),
+                      const SizedBox(width: 8),
+                      const Expanded(child: Text('Opened from Billing history')),
+                      TextButton(
+                        onPressed: () => setState(() => _focusOrderId = null),
+                        child: const Text('Show All Orders'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(12),
+                  children: [
+                    _OrderTile(
+                      order: order,
+                      isCompleted: isCompleted,
+                      initiallyExpanded: true,
+                    ),
+                  ],
+                ),
               ),
             ],
+          );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, _) => Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Failed to load order: $error'),
+              const SizedBox(height: 12),
+              FilledButton(onPressed: _reload, child: const Text('Retry')),
+            ],
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildOrderList(List<Map<String, dynamic>> orders, {required bool isCompleted}) {
-    if (orders.isEmpty) {
-      return Center(
-        child: Text(isCompleted ? 'No completed orders.' : 'No pending orders.'),
-      );
-    }
-    return RefreshIndicator(
-      onRefresh: () async => _reload(),
-      child: ListView.builder(
-        padding: const EdgeInsets.all(12),
-        itemCount: orders.length,
-        itemBuilder: (context, index) => _OrderTile(
-          order: orders[index],
-          isCompleted: isCompleted,
         ),
       ),
     );
   }
 }
 
+/// One paginated diagnostics list tab (pending / completed). Each tab owns its
+/// own scroll controller so swipe-away tabs don't share scroll positions, and
+/// only the visible tab's provider instance is created by Riverpod.
+class _DiagnosticOrdersTab extends ConsumerStatefulWidget {
+  const _DiagnosticOrdersTab({required this.hospitalId, required this.status});
+
+  final String hospitalId;
+  final String status;
+
+  @override
+  ConsumerState<_DiagnosticOrdersTab> createState() =>
+      _DiagnosticOrdersTabState();
+}
+
+class _DiagnosticOrdersTabState extends ConsumerState<_DiagnosticOrdersTab> {
+  final _scrollController = ScrollController();
+
+  DiagnosticOrdersParams get _params => DiagnosticOrdersParams(
+        hospitalId: widget.hospitalId,
+        status: widget.status,
+      );
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_maybeLoadMore);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_maybeLoadMore);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _maybeLoadMore() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.extentAfter < 300) {
+      ref.read(diagnosticOrdersListProvider(_params).notifier).nextPage();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(diagnosticOrdersListProvider(_params));
+
+    if ((state.isLoading && state.items.isEmpty) ||
+        (state.items.isEmpty &&
+            state.hasMore &&
+            state.error == null &&
+            !state.isLoading)) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (state.error != null && state.items.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Failed to load orders: ${state.error}'),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: () => ref
+                  .read(diagnosticOrdersListProvider(_params).notifier)
+                  .refresh(),
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (state.items.isEmpty) {
+      return Center(
+        child: Text(
+          widget.status == 'completed'
+              ? 'No completed orders.'
+              : 'No pending orders.',
+        ),
+      );
+    }
+
+    // If the first page doesn't fill the viewport, load the next page.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _maybeLoadMore();
+    });
+
+    return RefreshIndicator(
+      onRefresh: () => ref
+          .read(diagnosticOrdersListProvider(_params).notifier)
+          .refresh(),
+      child: ListView.builder(
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(12),
+        itemCount: state.items.length + 1,
+        itemBuilder: (context, index) {
+          if (index < state.items.length) {
+            return _OrderTile(
+              order: state.items[index],
+              isCompleted: widget.status == 'completed',
+            );
+          }
+          return _buildFooter(context, state);
+        },
+      ),
+    );
+  }
+
+  Widget _buildFooter(
+    BuildContext context,
+    PaginationState<Map<String, dynamic>> state,
+  ) {
+    if (state.isLoadingMore) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 16),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (state.error != null && state.hasMore) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Center(
+          child: TextButton.icon(
+            onPressed: () => ref
+                .read(diagnosticOrdersListProvider(_params).notifier)
+                .nextPage(),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Failed to load more — Retry'),
+          ),
+        ),
+      );
+    }
+    if (!state.hasMore && state.items.isNotEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Center(
+          child: Text(
+            'No more orders',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+        ),
+      );
+    }
+    return const SizedBox(height: 16);
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Single order tile (expansion with items)
 // -----------------------------------------------------------------------------
-class _OrderTile extends ConsumerWidget {
+class _OrderTile extends ConsumerStatefulWidget {
   final Map<String, dynamic> order;
   final bool isCompleted;
   final bool initiallyExpanded;
@@ -213,7 +328,17 @@ class _OrderTile extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_OrderTile> createState() => _OrderTileState();
+}
+
+class _OrderTileState extends ConsumerState<_OrderTile> {
+  late bool _expanded = widget.initiallyExpanded;
+
+  Map<String, dynamic> get order => widget.order;
+  bool get isCompleted => widget.isCompleted;
+
+  @override
+  Widget build(BuildContext context) {
     final patient = (order['patients'] as Map?)?.cast<String, dynamic>() ?? const {};
     final patientName =
         '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'.trim();
@@ -222,14 +347,17 @@ class _OrderTile extends ConsumerWidget {
     final total = double.tryParse(order['total_amount']?.toString() ?? '') ?? 0;
     final orderDate = _formatDate(order['order_date']);
 
-    final itemsAsync = ref.watch(
-      diagnosticOrderItemsProvider(order['id'].toString()),
-    );
+    // Order items are fetched only when the tile is expanded — collapsed list
+    // rows never issue a per-order network request.
+    final itemsAsync = _expanded
+        ? ref.watch(diagnosticOrderItemsProvider(order['id'].toString()))
+        : null;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: ExpansionTile(
-        initiallyExpanded: initiallyExpanded,
+        initiallyExpanded: widget.initiallyExpanded,
+        onExpansionChanged: (expanded) => setState(() => _expanded = expanded),
         leading: CircleAvatar(
           child: Icon(isCompleted ? Icons.check : Icons.pending_outlined),
         ),
@@ -244,18 +372,22 @@ class _OrderTile extends ConsumerWidget {
         childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
         expandedCrossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Divider(),
-          itemsAsync.when(
-            data: (items) => _buildItems(context, ref, items),
-            loading: () => const Padding(
-              padding: EdgeInsets.all(12),
-              child: Center(child: CircularProgressIndicator()),
+          if (!_expanded)
+            const SizedBox.shrink()
+          else ...[
+            const Divider(),
+            itemsAsync!.when(
+              data: (items) => _buildItems(context, ref, items),
+              loading: () => const Padding(
+                padding: EdgeInsets.all(12),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+              error: (error, _) => Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text('Failed to load items: $error'),
+              ),
             ),
-            error: (error, _) => Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text('Failed to load items: $error'),
-            ),
-          ),
+          ],
         ],
       ),
     );
@@ -365,13 +497,7 @@ class _OrderTile extends ConsumerWidget {
     try {
       await db.saveDiagnosticResult(data, id: existing?['id']?.toString());
       ref.invalidate(diagnosticOrderItemsProvider(order['id'].toString()));
-      ref.invalidate(
-        diagnosticOrdersProvider(
-          DiagnosticOrdersParams(
-            hospitalId: ref.read(authStateProvider).hospitalId,
-          ),
-        ),
-      );
+      ref.invalidate(diagnosticOrdersListProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Result saved')),
@@ -390,11 +516,8 @@ class _OrderTile extends ConsumerWidget {
     final db = ref.read(databaseServiceProvider);
     try {
       await db.updateDiagnosticOrderStatus(order['id'].toString(), 'completed');
-      ref.invalidate(
-        diagnosticOrdersProvider(
-          DiagnosticOrdersParams(hospitalId: ref.read(authStateProvider).hospitalId),
-        ),
-      );
+      ref.invalidate(diagnosticOrdersListProvider);
+      ref.invalidate(diagnosticOrderDetailProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,

@@ -636,9 +636,8 @@ class DatabaseService {
     }
 
     // `beds` is admission-scoped via `ipd_admissions.bed_id`. Resolve the bed
-    // number per admission (in parallel, one lookup per unique bed) so the
-    // profile's IPD cards can show "Ward + Bed" without a hard join that
-    // could fail on deployments that have not run the bed_id migration yet.
+    // numbers with ONE batch `inFilter` query (instead of one lookup per bed)
+    // so large admission histories stay cheap.
     final bedNumbersByAdmission = <String, String>{};
     if (admissions.isNotEmpty) {
       final bedIds = <String>[];
@@ -650,23 +649,22 @@ class DatabaseService {
       }
 
       if (bedIds.isNotEmpty) {
-        final bedBatches = await Future.wait([
-          for (final bedId in bedIds)
-            safeList('bed $bedId', () async {
-              final bed = await getById(ApiConstants.bedsTable, bedId);
-              return bed == null ? const [] : [bed];
-            }),
-        ]);
-
         final bedNumberById = <String, String>{};
-        for (var i = 0; i < bedIds.length; i++) {
-          final rows = bedBatches[i] as List;
-          if (rows.isNotEmpty) {
-            bedNumberById[bedIds[i]] =
-                (rows.first as Map<String, dynamic>)['bed_number']
-                    ?.toString() ??
-                '';
+        try {
+          final bedRows = await fetchWithRetry(
+            () => _client
+                .from(ApiConstants.bedsTable)
+                .select('id, bed_number')
+                .inFilter('id', bedIds),
+          );
+          for (final bed in bedRows) {
+            final bedNumber = bed['bed_number']?.toString();
+            if (bedNumber != null && bedNumber.isNotEmpty) {
+              bedNumberById[bed['id']?.toString() ?? ''] = bedNumber;
+            }
           }
+        } catch (e) {
+          AppLogger.e('Patient profile: could not load beds batch', e);
         }
 
         for (final admission in admissions) {
@@ -4269,6 +4267,80 @@ class DatabaseService {
     }
   }
 
+  /// Returns one page of vouchers within an inclusive date range, newest
+  /// first. [page] is 0-based; `.range(from, to)` keeps the page bounded.
+  Future<List<Map<String, dynamic>>> getVouchersPage({
+    required String hospitalId,
+    DateTime? from,
+    DateTime? to,
+    required int page,
+    required int limit,
+  }) async {
+    final start = page * limit;
+    final end = start + limit - 1;
+    try {
+      var query = _client
+          .from(ApiConstants.vouchersTable)
+          .select(
+            'id, voucher_number, voucher_date, voucher_type, '
+            'expense_category, payee_name, description, payment_mode, '
+            'amount, attachments, created_at',
+          );
+
+      if (hospitalId.isNotEmpty) {
+        query = query.eq('hospital_id', hospitalId);
+      }
+      if (from != null) {
+        query = query.gte('voucher_date', from.toIso8601String().split('T')[0]);
+      }
+      if (to != null) {
+        query = query.lte('voucher_date', to.toIso8601String().split('T')[0]);
+      }
+
+      final response = await fetchWithRetry(
+        () => query
+            .order('voucher_date', ascending: false)
+            .order('created_at', ascending: false)
+            .range(start, end),
+      );
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      AppLogger.e('Error fetching voucher page', e);
+      rethrow;
+    }
+  }
+
+  /// Returns only the `amount` column of every voucher in an inclusive range.
+  /// Used by totals (dashboard stats + voucher list summary) so the full
+  /// voucher payload is never downloaded just to compute a sum.
+  Future<List<Map<String, dynamic>>> getVoucherRangeAmounts({
+    required String hospitalId,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    try {
+      var query = _client
+          .from(ApiConstants.vouchersTable)
+          .select('amount, voucher_date');
+
+      if (hospitalId.isNotEmpty) {
+        query = query.eq('hospital_id', hospitalId);
+      }
+      if (from != null) {
+        query = query.gte('voucher_date', from.toIso8601String().split('T')[0]);
+      }
+      if (to != null) {
+        query = query.lte('voucher_date', to.toIso8601String().split('T')[0]);
+      }
+
+      final response = await fetchWithRetry(() => query);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      AppLogger.e('Error fetching voucher range amounts', e);
+      return [];
+    }
+  }
+
   /// Generates the next voucher number for a hospital on a given date.
   ///
   /// Format: `VCH-YYYYMMDD-####` where #### is a per-hospital, per-day running
@@ -4353,6 +4425,9 @@ class DatabaseService {
   }
 
   /// Today's and current-month expense totals for the dashboard.
+  ///
+  /// Only the `amount` + `voucher_date` columns are fetched (never full rows),
+  /// so the dashboard stat stays cheap even as voucher history grows.
   Future<Map<String, dynamic>> getVoucherStats(String hospitalId) async {
     try {
       final now = DateTime.now();
@@ -4360,12 +4435,12 @@ class DatabaseService {
       final monthStart = DateTime(now.year, now.month, 1);
       final monthEnd = DateTime(now.year, now.month + 1, 0);
 
-      final todayRows = await getVouchers(
+      final todayRows = await getVoucherRangeAmounts(
         hospitalId: hospitalId,
         from: today,
         to: today,
       );
-      final monthRows = await getVouchers(
+      final monthRows = await getVoucherRangeAmounts(
         hospitalId: hospitalId,
         from: monthStart,
         to: monthEnd,
@@ -4923,6 +4998,57 @@ class DatabaseService {
     }
   }
 
+  /// Returns one page of diagnostic orders (with embedded patient name/UHID),
+  /// newest first. [statuses] maps to a single `.inFilter` so the pending tab
+  /// can show `pending` + `in_progress` together without client-side merging.
+  ///
+  /// [page] is 0-based; `.range(from, to)` keeps every page bounded.
+  Future<List<Map<String, dynamic>>> getDiagnosticOrdersPage({
+    required String hospitalId,
+    List<String>? statuses,
+    required int page,
+    required int limit,
+  }) async {
+    final from = page * limit;
+    final to = from + limit - 1;
+    try {
+      final response = await fetchWithRetry(() {
+        var query = _client
+            .from(ApiConstants.diagnosticOrdersTable)
+            .select('*, patients(first_name, last_name, uhid)')
+            .eq('hospital_id', hospitalId);
+        if (statuses != null && statuses.isNotEmpty) {
+          query = query.inFilter('status', statuses);
+        }
+        return query.order('created_at', ascending: false).range(from, to);
+      });
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      AppLogger.e('Error fetching diagnostic orders page', e);
+      rethrow;
+    }
+  }
+
+  /// One diagnostic order by id with the patient name/UHID embedded — used by
+  /// the focused single-order view so it never depends on the paginated list.
+  Future<Map<String, dynamic>?> getDiagnosticOrderWithPatient(
+    String orderId,
+  ) async {
+    try {
+      final response = await fetchWithRetry(
+        () => _client
+            .from(ApiConstants.diagnosticOrdersTable)
+            .select('*, patients(first_name, last_name, uhid)')
+            .eq('id', orderId)
+            .maybeSingle(),
+      );
+      return response;
+    } catch (e) {
+      AppLogger.e('Error fetching diagnostic order by id', e);
+      return null;
+    }
+  }
+
   /// Returns line items for an order. Each item embeds its
   /// `diagnostic_results` array (usually zero or one row).
   Future<List<Map<String, dynamic>>> getDiagnosticOrderItems(
@@ -5361,10 +5487,14 @@ class DatabaseService {
     return payload;
   }
 
+  /// Shared connectivity probe instance — reused instead of constructing a new
+  /// `Connectivity()` plugin object on every 30-second sync tick / offline save.
+  final Connectivity _connectivity = Connectivity();
+
   /// True when a usable network connection is available.
   Future<bool> _isOnline() async {
     try {
-      final result = await Connectivity().checkConnectivity();
+      final result = await _connectivity.checkConnectivity();
       return result != ConnectivityResult.none;
     } catch (_) {
       // Fail open — a failed connectivity probe shouldn't block a sync that

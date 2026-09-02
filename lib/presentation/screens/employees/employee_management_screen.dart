@@ -457,6 +457,9 @@ class _DailyAttendanceRow extends StatelessWidget {
   final EmployeeDailyAttendance summary;
   final Employee? employee;
 
+  static final DateFormat _timeFormat = DateFormat('hh:mm a');
+  static final DateFormat _dateFormat = DateFormat('dd MMM yyyy');
+
   @override
   Widget build(BuildContext context) {
     final name = employee?.fullName ?? summary.employeeId;
@@ -495,13 +498,13 @@ class _DailyAttendanceRow extends StatelessWidget {
                 label: 'In',
                 value: summary.firstPunchIn == null
                     ? '—'
-                    : DateFormat('hh:mm a').format(summary.firstPunchIn!),
+                    : _timeFormat.format(summary.firstPunchIn!),
               ),
               _TimeColumn(
                 label: 'Out',
                 value: summary.lastPunchOut == null
                     ? '—'
-                    : DateFormat('hh:mm a').format(summary.lastPunchOut!),
+                    : _timeFormat.format(summary.lastPunchOut!),
               ),
               SizedBox(
                 width: 64,
@@ -531,19 +534,19 @@ class _DailyAttendanceRow extends StatelessWidget {
           children: [
             _DetailRow(
               label: 'Date',
-              value: DateFormat('dd MMM yyyy').format(summary.date),
+              value: _dateFormat.format(summary.date),
             ),
             _DetailRow(
               label: 'Punch In',
               value: summary.firstPunchIn == null
                   ? '—'
-                  : DateFormat('hh:mm a').format(summary.firstPunchIn!),
+                  : _timeFormat.format(summary.firstPunchIn!),
             ),
             _DetailRow(
               label: 'Punch Out',
               value: summary.lastPunchOut == null
                   ? (summary.isCurrentlyPunchedIn ? 'Not yet' : '—')
-                  : DateFormat('hh:mm a').format(summary.lastPunchOut!),
+                  : _timeFormat.format(summary.lastPunchOut!),
             ),
             _DetailRow(
               label: 'Working Hours',
@@ -1175,8 +1178,12 @@ class _ErrorRetry extends StatelessWidget {
 // ---------------------------------------------------------------------------
 // Formatting helpers (UI-only; domain formatting stays out of calculators)
 // ---------------------------------------------------------------------------
-String _formatCurrency(double value) =>
-    NumberFormat.currency(locale: 'en_IN', symbol: '₹').format(value);
+final NumberFormat _inrFormat = NumberFormat.currency(
+  locale: 'en_IN',
+  symbol: '₹',
+);
+
+String _formatCurrency(double value) => _inrFormat.format(value);
 
 String _formatMinutes(int minutes) {
   if (minutes <= 0) return '0h 0m';

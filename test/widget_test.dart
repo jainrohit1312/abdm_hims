@@ -6,6 +6,7 @@
 // tree, read text, and verify that the values of widget properties are correct.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,6 +17,30 @@ import 'package:abdm_hims/config/app_config.dart';
 void main() {
   setUpAll(() async {
     SharedPreferences.setMockInitialValues({});
+    // flutter_secure_storage has no test-environment implementation, so mock
+    // its platform channel — the app can then bootstrap (Supabase session
+    // storage probes the channel) without any real plugin.
+    TestWidgetsFlutterBinding.ensureInitialized();
+    const secureChannel = MethodChannel(
+      'plugins.it_nomads.com/flutter_secure_storage',
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureChannel, (call) async {
+          switch (call.method) {
+            case 'containsKey':
+              return false;
+            case 'readAll':
+              return <String, String>{};
+            case 'read':
+              return null;
+            case 'write':
+            case 'delete':
+            case 'deleteAll':
+              return null;
+            default:
+              return null;
+          }
+        });
     await AppConfig.init();
   });
 

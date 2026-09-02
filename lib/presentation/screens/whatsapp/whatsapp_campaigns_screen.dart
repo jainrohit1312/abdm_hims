@@ -577,35 +577,33 @@ class _CampaignComposerDialogState
                             const Divider(height: 1),
                             ConstrainedBox(
                               constraints: const BoxConstraints(maxHeight: 160),
-                              child: ListView(
+                              child: ListView.builder(
                                 shrinkWrap: true,
-                                children: recipients
-                                    .map(
-                                      (r) => CheckboxListTile(
-                                        value: _selectedPatientIds.contains(
+                                itemCount: recipients.length,
+                                itemBuilder: (context, index) {
+                                  final r = recipients[index];
+                                  return CheckboxListTile(
+                                    value: _selectedPatientIds.contains(
+                                      r.patientId,
+                                    ),
+                                    onChanged: (v) => setState(() {
+                                      if (v == true) {
+                                        _selectedPatientIds.add(r.patientId);
+                                      } else {
+                                        _selectedPatientIds.remove(
                                           r.patientId,
-                                        ),
-                                        onChanged: (v) => setState(() {
-                                          if (v == true) {
-                                            _selectedPatientIds.add(
-                                              r.patientId,
-                                            );
-                                          } else {
-                                            _selectedPatientIds.remove(
-                                              r.patientId,
-                                            );
-                                          }
-                                        }),
-                                        title: Text(r.name),
-                                        subtitle: Text(
-                                          '${r.uhid.isEmpty ? 'No UHID' : r.uhid} • '
-                                          '${r.phoneNumber} • ${r.source.toUpperCase()}',
-                                          style: const TextStyle(fontSize: 11),
-                                        ),
-                                        dense: true,
-                                      ),
-                                    )
-                                    .toList(),
+                                        );
+                                      }
+                                    }),
+                                    title: Text(r.name),
+                                    subtitle: Text(
+                                      '${r.uhid.isEmpty ? 'No UHID' : r.uhid} • '
+                                      '${r.phoneNumber} • ${r.source.toUpperCase()}',
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                    dense: true,
+                                  );
+                                },
                               ),
                             ),
                           ],

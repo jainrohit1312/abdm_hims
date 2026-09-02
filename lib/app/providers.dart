@@ -95,11 +95,13 @@ final storageServiceProvider = Provider<StorageService>((ref) {
 /// once authentication is restored so synced rows carry a valid session.
 final backgroundSyncServiceProvider =
     ChangeNotifierProvider<BackgroundSyncService>((ref) {
+      // NOTE: ChangeNotifierProvider already disposes the notifier on provider
+      // disposal — adding a manual `ref.onDispose(service.dispose)` here would
+      // dispose the same ChangeNotifier twice.
       final service = BackgroundSyncService(
         dbService: ref.watch(databaseServiceProvider),
         localDb: ref.watch(localDatabaseProvider),
       );
-      ref.onDispose(service.dispose);
       return service;
     });
 
@@ -872,9 +874,9 @@ final counselingRecordByIdProvider =
 /// autoDispose keeps the camera/mic free after leaving the counseling screen.
 final counselingRecordingServiceProvider =
     ChangeNotifierProvider.autoDispose<CounselingRecordingService>((ref) {
-      final service = CounselingRecordingService();
-      ref.onDispose(service.dispose);
-      return service;
+      // ChangeNotifierProvider.autoDispose already disposes the notifier —
+      // no manual onDispose here (would double-dispose the camera/recorder).
+      return CounselingRecordingService();
     });
 
 /// Merged session history (records + media + consents) for one visit/admission.
@@ -1772,6 +1774,70 @@ final diagnosticOrdersProvider =
       );
     });
 
+/// Page size for the paginated diagnostic orders list.
+const int diagnosticOrdersPageSize = 30;
+
+/// Paginated diagnostic orders list. One instance per
+/// [DiagnosticOrdersParams]; the pending tab uses `status: 'pending'` which
+/// maps to `pending` + `in_progress`, the completed tab uses
+/// `status: 'completed'`.
+class DiagnosticOrdersListNotifier
+    extends PaginationListNotifier<Map<String, dynamic>> {
+  DiagnosticOrdersListNotifier(
+    super.dbService,
+    super.hospitalIdReader, {
+    required this.status,
+  }) : super(limit: diagnosticOrdersPageSize);
+
+  final String? status;
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchPage(
+    DatabaseService db,
+    int page,
+    int limit,
+    String hospitalId,
+  ) {
+    return db.getDiagnosticOrdersPage(
+      hospitalId: hospitalId,
+      statuses: _diagnosticStatusesFor(status),
+      page: page,
+      limit: limit,
+    );
+  }
+}
+
+List<String>? _diagnosticStatusesFor(String? status) {
+  if (status == null || status.isEmpty) return null;
+  if (status == 'pending') return const ['pending', 'in_progress'];
+  return [status];
+}
+
+final diagnosticOrdersListProvider =
+    StateNotifierProvider.family<
+      DiagnosticOrdersListNotifier,
+      PaginationState<Map<String, dynamic>>,
+      DiagnosticOrdersParams
+    >((ref, params) {
+      final notifier = DiagnosticOrdersListNotifier(
+        ref.watch(databaseServiceProvider),
+        () => params.hospitalId ?? ref.read(authStateProvider).hospitalId ?? '',
+        status: params.status,
+      );
+      // Load the first page as soon as the provider is created.
+      Future.microtask(notifier.refresh);
+      return notifier;
+    });
+
+/// One diagnostic order by id (with patient name/UHID) for the focused
+/// single-order view — independent of the paginated list so deep links never
+/// depend on the first page.
+final diagnosticOrderDetailProvider =
+    FutureProvider.family<Map<String, dynamic>?, String>((ref, orderId) async {
+      final dbService = ref.read(databaseServiceProvider);
+      return dbService.getDiagnosticOrderWithPatient(orderId);
+    });
+
 final diagnosticOrderItemsProvider =
     FutureProvider.family<List<Map<String, dynamic>>, String>((
       ref,
@@ -1842,17 +1908,72 @@ class VoucherFilter {
   int get hashCode => Object.hash(hospitalId, from, to);
 }
 
-final vouchersProvider =
-    FutureProvider.family<List<Map<String, dynamic>>, VoucherFilter>((
-      ref,
-      filter,
-    ) async {
+/// Page size for the paginated voucher list.
+const int voucherPageSize = 30;
+
+/// Paginated voucher list for one [VoucherFilter] (hospital + date range).
+class VoucherListNotifier
+    extends PaginationListNotifier<Map<String, dynamic>> {
+  VoucherListNotifier(
+    super.dbService,
+    super.hospitalIdReader, {
+    required this.from,
+    required this.to,
+  }) : super(limit: voucherPageSize);
+
+  final DateTime? from;
+  final DateTime? to;
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchPage(
+    DatabaseService db,
+    int page,
+    int limit,
+    String hospitalId,
+  ) {
+    return db.getVouchersPage(
+      hospitalId: hospitalId,
+      from: from,
+      to: to,
+      page: page,
+      limit: limit,
+    );
+  }
+}
+
+final voucherListProvider =
+    StateNotifierProvider.family<
+      VoucherListNotifier,
+      PaginationState<Map<String, dynamic>>,
+      VoucherFilter
+    >((ref, filter) {
+      final notifier = VoucherListNotifier(
+        ref.watch(databaseServiceProvider),
+        () => filter.hospitalId,
+        from: filter.from,
+        to: filter.to,
+      );
+      // Load the first page as soon as the provider is created.
+      Future.microtask(notifier.refresh);
+      return notifier;
+    });
+
+/// Range total + count for the voucher list header. Only the `amount` column
+/// is fetched so the summary stays cheap and is always correct for the whole
+/// selected range — independent of how many list pages have been loaded.
+final voucherRangeSummaryProvider =
+    FutureProvider.family<Map<String, dynamic>, VoucherFilter>((ref, filter) async {
       final dbService = ref.read(databaseServiceProvider);
-      return dbService.getVouchers(
+      final rows = await dbService.getVoucherRangeAmounts(
         hospitalId: filter.hospitalId,
         from: filter.from,
         to: filter.to,
       );
+      var total = 0.0;
+      for (final row in rows) {
+        total += double.tryParse(row['amount']?.toString() ?? '') ?? 0;
+      }
+      return {'total': total, 'count': rows.length};
     });
 
 /// Today's + current-month voucher expense totals for the dashboard.
@@ -2087,10 +2208,23 @@ final complianceRecordsProvider =
     });
 
 /// Aggregated compliance stats for the dashboard header cards.
+///
+/// Reuses [complianceRecordsProvider] so the records grid and the stats bar
+/// share one `getRecords` fetch (which already enriches documents), then adds
+/// one cheap `COUNT` query for the total file count. Previously the stats
+/// path fetched the full record set a second time plus every document row.
 final complianceStatsProvider =
-    FutureProvider.family<Map<String, dynamic>, String>((ref, hospitalId) {
+    FutureProvider.family<Map<String, dynamic>, String>((ref, hospitalId) async {
       ref.watch(complianceRefreshProvider);
-      return ref.read(complianceServiceProvider).getStats(hospitalId);
+      final records = await ref.watch(
+        complianceRecordsProvider(hospitalId).future,
+      );
+      final service = ref.read(complianceServiceProvider);
+      final documentCount = await service.getDocumentCount(hospitalId);
+      return service.getStatsFromRecords(
+        records,
+        documentCount: documentCount,
+      );
     });
 
 /// One compliance record by id (detail screen).

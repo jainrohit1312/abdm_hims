@@ -95,7 +95,7 @@ class ComplianceService {
                   .from(ApiConstants.complianceRecordsTable)
                   .update({'status': derived.value})
                   .eq('id', record.id)
-                  .select(),
+                  .select('id'),
             );
           } catch (_) {
             // Status refresh is cosmetic — never fail the list fetch.
@@ -548,14 +548,20 @@ class ComplianceService {
   /// hospital admins. Email/WhatsApp delivery rows are also created with
   /// status `pending` so a backend worker can pick them up; the in-app
   /// channel is sent immediately.
-  Future<Map<String, int>> processDueReminders(String hospitalId) async {
+  Future<Map<String, int>> processDueReminders(
+    String hospitalId, {
+    List<ComplianceRecord>? records,
+  }) async {
     final counts = <String, int>{'30_day': 0, '7_day': 0, 'expired': 0};
     try {
-      final records = await getRecords(hospitalId);
+      // Reuse the already-loaded records when the caller (e.g. the dashboard,
+      // which has already fetched them via `complianceRecordsProvider`) has
+      // them — avoids a second full records + documents fetch on every load.
+      final loaded = records ?? await getRecords(hospitalId);
       final today = DateTime.now();
       final todayDay = DateTime(today.year, today.month, today.day);
 
-      for (final record in records) {
+      for (final record in loaded) {
         if (!record.reminderEnabled) continue;
         final expiry = record.expiryDate;
         if (expiry == null) continue;
@@ -752,34 +758,10 @@ class ComplianceService {
   Future<Map<String, dynamic>> getStats(String hospitalId) async {
     try {
       final records = await getRecords(hospitalId);
-      var active = 0;
-      var expiring = 0;
-      var expired = 0;
-      var favorites = 0;
-      for (final record in records) {
-        if (record.isFavorite) favorites++;
-        switch (record.derivedStatus) {
-          case ComplianceStatus.expired:
-            expired++;
-            break;
-          case ComplianceStatus.expiring:
-            expiring++;
-            break;
-          case ComplianceStatus.active:
-          case ComplianceStatus.archived:
-            active++;
-            break;
-        }
-      }
-      final docs = await getAllDocuments(hospitalId);
-      return {
-        'total_records': records.length,
-        'total_documents': docs.length,
-        'active': active,
-        'expiring': expiring,
-        'expired': expired,
-        'favorites': favorites,
-      };
+      final stats = _statsFromRecords(records);
+      final documentCount = await getDocumentCount(hospitalId);
+      stats['total_documents'] = documentCount;
+      return stats;
     } catch (e) {
       AppLogger.e('Error fetching compliance stats', e);
       return {
@@ -790,6 +772,65 @@ class ComplianceService {
         'expired': 0,
         'favorites': 0,
       };
+    }
+  }
+
+  /// Computes the dashboard stat cards from an already-fetched record list.
+  /// The dashboard calls this with the same list the records grid uses, so a
+  /// single `getRecords` fetch feeds both the grid and the stats bar.
+  Future<Map<String, dynamic>> getStatsFromRecords(
+    List<ComplianceRecord> records, {
+    required int documentCount,
+  }) async {
+    final stats = _statsFromRecords(records);
+    stats['total_documents'] = documentCount;
+    return stats;
+  }
+
+  Map<String, dynamic> _statsFromRecords(List<ComplianceRecord> records) {
+    var active = 0;
+    var expiring = 0;
+    var expired = 0;
+    var favorites = 0;
+    for (final record in records) {
+      if (record.isFavorite) favorites++;
+      switch (record.derivedStatus) {
+        case ComplianceStatus.expired:
+          expired++;
+          break;
+        case ComplianceStatus.expiring:
+          expiring++;
+          break;
+        case ComplianceStatus.active:
+        case ComplianceStatus.archived:
+          active++;
+          break;
+      }
+    }
+    return {
+      'total_records': records.length,
+      'active': active,
+      'expiring': expiring,
+      'expired': expired,
+      'favorites': favorites,
+    };
+  }
+
+  /// Total number of document files for a hospital — one cheap COUNT query
+  /// instead of downloading every document row.
+  Future<int> getDocumentCount(String hospitalId) async {
+    try {
+      final response = await DatabaseService.fetchWithRetry(
+        () => _client
+            .from(ApiConstants.complianceDocumentsTable)
+            .select('id')
+            .eq('hospital_id', hospitalId)
+            .count(CountOption.exact),
+      );
+      return response.count;
+    } catch (e) {
+      AppLogger.e('Error counting compliance documents', e);
+      return 0;
     }
   }
 
