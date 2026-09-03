@@ -904,7 +904,7 @@ Deno.test("bridge failure diagnostics never leak tokens or secrets in logs or re
 // 6. CORS preflight (browser flow for the PATCH Bridge action)
 // ----------------------------------------------------------------------------
 
-Deno.test("OPTIONS preflight returns 204 without auth and advertises PATCH", async () => {
+Deno.test("OPTIONS preflight returns 204 without auth and advertises lowercase patch", async () => {
   let authCalled = false;
 
   const requestDeps = deps(
@@ -921,7 +921,9 @@ Deno.test("OPTIONS preflight returns 204 without auth and advertises PATCH", asy
   const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
     method: "OPTIONS",
     headers: {
-      "Access-Control-Request-Method": "PATCH",
+      // The Supabase Flutter/Web Functions client sends the method token in
+      // lowercase; the Edge Function must advertise that exact token.
+      "Access-Control-Request-Method": "patch",
       "Access-Control-Request-Headers": "authorization, content-type",
     },
   });
@@ -933,7 +935,8 @@ Deno.test("OPTIONS preflight returns 204 without auth and advertises PATCH", asy
 
   assertEquals(res.headers.get("Access-Control-Allow-Origin"), "*");
   const allowMethods = res.headers.get("Access-Control-Allow-Methods") ?? "";
-  assert(allowMethods.includes("PATCH"), "PATCH must be advertised");
+  assert(allowMethods.includes("patch"), "lowercase patch must be advertised");
+  assert(allowMethods.includes("PATCH"), "uppercase PATCH must be advertised");
   assert(allowMethods.includes("GET"), "GET must be advertised");
   assert(allowMethods.includes("POST"), "POST must be advertised");
   assert(allowMethods.includes("OPTIONS"), "OPTIONS must be advertised");
@@ -943,7 +946,7 @@ Deno.test("OPTIONS preflight returns 204 without auth and advertises PATCH", asy
   assert(allowHeaders.includes("content-type"), "content-type must be allowed");
 });
 
-Deno.test("preflight followed by an authenticated PATCH reaches handleBridge", async () => {
+Deno.test("preflight with lowercase patch then an authenticated lowercase patch request reaches handleBridge", async () => {
   let authCalled = false;
   const { fetchImpl, calls } = recordingFetch((url, method) => {
     if (url.endsWith("/gateway/v1/sessions")) {
@@ -966,19 +969,28 @@ Deno.test("preflight followed by an authenticated PATCH reaches handleBridge", a
     freshTokenCache(),
   );
 
+  // 1. Browser preflight with the exact lowercase token sent by the Supabase
+  //    Flutter/Web Functions client.
   const preflight = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
     method: "OPTIONS",
-    headers: { "Access-Control-Request-Method": "PATCH" },
+    headers: { "Access-Control-Request-Method": "patch" },
   });
   const preflightRes = await handleRequest(preflight, requestDeps);
   assertEquals(preflightRes.status, 204);
+  const preflightMethods =
+    preflightRes.headers.get("Access-Control-Allow-Methods") ?? "";
   assert(
-    (preflightRes.headers.get("Access-Control-Allow-Methods") ?? "").includes("PATCH"),
-    "preflight must advertise PATCH before the real request",
+    preflightMethods.includes("patch"),
+    "preflight must advertise the exact lowercase patch token",
+  );
+  assert(
+    preflightMethods.includes("PATCH"),
+    "preflight must still advertise uppercase PATCH",
   );
 
+  // 2. The real inbound request may also arrive with a lowercase method.
   const patchReq = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
-    method: "PATCH",
+    method: "patch",
     headers: {
       "Content-Type": "application/json",
       Authorization: "Bearer owner-jwt",
@@ -988,12 +1000,16 @@ Deno.test("preflight followed by an authenticated PATCH reaches handleBridge", a
   const res = await handleRequest(patchReq, requestDeps);
   const body = await res.json() as Record<string, unknown>;
 
-  assertEquals(res.status, 200);
+  assertEquals(res.status, 200, "lowercase patch must not be rejected with 405");
   assertEquals(body["status"], "bridge_configured");
-  assert(authCalled, "PATCH must validate the Supabase JWT through authenticate");
+  assert(authCalled, "lowercase patch must still validate the Supabase JWT through authenticate");
   const bridgeCall = calls.find((c) => c.url.endsWith("/gateway/v1/bridges"));
-  assert(bridgeCall, "authenticated PATCH must reach the ABDM bridge endpoint");
-  assertEquals(bridgeCall.method, "PATCH");
+  assert(bridgeCall, "lowercase patch must reach the ABDM bridge endpoint");
+  assertEquals(
+    bridgeCall.method,
+    "PATCH",
+    "outbound ABDM request must remain uppercase PATCH",
+  );
 });
 
 Deno.test("PATCH bridge remains 403 for a non-admin authenticated user", async () => {

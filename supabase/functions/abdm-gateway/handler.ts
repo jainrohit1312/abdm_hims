@@ -53,8 +53,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, request-id, timestamp",
   // PATCH must be explicitly advertised, otherwise the browser blocks the
-  // preflighted Bridge PATCH request after a 200 OPTIONS.
-  "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+  // preflighted Bridge PATCH request after a 200 OPTIONS. The Supabase
+  // Flutter/Web Functions client sends the preflight method token as lowercase
+  // `patch`, so the exact lowercase token is advertised alongside the
+  // uppercase methods used by other clients.
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS, patch",
 };
 
 function jsonResponse(
@@ -109,9 +112,14 @@ export async function handleRequest(
   req: Request,
   deps: RequestDeps,
 ): Promise<Response> {
-  if (req.method === "OPTIONS") {
+  // Normalize once so routing, callback dispatch and authorization decisions
+  // are case-insensitive. The outbound ABDM request method is chosen
+  // separately (and explicitly stays uppercase PATCH for the Bridge call).
+  const method = req.method.toUpperCase();
+
+  if (method === "OPTIONS") {
     // Preflight must succeed without Supabase auth and advertise every method
-    // the browser may follow up with (GET/POST/PATCH/OPTIONS).
+    // the browser may follow up with (GET/POST/PATCH/OPTIONS/patch).
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
@@ -129,7 +137,7 @@ export async function handleRequest(
   const body = bodyResult.body;
 
   const action = resolveInternalAction(
-    req.method,
+    method,
     subpath,
     typeof body["action"] === "string" ? (body["action"] as string) : undefined,
     queryAction,
@@ -137,10 +145,10 @@ export async function handleRequest(
 
   try {
     if (action) {
-      return await handleInternalAction(req, action, body, deps);
+      return await handleInternalAction(req, method, action, body, deps);
     }
 
-    if (req.method === "POST") {
+    if (method === "POST") {
       if (!subpath) {
         return jsonResponse(
           { error: "Callback subpath is required for public POST callbacks" },
@@ -176,6 +184,7 @@ export async function handleRequest(
 
 async function handleInternalAction(
   req: Request,
+  method: string,
   action: InternalAction,
   body: Record<string, unknown>,
   deps: RequestDeps,
@@ -197,7 +206,7 @@ async function handleInternalAction(
     case "bridge":
       return handleBridge(config, body, deps, req);
     case "services":
-      return req.method === "GET"
+      return method === "GET"
         ? handleGetServices(config, deps)
         : handlePostServices(config, body, deps);
     case "health":
