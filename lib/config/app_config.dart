@@ -60,38 +60,32 @@ class AppConfig {
   // ===========================================================================
   // ABDM (Ayushman Bharat Digital Mission) Configuration
   // ---------------------------------------------------------------------------
-  // Sandbox base URL:        https://sandbox.abdm.gov.in
-  // Production base URL:     https://abdm.gov.in (switch only after UAT sign-off)
+  // SECURITY: The ABDM Client ID and Client Secret must exist ONLY as Supabase
+  // Edge Function secrets (ABDM_CLIENT_ID / ABDM_CLIENT_SECRET). They are never
+  // placed in Flutter source, web/env.js, --dart-define, local storage or any
+  // API response. All privileged ABDM calls go through the `abdm-gateway`
+  // Edge Function, which keeps the ABDM access token server-side.
   //
-  // Client ID / Secret:      Issued by ABDM Sandbox portal (https://sandbox.abdm.gov.in)
-  //                          -> "Create Client" under Gateway/Health ID APIs.
-  // HIP ID / HIU ID:         The facility/health-information-user IDs registered
-  //                          with ABDM (used for care-context link & consent).
+  // `abdmRealModeEnabled` is the explicit environment-controlled switch:
+  //   * false (default) — AbdmService runs in mock mode for local UI work.
+  //   * true              — AbdmService calls the secure Edge Function for
+  //                         session / Bridge / service management, and returns
+  //                         clear typed errors for M1/M2/M3 operations that are
+  //                         not part of this backend-foundation phase yet.
   //
-  // NOTE: `abdmMockMode` automatically switches OFF once a real client id is
-  // placed below (it only stays on while the id starts with "YOUR_").
+  // Enable it at build time WITHOUT any secret:
+  //   flutter build web --dart-define=ABDM_REAL_MODE=true
   // ===========================================================================
-  static const String abdmBaseUrl = 'https://sandbox.abdm.gov.in';
-  static const String abdmClientId = 'YOUR_ABDM_CLIENT_ID';
-  static const String abdmClientSecret = 'YOUR_ABDM_CLIENT_SECRET';
   static const String abdmEnvironment = 'sandbox'; // or 'production'
-  static const String abdmHipId = 'YOUR_ABDM_HIP_ID';
-  static const String abdmHiuId = 'YOUR_ABDM_HIU_ID';
+  static const bool abdmRealModeEnabled = bool.fromEnvironment('ABDM_REAL_MODE');
 
-  /// Explicit mock-mode kill switch. When `true`, `AbdmService` returns
-  /// realistic fixture responses instead of calling the ABDM gateway. This
-  /// lets the UI flow be developed/tested before sandbox credentials arrive.
-  /// Set to `false` once real credentials are configured.
-  static const bool abdmMockModeOverride = true;
+  /// True when the app is allowed to call the secure ABDM backend.
+  static bool get isAbdmConfigured => abdmRealModeEnabled;
 
-  /// True when real ABDM credentials have been configured.
-  static bool get isAbdmConfigured =>
-      abdmClientId.isNotEmpty && !abdmClientId.startsWith('YOUR_');
-
-  /// Mock mode is only active when the override is on AND credentials are
-  /// still placeholders. The moment real credentials are added, the service
-  /// starts hitting the real gateway automatically.
-  static bool get abdmMockMode => abdmMockModeOverride && !isAbdmConfigured;
+  /// Mock mode is active whenever the real backend switch is OFF. The moment
+  /// the secure backend is deployed and this switch is flipped to `true`, the
+  /// service routes privileged calls through the Edge Function.
+  static bool get abdmMockMode => !abdmRealModeEnabled;
 
   // App Configuration
   static const String appName = 'HIMS - Hospital Management';

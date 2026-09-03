@@ -121,11 +121,17 @@ class ApiConstants {
   static const String entityTagsTable = 'entity_tags';
 
   // ABDM API Endpoints
-  // Base URLs are read from AppConfig at runtime; these constants keep the
-  // canonical paths used by AbdmService so screens never hard-code URLs.
+  // ---------------------------------------------------------------------------
+  // SECURITY NOTE: real ABDM calls are proxied through the `abdm-gateway`
+  // Supabase Edge Function. The constants below are legacy/mock references for
+  // the Flutter module and are NOT used for real gateway traffic anymore.
+  // Endpoint paths are configured centrally in the Edge Function
+  // (ABDM_SESSION_PATH / ABDM_BRIDGE_PATH / ABDM_SERVICES_PATH) and the
+  // defaults REQUIRE CONFIRMATION against current official ABDM Sandbox
+  // documentation.
   static const String abdmBaseUrl = 'https://sandbox.abdm.gov.in';
 
-  // -- Gateway session / auth ------------------------------------------------
+  // -- Gateway session / auth (server-side only; legacy mock reference) ------
   static const String abdmSessions = '/v1/sessions';
 
   // -- M1: ABHA creation (Aadhaar OTP flow) ----------------------------------
@@ -147,7 +153,8 @@ class ApiConstants {
   // -- M1: ABHA search / verify / address ------------------------------------
   static const String abdmSearchByHealthId = '/v1/search/searchByHealthId';
   static const String abdmSearchByMobile = '/v1/search/searchByMobile';
-  static const String abdmSearchByAbhaAddress = '/v1/search/searchByAbhaAddress';
+  static const String abdmSearchByAbhaAddress =
+      '/v1/search/searchByAbhaAddress';
 
   // ABHA card + QR (HIE-CM account APIs). X-Token is the ABHA session token
   // returned by the create/verify flow, or the gateway bearer token.

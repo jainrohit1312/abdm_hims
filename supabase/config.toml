@@ -412,3 +412,13 @@ enabled = true
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# ---------------------------------------------------------------------------
+# ABDM Gateway Edge Function — receives PUBLIC ABDM callbacks, so Supabase
+# platform JWT verification must be disabled for this function. Protected
+# actions (session / bridge / services / health) manually validate the
+# Supabase user JWT inside the function; public callback POST routes never
+# reach an administrative action.
+# ---------------------------------------------------------------------------
+[functions.abdm-gateway]
+verify_jwt = false
