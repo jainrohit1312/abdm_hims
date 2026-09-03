@@ -244,11 +244,13 @@ Deno.test("getSubpath preserves callback subpaths after the function name", () =
   );
 });
 
-Deno.test("isAdminRole accepts only owner-level roles", () => {
+Deno.test("isAdminRole accepts only admin and super_admin", () => {
   assertEquals(isAdminRole("admin"), true);
   assertEquals(isAdminRole("super_admin"), true);
   assertEquals(isAdminRole("ADMIN"), true);
+  assertEquals(isAdminRole("owner"), false);
   assertEquals(isAdminRole("doctor"), false);
+  assertEquals(isAdminRole("staff"), false);
   assertEquals(isAdminRole(""), false);
 });
 

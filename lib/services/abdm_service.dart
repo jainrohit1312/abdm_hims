@@ -8,10 +8,15 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/app_config.dart';
 import '../core/utils/logger.dart';
 
+/// Reads the current Supabase session (injected for tests).
+typedef CurrentSessionReader = Session? Function();
+
 /// Unified exception for every ABDM gateway / persistence failure.
 ///
 /// Screens can show [message] directly and rely on [statusCode] / [code] for
 /// programmatic handling. Codes used by this service:
+///   * `NO_SESSION`                   — the owner-only connection test was
+///                                     requested without a Supabase session.
 ///   * `ABDM_MOCK_MODE`              — an admin/backend operation was requested
 ///                                     while the app is still running in mock mode.
 ///   * `ABDM_REAL_MODE_NOT_AVAILABLE` — the privileged gateway relay for that
@@ -45,13 +50,19 @@ class AbdmException implements Exception {
 /// * The full M1/M2/M3 gateway relay is intentionally NOT implemented in this
 ///   phase — real mode returns a clear typed error for those operations.
 class AbdmService {
-  AbdmService({required SupabaseClient supabaseClient, this._mockModeOverride})
-    : _client = supabaseClient;
+  AbdmService({
+    required SupabaseClient supabaseClient,
+    this._mockModeOverride,
+    CurrentSessionReader? currentSessionReader,
+  }) : _client = supabaseClient,
+       _currentSessionReader =
+           currentSessionReader ?? (() => supabaseClient.auth.currentSession);
 
   static const String _edgeFunction = 'abdm-gateway';
 
   final SupabaseClient _client;
   final bool? _mockModeOverride;
+  final CurrentSessionReader _currentSessionReader;
 
   // -- mock state ------------------------------------------------------------
   String? _lastTxnId;
@@ -67,6 +78,28 @@ class AbdmService {
   /// Returns a sanitized status payload — never the raw ABDM token.
   Future<Map<String, dynamic>> checkGatewaySession() async {
     _requireBackendEnabled('Gateway session check');
+    return _invokeEdge('session');
+  }
+
+  /// Owner/super-admin-only "Test ABDM Connection" action.
+  ///
+  /// Reads the current authenticated Supabase session first. When no session
+  /// exists it throws [AbdmException] with code `NO_SESSION` so the UI can show
+  /// "Please log in again." without making a network call.
+  ///
+  /// The Supabase Functions client attaches the session's access token as
+  /// `Authorization: Bearer <owner-jwt>` on the outgoing request internally;
+  /// this method never reads, logs, persists or returns the JWT value.
+  Future<Map<String, dynamic>> testSandboxConnection() async {
+    _requireBackendEnabled('ABDM connection test');
+    final session = _currentSessionReader();
+    if (session == null) {
+      throw const AbdmException(
+        'Please log in again.',
+        code: 'NO_SESSION',
+        statusCode: 401,
+      );
+    }
     return _invokeEdge('session');
   }
 

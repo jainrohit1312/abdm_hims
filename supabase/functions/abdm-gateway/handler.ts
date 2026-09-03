@@ -31,8 +31,9 @@ import {
   type GatewayConfig,
   type InternalAction,
   type TokenCacheRef,
+  type TokenRecord,
 } from "./core.ts";
-import { HttpError } from "./core.ts";
+import { GatewayError, HttpError } from "./core.ts";
 
 // Supabase Edge Runtime exposes `waitUntil` so async callback persistence can
 // finish after the response is sent. Plain Deno (local tests) does not have it.
@@ -221,7 +222,17 @@ async function handleSession(
   deps: RequestDeps,
 ): Promise<Response> {
   const tokenCache = deps.tokenCache ?? defaultTokenCache;
-  const record = await acquireAccessToken(deps.fetchImpl, config, tokenCache);
+  let record: TokenRecord;
+  try {
+    record = await acquireAccessToken(deps.fetchImpl, config, tokenCache);
+  } catch (error) {
+    // SECURITY: the GatewayError body is already sanitized, but the client only
+    // needs a useful message — never the raw ABDM token / Client Secret.
+    if (error instanceof GatewayError) {
+      throw sessionGatewayError(error);
+    }
+    throw error;
+  }
   const remainingSeconds = Math.max(
     0,
     Math.floor((record.expiresAt - Date.now()) / 1000),
@@ -234,6 +245,28 @@ async function handleSession(
     sessionValidForSeconds: remainingSeconds,
     note: "ABDM session established server-side. The raw token is never returned.",
   });
+}
+
+function sessionGatewayError(error: GatewayError): HttpError {
+  if (error.status === 401 || error.status === 403) {
+    return new HttpError(
+      502,
+      "ABDM authentication rejected: verify Client ID/rotated Client Secret",
+    );
+  }
+  if (error.status === 404 || error.status === 405) {
+    return new HttpError(502, "ABDM session endpoint may need v0.5 override");
+  }
+  if (error.status === 0) {
+    return new HttpError(
+      502,
+      "ABDM gateway unavailable. Check network connectivity and try again.",
+    );
+  }
+  return new HttpError(
+    502,
+    `ABDM session request failed with status ${error.status}`,
+  );
 }
 
 async function handleBridge(

@@ -249,6 +249,13 @@ final abdmServiceProvider = Provider<AbdmService>((ref) {
   return AbdmService(supabaseClient: ref.watch(supabaseClientProvider));
 });
 
+/// Current user's public `users.role` value (for example `admin` or
+/// `super_admin`). Kept as a tiny provider so role-gated widgets (such as the
+/// ABDM connection test button) can be overridden easily in widget tests.
+final currentUserRoleProvider = Provider<String?>((ref) {
+  return ref.watch(authStateProvider).userRole;
+});
+
 /// ABHA profile (abha_profiles) for a patient.
 final abhaProfileProvider =
     FutureProvider.family<Map<String, dynamic>?, String>((
@@ -1912,8 +1919,7 @@ class VoucherFilter {
 const int voucherPageSize = 30;
 
 /// Paginated voucher list for one [VoucherFilter] (hospital + date range).
-class VoucherListNotifier
-    extends PaginationListNotifier<Map<String, dynamic>> {
+class VoucherListNotifier extends PaginationListNotifier<Map<String, dynamic>> {
   VoucherListNotifier(
     super.dbService,
     super.hospitalIdReader, {
@@ -1962,7 +1968,10 @@ final voucherListProvider =
 /// is fetched so the summary stays cheap and is always correct for the whole
 /// selected range — independent of how many list pages have been loaded.
 final voucherRangeSummaryProvider =
-    FutureProvider.family<Map<String, dynamic>, VoucherFilter>((ref, filter) async {
+    FutureProvider.family<Map<String, dynamic>, VoucherFilter>((
+      ref,
+      filter,
+    ) async {
       final dbService = ref.read(databaseServiceProvider);
       final rows = await dbService.getVoucherRangeAmounts(
         hospitalId: filter.hospitalId,
@@ -2031,8 +2040,7 @@ const int billingPageSize = 30;
 /// One notifier instance exists per [BillingFilter] (hospital + source tab)
 /// and stays cached by Riverpod, so switching tabs back and forth does not
 /// re-download data.
-class BillingListNotifier
-    extends PaginationListNotifier<Map<String, dynamic>> {
+class BillingListNotifier extends PaginationListNotifier<Map<String, dynamic>> {
   BillingListNotifier(
     super.dbService,
     super.hospitalIdReader, {
@@ -2147,7 +2155,9 @@ final reportDetailProvider =
 
 /// Service that generates reports from real tenant-scoped database records
 /// and persists them into the existing `reports` table.
-final reportGenerationServiceProvider = Provider<ReportGenerationService>((ref) {
+final reportGenerationServiceProvider = Provider<ReportGenerationService>((
+  ref,
+) {
   return ReportGenerationService(ref.watch(databaseServiceProvider));
 });
 
@@ -2214,17 +2224,17 @@ final complianceRecordsProvider =
 /// one cheap `COUNT` query for the total file count. Previously the stats
 /// path fetched the full record set a second time plus every document row.
 final complianceStatsProvider =
-    FutureProvider.family<Map<String, dynamic>, String>((ref, hospitalId) async {
+    FutureProvider.family<Map<String, dynamic>, String>((
+      ref,
+      hospitalId,
+    ) async {
       ref.watch(complianceRefreshProvider);
       final records = await ref.watch(
         complianceRecordsProvider(hospitalId).future,
       );
       final service = ref.read(complianceServiceProvider);
       final documentCount = await service.getDocumentCount(hospitalId);
-      return service.getStatsFromRecords(
-        records,
-        documentCount: documentCount,
-      );
+      return service.getStatsFromRecords(records, documentCount: documentCount);
     });
 
 /// One compliance record by id (detail screen).
@@ -2459,13 +2469,15 @@ final employeesRefreshProvider = StateProvider<int>((ref) => 0);
 
 /// All employees of the current hospital (employee master only — no
 /// attendance history is loaded here).
-final employeesProvider =
-    FutureProvider.family<List<Employee>, String>((ref, hospitalId) {
-      ref.watch(employeesRefreshProvider);
-      return ref
-          .read(employeeRepositoryProvider)
-          .getEmployees(hospitalId: hospitalId);
-    });
+final employeesProvider = FutureProvider.family<List<Employee>, String>((
+  ref,
+  hospitalId,
+) {
+  ref.watch(employeesRefreshProvider);
+  return ref
+      .read(employeeRepositoryProvider)
+      .getEmployees(hospitalId: hospitalId);
+});
 
 /// Identifies one employee by id inside the current hospital (form screen).
 class EmployeeDetailParams {
@@ -2568,10 +2580,10 @@ class AttendanceMonthParams {
 ///
 /// Fetches punches once for the whole month and aggregates in memory.
 final monthlyAttendanceProvider =
-    FutureProvider.family<List<EmployeeMonthlyAttendance>, AttendanceMonthParams>((
-      ref,
-      params,
-    ) async {
+    FutureProvider.family<
+      List<EmployeeMonthlyAttendance>,
+      AttendanceMonthParams
+    >((ref, params) async {
       final employees = await ref.watch(
         employeesProvider(params.hospitalId).future,
       );
@@ -2604,9 +2616,7 @@ final employeeSalarySummaryProvider =
       final employees = await ref.watch(
         employeesProvider(params.hospitalId).future,
       );
-      final monthly = await ref.watch(
-        monthlyAttendanceProvider(params).future,
-      );
+      final monthly = await ref.watch(monthlyAttendanceProvider(params).future);
       final calculator = ref.read(salaryCalculatorProvider);
 
       final employeesById = {for (final e in employees) e.id: e};
@@ -2631,7 +2641,9 @@ final employeeSalarySummaryProvider =
 // SupabaseClient directly.
 
 /// Persistence for marketing areas (CRUD only).
-final marketingAreaRepositoryProvider = Provider<MarketingAreaRepository>((ref) {
+final marketingAreaRepositoryProvider = Provider<MarketingAreaRepository>((
+  ref,
+) {
   return SupabaseMarketingAreaRepository(ref.watch(supabaseClientProvider));
 });
 
@@ -2744,8 +2756,15 @@ class MarketingVisitRangeParams {
       _sameDay(other.to, to);
 
   @override
-  int get hashCode =>
-      Object.hash(hospitalId, from.year, from.month, from.day, to.year, to.month, to.day);
+  int get hashCode => Object.hash(
+    hospitalId,
+    from.year,
+    from.month,
+    from.day,
+    to.year,
+    to.month,
+    to.day,
+  );
 
   static bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
@@ -2787,8 +2806,15 @@ class PatientReferralRangeParams {
       _sameDay(other.to, to);
 
   @override
-  int get hashCode =>
-      Object.hash(hospitalId, from.year, from.month, from.day, to.year, to.month, to.day);
+  int get hashCode => Object.hash(
+    hospitalId,
+    from.year,
+    from.month,
+    from.day,
+    to.year,
+    to.month,
+    to.day,
+  );
 
   static bool _sameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
@@ -2833,10 +2859,10 @@ class MarketingPatientSearchParams {
 /// Patient search enriched with the patient's recent OPD/IPD visits so the
 /// referral form can offer an optional OPD/IPD link without N+1 queries.
 final marketingPatientSearchProvider =
-    FutureProvider.family<List<Map<String, dynamic>>, MarketingPatientSearchParams>((
-      ref,
-      params,
-    ) {
+    FutureProvider.family<
+      List<Map<String, dynamic>>,
+      MarketingPatientSearchParams
+    >((ref, params) {
       if (params.query.trim().isEmpty) return Future.value(const []);
       return ref
           .read(databaseServiceProvider)
@@ -2851,7 +2877,10 @@ class MarketingDashboardParams {
   final String hospitalId;
   final DateTime date;
 
-  const MarketingDashboardParams({required this.hospitalId, required this.date});
+  const MarketingDashboardParams({
+    required this.hospitalId,
+    required this.date,
+  });
 
   @override
   bool operator ==(Object other) =>
@@ -2899,13 +2928,15 @@ final marketingDashboardProvider =
             to: nextMonth,
           );
 
-      return ref.read(marketingAnalyticsServiceProvider).buildDashboard(
-        doctors: doctors,
-        visits: visits,
-        referrals: referrals,
-        areas: areas,
-        now: params.date,
-      );
+      return ref
+          .read(marketingAnalyticsServiceProvider)
+          .buildDashboard(
+            doctors: doctors,
+            visits: visits,
+            referrals: referrals,
+            areas: areas,
+            now: params.date,
+          );
     });
 
 /// Identifies the area-activity context: hospital + area + month.
@@ -2929,8 +2960,7 @@ class MarketingAreaActivityParams {
       other.month.month == month.month;
 
   @override
-  int get hashCode =>
-      Object.hash(hospitalId, areaId, month.year, month.month);
+  int get hashCode => Object.hash(hospitalId, areaId, month.year, month.month);
 }
 
 /// Area detail: doctors of one area + that area's month activity.
@@ -3019,10 +3049,10 @@ class ReferralDoctorDetailAnalyticsParams {
 /// Fetches a bounded 90-day window of visits/referrals (never the entire
 /// lifetime history) plus two cheap lifetime COUNT queries.
 final referralDoctorDetailProvider =
-    FutureProvider.family<ReferralDoctorDetail?, ReferralDoctorDetailAnalyticsParams>((
-      ref,
-      params,
-    ) async {
+    FutureProvider.family<
+      ReferralDoctorDetail?,
+      ReferralDoctorDetailAnalyticsParams
+    >((ref, params) async {
       ref.watch(marketingRefreshProvider);
 
       final doctor = await ref.read(
@@ -3035,10 +3065,16 @@ final referralDoctorDetailProvider =
       );
       if (doctor == null) return null;
 
-      final from = DateTime(params.now.year, params.now.month, params.now.day)
-          .subtract(const Duration(days: 90));
-      final to = DateTime(params.now.year, params.now.month, params.now.day)
-          .add(const Duration(days: 1));
+      final from = DateTime(
+        params.now.year,
+        params.now.month,
+        params.now.day,
+      ).subtract(const Duration(days: 90));
+      final to = DateTime(
+        params.now.year,
+        params.now.month,
+        params.now.day,
+      ).add(const Duration(days: 1));
 
       final visitRepo = ref.read(marketingVisitRepositoryProvider);
       final referralRepo = ref.read(patientReferralRepositoryProvider);
@@ -3092,4 +3128,3 @@ final referralDoctorDetailProvider =
         recentReferrals: referrals.take(5).toList(),
       );
     });
-

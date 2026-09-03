@@ -479,6 +479,60 @@ Deno.test("session response never returns the raw ABDM token", async () => {
   assertEquals(res.status, 200);
 });
 
+Deno.test("session maps ABDM auth rejection to a sanitized 502 message", async () => {
+  const { fetchImpl } = recordingFetch((url) => {
+    if (url.endsWith("/gateway/v1/sessions")) {
+      return gatewayResponse({ error: "invalid_client" }, 401);
+    }
+    throw new Error(`unexpected gateway call: ${url}`);
+  });
+
+  const requestDeps = deps(fetchImpl, async () => adminUser(), async () => {}, envWithSecrets, freshTokenCache());
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "session" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const text = await res.text();
+
+  assertEquals(res.status, 502);
+  assert(
+    text.includes("ABDM authentication rejected: verify Client ID/rotated Client Secret"),
+    "ABDM 401 must surface as a sanitized authentication-rejection message",
+  );
+  assert(!text.includes("client-id"), "client id must never leak");
+  assert(!text.includes("client-secret"), "client secret must never leak");
+});
+
+Deno.test("session maps ABDM 404 to the v0.5 endpoint override message", async () => {
+  const { fetchImpl } = recordingFetch((url) => {
+    if (url.endsWith("/gateway/v1/sessions")) {
+      return gatewayResponse({ error: "not found" }, 404);
+    }
+    throw new Error(`unexpected gateway call: ${url}`);
+  });
+
+  const requestDeps = deps(fetchImpl, async () => adminUser(), async () => {}, envWithSecrets, freshTokenCache());
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "session" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const text = await res.text();
+
+  assertEquals(res.status, 502);
+  assert(
+    text.includes("ABDM session endpoint may need v0.5 override"),
+    "ABDM 404 must surface as the v0.5 endpoint override message",
+  );
+});
+
 Deno.test("gateway responses echoed to Flutter are sanitized", async () => {
   const { fetchImpl } = recordingFetch((url) => {
     if (url.endsWith("/gateway/v1/sessions")) {

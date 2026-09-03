@@ -9,6 +9,7 @@ import '../../../app/providers.dart';
 import '../../../core/extensions/datetime_extensions.dart';
 import '../../../services/abdm_service.dart';
 import '../../widgets/smart_navigation.dart';
+import 'abdm_connection_test_button.dart';
 
 /// ABHA module hub covering M1 (verify/search/address/card/QR), M2 (care
 /// context + consent as HIP) and M3 (consent request + record fetch as HIU).
@@ -35,7 +36,9 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
 
   final _patientIdController = TextEditingController();
   final _recordIdController = TextEditingController();
-  final _purposeController = TextEditingController(text: 'Treatment / Care Management');
+  final _purposeController = TextEditingController(
+    text: 'Treatment / Care Management',
+  );
 
   _SearchMode _searchMode = _SearchMode.abhaId;
   String _recordType = 'opd_visit';
@@ -189,7 +192,10 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
     if (raw == null || !mounted) return;
 
     try {
-      final parsed = await _abdm.processScanAndShare(raw, patientId: _patientId);
+      final parsed = await _abdm.processScanAndShare(
+        raw,
+        patientId: _patientId,
+      );
       if (!mounted) return;
       setState(() => _scanResult = raw);
       await showDialog<void>(
@@ -227,7 +233,10 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
       return;
     }
     if (recordId.isEmpty) {
-      _showSnack('Enter a record ID (visit/prescription/lab id)', isError: true);
+      _showSnack(
+        'Enter a record ID (visit/prescription/lab id)',
+        isError: true,
+      );
       return;
     }
 
@@ -261,7 +270,8 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
       _showSnack('Patient ID and ABHA ID are required', isError: true);
       return;
     }
-    final from = _fromDate ?? DateTime.now().subtract(const Duration(days: 365));
+    final from =
+        _fromDate ?? DateTime.now().subtract(const Duration(days: 365));
     final to = _toDate ?? DateTime.now().add(const Duration(days: 30));
 
     setState(() => _isBusy = true);
@@ -277,7 +287,9 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
       if (!mounted) return;
       ref.invalidate(patientConsentsProvider(patientId));
       setState(() => _isBusy = false);
-      _showSnack('Consent requested: ${result['consent_id'] ?? 'see list below'}');
+      _showSnack(
+        'Consent requested: ${result['consent_id'] ?? 'see list below'}',
+      );
     } catch (e) {
       _handleError(e, 'Consent request failed');
     }
@@ -346,6 +358,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
           ],
         ),
         actions: [
+          const AbdmConnectionTestButton(),
           TextButton.icon(
             onPressed: () => context.push('/abha/create'),
             icon: const Icon(Icons.add),
@@ -429,7 +442,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                 labelText: 'ABHA Health ID',
                 hintText: 'e.g. 91-1234-5678-9012',
                 prefixIcon: Icon(Icons.credit_card),
-                              ),
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -441,7 +454,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                 hintText: 'OTP if ABHA app asked for verification',
                 counterText: '',
                 prefixIcon: Icon(Icons.security),
-                              ),
+              ),
             ),
           ] else if (_searchMode == _SearchMode.mobile) ...[
             TextField(
@@ -453,7 +466,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                 hintText: '10-digit mobile linked to ABHA',
                 counterText: '',
                 prefixText: '+91 ',
-                              ),
+              ),
             ),
           ] else ...[
             TextField(
@@ -462,7 +475,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                 labelText: 'ABHA Address',
                 hintText: 'e.g. rahul9012@abdm',
                 prefixIcon: Icon(Icons.alternate_email),
-                              ),
+              ),
             ),
           ],
           const SizedBox(height: 16),
@@ -548,7 +561,10 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                 SizedBox(width: 8),
                 Text(
                   'ABHA Verified!',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                  ),
                 ),
               ],
             ),
@@ -562,10 +578,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
             if (result['mobileNumber'] != null)
               _resultRow('Mobile', result['mobileNumber'].toString()),
             if (result['isMock'] == true)
-              Text(
-                'Mock sandbox profile',
-                style: theme.textTheme.bodySmall,
-              ),
+              Text('Mock sandbox profile', style: theme.textTheme.bodySmall),
           ],
         ),
       ),
@@ -580,7 +593,12 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
         children: [
           SizedBox(width: 110, child: Text(label)),
           const Text(': '),
-          Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w600))),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
         ],
       ),
     );
@@ -599,7 +617,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
               labelText: 'Patient ID',
               hintText: 'MediFlux patient UUID',
               prefixIcon: Icon(Icons.person_search),
-                          ),
+            ),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),
@@ -609,18 +627,22 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
               labelText: 'Patient ABHA ID',
               hintText: 'e.g. 91-1234-5678-9012',
               prefixIcon: Icon(Icons.fingerprint),
-                          ),
+            ),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
             initialValue: _recordType,
-            decoration: const InputDecoration(
-              labelText: 'Record Type',
-                          ),
+            decoration: const InputDecoration(labelText: 'Record Type'),
             items: const [
               DropdownMenuItem(value: 'opd_visit', child: Text('OPD Visit')),
-              DropdownMenuItem(value: 'ipd_admission', child: Text('IPD Admission')),
-              DropdownMenuItem(value: 'prescription', child: Text('Prescription')),
+              DropdownMenuItem(
+                value: 'ipd_admission',
+                child: Text('IPD Admission'),
+              ),
+              DropdownMenuItem(
+                value: 'prescription',
+                child: Text('Prescription'),
+              ),
               DropdownMenuItem(value: 'lab_report', child: Text('Lab Report')),
               DropdownMenuItem(
                 value: 'discharge_summary',
@@ -640,7 +662,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
               labelText: 'Record ID',
               hintText: 'OPD/IPD/lab/prescription record id',
               prefixIcon: Icon(Icons.link),
-                          ),
+            ),
           ),
           const SizedBox(height: 16),
           SizedBox(
@@ -672,9 +694,9 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
       children: [
         Text(
           'Linked Care Contexts',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         async.when(
@@ -697,7 +719,9 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                                 ? Colors.green
                                 : Colors.orange,
                           ),
-                          title: Text(row['care_context_id']?.toString() ?? '-'),
+                          title: Text(
+                            row['care_context_id']?.toString() ?? '-',
+                          ),
                           subtitle: Text(
                             '${row['record_type'] ?? ''} · ${row['record_id'] ?? ''}',
                           ),
@@ -730,7 +754,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
             decoration: const InputDecoration(
               labelText: 'Patient ID',
               prefixIcon: Icon(Icons.person_search),
-                          ),
+            ),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 12),
@@ -739,7 +763,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
             decoration: const InputDecoration(
               labelText: 'Patient ABHA ID',
               prefixIcon: Icon(Icons.fingerprint),
-                          ),
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -747,7 +771,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
             decoration: const InputDecoration(
               labelText: 'Purpose',
               prefixIcon: Icon(Icons.assignment),
-                          ),
+            ),
           ),
           const SizedBox(height: 12),
           Row(
@@ -817,9 +841,9 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
       children: [
         Text(
           'Consent Artefacts',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         async.when(
@@ -834,7 +858,9 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                       Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
-                          leading: _ConsentStatusIcon(status: row['status']?.toString()),
+                          leading: _ConsentStatusIcon(
+                            status: row['status']?.toString(),
+                          ),
                           title: Text(row['purpose']?.toString() ?? '-'),
                           subtitle: Text(
                             '${row['consent_id']} · ${row['status'] ?? ''}\n'
@@ -874,30 +900,32 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
             decoration: const InputDecoration(
               labelText: 'Patient ID',
               prefixIcon: Icon(Icons.person_search),
-                          ),
+            ),
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 16),
           if (patientId == null)
             const Padding(
               padding: EdgeInsets.all(16),
-              child: Text('Enter a Patient ID to load ABDM records and audit logs.'),
+              child: Text(
+                'Enter a Patient ID to load ABDM records and audit logs.',
+              ),
             )
           else ...[
             Text(
               'FHIR Records',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             _buildFhirList(patientId),
             const SizedBox(height: 24),
             Text(
               'Data Flow Logs',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             _buildDataFlowList(patientId),
@@ -933,9 +961,9 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                       expandedCrossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          const JsonEncoder.withIndent('  ').convert(
-                            row['fhir_bundle'] ?? const {},
-                          ),
+                          const JsonEncoder.withIndent(
+                            '  ',
+                          ).convert(row['fhir_bundle'] ?? const {}),
                           style: const TextStyle(fontSize: 11),
                         ),
                       ],
@@ -998,7 +1026,11 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
 }
 
 class _DateField extends StatelessWidget {
-  const _DateField({required this.label, required this.value, required this.onTap});
+  const _DateField({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
 
   final String label;
   final DateTime? value;
@@ -1011,7 +1043,7 @@ class _DateField extends StatelessWidget {
       child: InputDecorator(
         decoration: InputDecoration(
           labelText: label,
-                    suffixIcon: const Icon(Icons.calendar_today),
+          suffixIcon: const Icon(Icons.calendar_today),
         ),
         child: Text(value?.toDateString ?? 'Select date'),
       ),
