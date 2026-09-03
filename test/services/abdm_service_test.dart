@@ -332,6 +332,52 @@ void main() {
     });
 
     test(
+      'package.json passes ABDM_REAL_MODE dart-define with a safe false default',
+      () async {
+        final packageJson = File('package.json');
+        expect(packageJson.existsSync(), isTrue);
+        final content = await packageJson.readAsString();
+
+        expect(
+          content.contains(
+            r'--dart-define=ABDM_REAL_MODE=\"${ABDM_REAL_MODE:-false}\"',
+          ),
+          isTrue,
+          reason:
+              'vercel-build must pass ABDM_REAL_MODE as a dart-define '
+              'with a safe default of false',
+        );
+
+        // ABDM credentials must never be passed into the Flutter web build.
+        for (final secret in [
+          'ABDM_CLIENT_ID',
+          'ABDM_CLIENT_SECRET',
+          'ABDM_BRIDGE_ID',
+          'ABDM_HIP_ID',
+          'ABDM_HIU_ID',
+        ]) {
+          expect(
+            content.contains(secret),
+            isFalse,
+            reason: 'package.json must not pass $secret into Flutter web',
+          );
+        }
+
+        final envExample = File('.env.example');
+        expect(envExample.existsSync(), isTrue);
+        final envContent = await envExample.readAsString();
+        expect(envContent.contains('ABDM_REAL_MODE=false'), isTrue);
+        expect(
+          envContent.toLowerCase().contains('vercel production'),
+          isTrue,
+          reason:
+              '.env.example must explain when Vercel Production should '
+              'enable ABDM_REAL_MODE',
+        );
+      },
+    );
+
+    test(
       'no ABDM client secret is present in client source or web output',
       () async {
         // Field names / placeholder values that must never appear again.
