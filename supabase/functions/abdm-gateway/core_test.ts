@@ -12,8 +12,11 @@ import {
   MAX_BODY_BYTES,
   SlidingWindowRateLimiter,
   acquireAccessToken,
+  buildBridgeGatewayDiagnostic,
+  buildBridgeHttpDiagnostic,
   buildCallbackRow,
   buildGatewayHeaders,
+  extractSanitizedUpstreamError,
   getSubpath,
   isAdminRole,
   isLocalOrPrivateHost,
@@ -22,13 +25,16 @@ import {
   persistCallback,
   readConfig,
   readJsonBody,
+  redactSensitiveText,
   resolveBridgePath,
   resolveInternalAction,
   sanitizePayload,
   validateCallbackBaseUrl,
   validateServicesPayload,
+  GatewayError,
   type CallbackRow,
   type GatewayConfig,
+  type GatewayHttpResponse,
   type TokenCacheRef,
 } from "./core.ts";
 
@@ -174,6 +180,93 @@ Deno.test("isLocalOrPrivateHost classifies private/local hosts only", () => {
   assertEquals(isLocalOrPrivateHost("127.0.0.1"), true);
   assertEquals(isLocalOrPrivateHost("example.supabase.co"), false);
   assertEquals(isLocalOrPrivateHost("dev.abdm.gov.in"), false);
+});
+
+// ----------------------------------------------------------------------------
+// 1c. Bridge diagnostic builders + text redaction
+// ----------------------------------------------------------------------------
+
+Deno.test("redactSensitiveText masks JWT and Bearer token values", () => {
+  assertEquals(
+    redactSensitiveText("failed eyJhbGciOiJIUzI1NiJ9.abc.def and Bearer abcdefghijklmnop"),
+    "failed [REDACTED] and Bearer [REDACTED]",
+  );
+  assertEquals(redactSensitiveText("no secrets here"), "no secrets here");
+});
+
+Deno.test("extractSanitizedUpstreamError picks code/message and redacts values", () => {
+  const result = extractSanitizedUpstreamError({
+    error: {
+      code: "INVALID",
+      message: "bad request with token eyJhbGciOiJIUzI1NiJ9.abc.def",
+    },
+    accessToken: "should-not-leak",
+  });
+  assertEquals(result.code, "INVALID");
+  assert(
+    result.message?.includes("[REDACTED]") === true,
+    "token value inside the message must be redacted",
+  );
+  assert(result.message?.includes("should-not-leak") === false, "token must not leak");
+});
+
+Deno.test("buildBridgeHttpDiagnostic maps upstream statuses to ABDM_BRIDGE codes", () => {
+  const response: GatewayHttpResponse = {
+    ok: false,
+    status: 401,
+    data: { error: { code: "UNAUTHORIZED", message: "bad credentials" } },
+    contentType: "application/json",
+  };
+  const diag = buildBridgeHttpDiagnostic(response, makeConfig());
+  assertEquals(diag.operation, "bridge_update");
+  assertEquals(diag.code, "ABDM_BRIDGE_401");
+  assertEquals(diag.upstreamStatus, 401);
+  assertEquals(diag.category, "http");
+  assertEquals(diag.errorCode, "UNAUTHORIZED");
+  assertEquals(diag.errorMessage, "bad credentials");
+  assert(diag.message.includes("401"), "client message must mention status");
+});
+
+Deno.test("buildBridgeGatewayDiagnostic distinguishes network vs timeout", () => {
+  const network = buildBridgeGatewayDiagnostic(
+    new GatewayError(0, "ABDM gateway unreachable", undefined, "network", {
+      method: "PATCH",
+      hostname: "dev.abdm.gov.in",
+      pathname: "/gateway/v1/bridges",
+    }),
+    makeConfig(),
+  );
+  assertEquals(network.code, "ABDM_BRIDGE_NETWORK");
+  assertEquals(network.upstreamStatus, null);
+  assertEquals(network.category, "network");
+
+  const timeout = buildBridgeGatewayDiagnostic(
+    new GatewayError(0, "ABDM gateway timed out", undefined, "timeout", {
+      method: "PATCH",
+      hostname: "dev.abdm.gov.in",
+      pathname: "/gateway/v1/bridges",
+    }),
+    makeConfig(),
+  );
+  assertEquals(timeout.code, "ABDM_BRIDGE_TIMEOUT");
+  assertEquals(timeout.category, "timeout");
+  assertEquals(timeout.upstreamStatus, null);
+});
+
+Deno.test("buildBridgeGatewayDiagnostic never maps an HTTP session failure to network", () => {
+  const session404 = buildBridgeGatewayDiagnostic(
+    new GatewayError(404, "ABDM session request failed with status 404", undefined, "http", {
+      method: "POST",
+      hostname: "dev.abdm.gov.in",
+      pathname: "/gateway/v1/sessions",
+    }),
+    makeConfig(),
+  );
+  assertEquals(session404.code, "ABDM_BRIDGE_404");
+  assertEquals(session404.upstreamStatus, 404);
+  assertEquals(session404.category, "http");
+  assertEquals(session404.method, "POST");
+  assertEquals(session404.pathname, "/gateway/v1/sessions");
 });
 
 // ----------------------------------------------------------------------------

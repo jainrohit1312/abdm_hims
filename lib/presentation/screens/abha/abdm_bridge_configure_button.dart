@@ -156,7 +156,11 @@ class _AbdmBridgeConfigureButtonState
 /// secure routing layer or a generic transport failure.
 String abdmBridgeFailureMessage(Object error) {
   if (error is AbdmException) {
-    if (error.code == 'NO_SESSION') return 'Please log in again.';
+    final code = error.code;
+    if (code != null && code.startsWith('ABDM_BRIDGE_')) {
+      return abdmBridgeDiagnosticMessage(code, error);
+    }
+    if (code == 'NO_SESSION') return 'Please log in again.';
 
     final status = error.statusCode;
     if (status == 401) return 'Supabase login expired';
@@ -175,9 +179,7 @@ String abdmBridgeFailureMessage(Object error) {
       return 'Invalid ABDM callback URL. Configure a valid HTTPS '
           'ABDM_CALLBACK_BASE_URL.';
     }
-    if (status == 404 ||
-        status == 405 ||
-        lower.contains('bridge update failed')) {
+    if (status == 404 || status == 405) {
       return 'ABDM Gateway endpoint rejected the Bridge update. Verify '
           'ABDM_BRIDGE_PATH.';
     }
@@ -194,4 +196,20 @@ String abdmBridgeFailureMessage(Object error) {
     return redactTokenLike(message);
   }
   return 'Network timeout or ABDM gateway unavailable.';
+}
+
+/// Renders a structured `ABDM_BRIDGE_*` diagnostic from the Edge Function as
+/// a useful, still-sanitized UI message that includes the machine-readable code.
+String abdmBridgeDiagnosticMessage(String code, AbdmException error) {
+  final serverMessage = redactTokenLike(error.message.trim());
+  if (serverMessage.isNotEmpty) return '$code: $serverMessage';
+
+  switch (code) {
+    case 'ABDM_BRIDGE_TIMEOUT':
+      return '$code: ABDM Bridge update timed out.';
+    case 'ABDM_BRIDGE_NETWORK':
+      return '$code: ABDM gateway unreachable.';
+    default:
+      return '$code: ABDM Bridge update failed.';
+  }
 }

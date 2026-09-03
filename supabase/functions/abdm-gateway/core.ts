@@ -298,20 +298,40 @@ export function maskClientId(clientId: string): string {
 
 export type FetchImpl = typeof fetch;
 
+/** Safe metadata about an outgoing ABDM request (never headers/body/tokens). */
+export interface GatewayRequestInfo {
+  method: string;
+  hostname: string;
+  pathname: string;
+}
+
 export interface GatewayHttpResponse {
   ok: boolean;
   status: number;
   data: unknown;
+  contentType: string | null;
 }
+
+export type GatewayErrorCategory = "timeout" | "network" | "http";
 
 export class GatewayError extends Error {
   readonly status: number;
   readonly body: unknown;
+  readonly category: GatewayErrorCategory;
+  readonly request?: GatewayRequestInfo;
 
-  constructor(status: number, message: string, body?: unknown) {
+  constructor(
+    status: number,
+    message: string,
+    body?: unknown,
+    category: GatewayErrorCategory = status === 0 ? "network" : "http",
+    request?: GatewayRequestInfo,
+  ) {
     super(message);
     this.status = status;
     this.body = body;
+    this.category = category;
+    this.request = request;
   }
 }
 
@@ -322,6 +342,51 @@ export class HttpError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+/** Best-effort hostname extraction for structured logs (never logs full URL). */
+export function hostnameOfUrl(rawUrl: string): string {
+  try {
+    return new URL(rawUrl).hostname || "unknown";
+  } catch (_) {
+    return "unknown";
+  }
+}
+
+/** Best-effort pathname extraction for structured logs (no query/fragment). */
+export function pathnameOfUrl(rawUrl: string): string {
+  try {
+    return new URL(rawUrl).pathname || "/";
+  } catch (_) {
+    return "/";
+  }
+}
+
+/** Detects timeout-shaped fetch failures without depending on a specific runtime. */
+export function isTimeoutError(error: unknown, rawMessage: string): boolean {
+  const name = (error as { name?: string } | null)?.name ?? "";
+  return (
+    name === "TimeoutError" ||
+    name === "AbortError" ||
+    /timeout|timed\s*out/i.test(rawMessage)
+  );
+}
+
+/**
+ * String-level redaction for any message that could reach logs or clients.
+ * `sanitizePayload` redacts token-like KEYS; this helper also redacts
+ * JWT-shaped strings and `Bearer <token>` VALUES embedded in free text.
+ */
+export function redactSensitiveText(value: string): string {
+  return value
+    .replace(
+      /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
+      "[REDACTED]",
+    )
+    .replace(
+      /Bearer\s+[A-Za-z0-9._~+/=-]{8,}/g,
+      "Bearer [REDACTED]",
+    );
 }
 
 /**
@@ -343,11 +408,31 @@ export async function safeFetchJson(
   url: string,
   init: RequestInit,
 ): Promise<GatewayHttpResponse> {
+  const requestInfo: GatewayRequestInfo = {
+    method: (init?.method ?? "GET").toUpperCase(),
+    hostname: hostnameOfUrl(url),
+    pathname: pathnameOfUrl(url),
+  };
+
   let response: Response;
   try {
     response = await fetchImpl(url, init);
   } catch (error) {
-    throw new GatewayError(0, `ABDM gateway unreachable: ${(error as Error)?.message ?? String(error)}`);
+    // SECURITY: never include the raw fetch error in the diagnostic message.
+    // The category (timeout vs network) is all the operator needs to see.
+    const rawMessage = (error as Error)?.message ?? String(error);
+    const category: GatewayErrorCategory = isTimeoutError(error, rawMessage)
+      ? "timeout"
+      : "network";
+    throw new GatewayError(
+      0,
+      category === "timeout"
+        ? "ABDM gateway timed out"
+        : "ABDM gateway unreachable",
+      undefined,
+      category,
+      requestInfo,
+    );
   }
 
   let data: unknown = null;
@@ -357,7 +442,12 @@ export async function safeFetchJson(
     data = null;
   }
 
-  return { ok: response.ok, status: response.status, data };
+  return {
+    ok: response.ok,
+    status: response.status,
+    data,
+    contentType: response.headers.get("content-type"),
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -489,6 +579,12 @@ export async function acquireAccessToken(
       response.status,
       `ABDM session request failed with status ${response.status}`,
       sanitizePayload(response.data),
+      "http",
+      {
+        method: "POST",
+        hostname: hostnameOfUrl(config.baseUrl),
+        pathname: config.sessionPath,
+      },
     );
   }
 
@@ -498,7 +594,17 @@ export async function acquireAccessToken(
     (body["token"] as string | undefined) ??
     "";
   if (!accessToken) {
-    throw new GatewayError(response.status, "ABDM session response did not contain an access token");
+    throw new GatewayError(
+      response.status,
+      "ABDM session response did not contain an access token",
+      undefined,
+      "http",
+      {
+        method: "POST",
+        hostname: hostnameOfUrl(config.baseUrl),
+        pathname: config.sessionPath,
+      },
+    );
   }
 
   const expiresIn = parsePositiveInt(
@@ -556,6 +662,7 @@ export async function gatewayRequest(
     ok: response.ok,
     status: response.status,
     data: sanitizePayload(response.data),
+    contentType: response.contentType,
   };
 }
 
@@ -610,6 +717,188 @@ export function sanitizePayload(value: unknown, depth = 0): unknown {
     return out;
   }
   return String(value);
+}
+
+// ----------------------------------------------------------------------------
+// Bridge action diagnostics (safe, structured, no tokens/secrets/bodies)
+// ----------------------------------------------------------------------------
+
+export interface BridgeDiagnostic {
+  operation: "bridge_update";
+  /** Machine-readable client code, e.g. ABDM_BRIDGE_400. */
+  code: string;
+  /** Upstream HTTP status when an HTTP response exists; null for network errors. */
+  upstreamStatus: number | null;
+  /** Short sanitized message safe for the Flutter client. */
+  message: string;
+  upstreamHostname: string;
+  method: string;
+  pathname: string;
+  contentType: string | null;
+  category: "timeout" | "network" | "http";
+  /** Sanitized upstream error code (may be null). */
+  errorCode: string | null;
+  /** Sanitized upstream error message (may be null). */
+  errorMessage: string | null;
+}
+
+const MAX_DIAGNOSTIC_TEXT_LENGTH = 160;
+
+function truncateDiagnosticText(value: string): string {
+  const clean = value.replace(/\s+/g, " ").trim();
+  return clean.length > MAX_DIAGNOSTIC_TEXT_LENGTH
+    ? `${clean.slice(0, MAX_DIAGNOSTIC_TEXT_LENGTH)}…`
+    : clean;
+}
+
+function firstDefinedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+/**
+ * Extracts a sanitized ABDM error code/message from an upstream body. The body
+ * first passes through `sanitizePayload` (key redaction), then the extracted
+ * strings pass through `redactSensitiveText` (JWT/Bearer value redaction) and
+ * finally any known secret VALUES (client id / secret / access token) supplied
+ * by the caller are replaced. Never returns the raw body.
+ */
+export function extractSanitizedUpstreamError(
+  data: unknown,
+  secrets: string[] = [],
+): {
+  code: string | null;
+  message: string | null;
+} {
+  const record = asRecord(sanitizePayload(data));
+  const errorRecord = asRecord(record["error"]);
+  const rawCode = firstDefinedString(
+    record["errorCode"],
+    record["error_code"],
+    record["code"],
+    errorRecord["code"],
+    errorRecord["errorCode"],
+    errorRecord["error_code"],
+  );
+  const rawMessage = firstDefinedString(
+    record["errorMessage"],
+    record["error_message"],
+    record["message"],
+    typeof record["error"] === "string" ? record["error"] : null,
+    record["detail"],
+    record["details"],
+    errorRecord["message"],
+    errorRecord["errorMessage"],
+    errorRecord["error_message"],
+  );
+
+  const secretValues = secrets
+    .map((secret) => secret.trim())
+    .filter((secret) => secret.length >= 4);
+
+  function scrub(value: string): string {
+    let out = redactSensitiveText(value);
+    for (const secret of secretValues) {
+      out = out.split(secret).join("[REDACTED]");
+    }
+    return out;
+  }
+
+  return {
+    code: rawCode ? truncateDiagnosticText(scrub(rawCode)) : null,
+    message: rawMessage ? truncateDiagnosticText(scrub(rawMessage)) : null,
+  };
+}
+
+/** Diagnostic for an ABDM non-2xx HTTP response to the PATCH bridge call. */
+export function buildBridgeHttpDiagnostic(
+  response: GatewayHttpResponse,
+  config: GatewayConfig,
+  secrets: string[] = [],
+): BridgeDiagnostic {
+  const status = response.status || 0;
+  const upstream = extractSanitizedUpstreamError(response.data, secrets);
+  const detail = upstream.message ?? upstream.code;
+  return {
+    operation: "bridge_update",
+    code: status === 0 ? "ABDM_BRIDGE_NETWORK" : `ABDM_BRIDGE_${status}`,
+    upstreamStatus: status === 0 ? null : status,
+    message:
+      `ABDM Bridge update failed (HTTP ${status})` +
+      (detail ? `: ${detail}` : ""),
+    upstreamHostname: hostnameOfUrl(config.baseUrl),
+    method: "PATCH",
+    pathname: resolveBridgePath(config),
+    contentType: response.contentType,
+    category: "http",
+    errorCode: upstream.code,
+    errorMessage: upstream.message,
+  };
+}
+
+/** Diagnostic for a fetch-level GatewayError (timeout/network) in the bridge flow. */
+export function buildBridgeGatewayDiagnostic(
+  error: GatewayError,
+  config: GatewayConfig,
+): BridgeDiagnostic {
+  const category: BridgeDiagnostic["category"] = error.category;
+  const upstreamStatus = error.status === 0 ? null : error.status;
+  const fallback: GatewayRequestInfo = {
+    method: "PATCH",
+    hostname: hostnameOfUrl(config.baseUrl),
+    pathname: resolveBridgePath(config),
+  };
+  const target = error.request ?? fallback;
+
+  const code =
+    category === "timeout"
+      ? "ABDM_BRIDGE_TIMEOUT"
+      : category === "network"
+        ? "ABDM_BRIDGE_NETWORK"
+        : `ABDM_BRIDGE_${error.status}`;
+
+  const message =
+    category === "timeout"
+      ? "ABDM Bridge update timed out before receiving a response."
+      : category === "network"
+        ? "ABDM Bridge update failed: the ABDM gateway is unreachable."
+        : `ABDM Bridge update failed (HTTP ${error.status}).`;
+
+  return {
+    operation: "bridge_update",
+    code,
+    upstreamStatus,
+    message,
+    upstreamHostname: target.hostname,
+    method: target.method,
+    pathname: target.pathname,
+    contentType: null,
+    category,
+    errorCode: null,
+    errorMessage: null,
+  };
+}
+
+/** Diagnostic for a successful PATCH bridge call. */
+export function buildBridgeSuccessDiagnostic(
+  response: GatewayHttpResponse,
+  config: GatewayConfig,
+): BridgeDiagnostic {
+  return {
+    operation: "bridge_update",
+    code: "ABDM_BRIDGE_OK",
+    upstreamStatus: response.status,
+    message: "ABDM Bridge update succeeded.",
+    upstreamHostname: hostnameOfUrl(config.baseUrl),
+    method: "PATCH",
+    pathname: resolveBridgePath(config),
+    contentType: response.contentType,
+    category: "http",
+    errorCode: null,
+    errorMessage: null,
+  };
 }
 
 // ----------------------------------------------------------------------------

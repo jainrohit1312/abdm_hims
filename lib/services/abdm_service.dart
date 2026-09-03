@@ -1149,9 +1149,14 @@ class AbdmService {
       } else if (details is String && details.trim().isNotEmpty) {
         message = details.trim();
       }
+      // Preserve structured server diagnostics (e.g. ABDM_BRIDGE_400) when the
+      // Edge Function supplies them; otherwise keep the legacy EDGE_<status>.
+      final serverCode = payload?['code']?.toString();
       throw AbdmException(
         message,
-        code: 'EDGE_${e.status}',
+        code: (serverCode != null && serverCode.isNotEmpty)
+            ? serverCode
+            : 'EDGE_${e.status}',
         statusCode: e.status,
         payload: payload,
       );

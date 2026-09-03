@@ -373,5 +373,55 @@ void main() {
       expect(abdmError.contains(rawAbdmToken), isFalse);
       expect(abdmError.contains('accessToken'), isFalse);
     });
+
+    test('shows structured ABDM_BRIDGE_* diagnostic codes', () {
+      expect(
+        abdmBridgeFailureMessage(
+          const AbdmException(
+            'ABDM Bridge update failed (HTTP 400): bad request',
+            code: 'ABDM_BRIDGE_400',
+            statusCode: 502,
+            payload: {'upstreamStatus': 400},
+          ),
+        ),
+        'ABDM_BRIDGE_400: ABDM Bridge update failed (HTTP 400): bad request',
+      );
+
+      expect(
+        abdmBridgeFailureMessage(
+          const AbdmException(
+            'ABDM Bridge update failed (HTTP 401): unauthorized',
+            code: 'ABDM_BRIDGE_401',
+            statusCode: 502,
+            payload: {'upstreamStatus': 401},
+          ),
+        ),
+        'ABDM_BRIDGE_401: ABDM Bridge update failed (HTTP 401): unauthorized',
+      );
+
+      expect(
+        abdmBridgeFailureMessage(
+          const AbdmException(
+            'ABDM Bridge update timed out before receiving a response.',
+            code: 'ABDM_BRIDGE_TIMEOUT',
+            statusCode: 502,
+          ),
+        ),
+        'ABDM_BRIDGE_TIMEOUT: '
+        'ABDM Bridge update timed out before receiving a response.',
+      );
+
+      expect(
+        abdmBridgeFailureMessage(
+          const AbdmException(
+            'ABDM Bridge update failed: the ABDM gateway is unreachable.',
+            code: 'ABDM_BRIDGE_NETWORK',
+            statusCode: 502,
+          ),
+        ),
+        'ABDM_BRIDGE_NETWORK: '
+        'ABDM Bridge update failed: the ABDM gateway is unreachable.',
+      );
+    });
   });
 }

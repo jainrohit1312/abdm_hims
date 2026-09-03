@@ -756,3 +756,146 @@ Deno.test("bridge success response never returns the raw ABDM token or client se
   assert(!text.includes("client-secret"), "client secret must never be returned");
   assert(!text.includes("accessToken"), "accessToken key must never be returned");
 });
+
+// ----------------------------------------------------------------------------
+// 5. Bridge failure diagnostics (timeout / network / upstream HTTP statuses)
+// ----------------------------------------------------------------------------
+
+type BridgeHandler = (url: string, method: string, headers: Headers, body: unknown) => Response;
+
+async function runBridgeRequest(
+  bridgeHandler: BridgeHandler,
+  env: Record<string, string | undefined> = envWithSecrets,
+): Promise<{ res: Response; body: Record<string, unknown>; logs: string[]; errors: string[] }> {
+  const { fetchImpl } = recordingFetch((url, method, headers, body) => {
+    if (url.endsWith("/gateway/v1/sessions")) {
+      return gatewayResponse({ accessToken: "abdm-token", expiresIn: 3600 });
+    }
+    return bridgeHandler(url, method, headers, body);
+  });
+
+  const logs: string[] = [];
+  const errors: string[] = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  console.error = (...args: unknown[]) => {
+    errors.push(args.map(String).join(" "));
+  };
+
+  try {
+    const requestDeps = deps(
+      fetchImpl,
+      async () => adminUser(),
+      async () => {},
+      env,
+      freshTokenCache(),
+    );
+    const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "x-request-id": "corr-123" },
+      body: JSON.stringify({ action: "bridge" }),
+    });
+    const res = await handleRequest(req, requestDeps);
+    const body = await res.json() as Record<string, unknown>;
+    return { res, body, logs, errors };
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
+}
+
+function assertBridgeDiagnostic(
+  body: Record<string, unknown>,
+  code: string,
+  upstreamStatus: number | null,
+): void {
+  assertEquals(body["code"], code);
+  assertEquals(body["upstreamStatus"] ?? null, upstreamStatus);
+  assert(typeof body["error"] === "string" && (body["error"] as string).length > 0, "error must be a non-empty sanitized string");
+}
+
+Deno.test("bridge maps an actual fetch network exception to ABDM_BRIDGE_NETWORK", async () => {
+  const { res, body, logs, errors } = await runBridgeRequest(() => {
+    throw new TypeError("fetch failed");
+  });
+
+  assertEquals(res.status, 502);
+  assertBridgeDiagnostic(body, "ABDM_BRIDGE_NETWORK", null);
+  assert(
+    String(body["error"]).includes("unreachable"),
+    "network failure must be described as unreachable",
+  );
+  assert(JSON.stringify(body).includes("fetch failed") === false, "raw network error must not be returned");
+
+  const allLogs = [...logs, ...errors].join(" ");
+  assert(allLogs.includes("bridge_update"), "structured bridge log must be emitted");
+  assert(allLogs.includes("category") && allLogs.includes("network"), "network category must be logged");
+  assert(allLogs.includes("abdm-token") === false, "ABDM token must not be logged");
+  assert(allLogs.includes("client-secret") === false, "client secret must not be logged");
+});
+
+Deno.test("bridge maps a fetch timeout to ABDM_BRIDGE_TIMEOUT", async () => {
+  const { res, body, logs } = await runBridgeRequest(() => {
+    throw new DOMException("The operation timed out.", "TimeoutError");
+  });
+
+  assertEquals(res.status, 502);
+  assertBridgeDiagnostic(body, "ABDM_BRIDGE_TIMEOUT", null);
+  assert(String(body["error"]).includes("timed out"), "timeout message must mention timed out");
+
+  const allLogs = logs.join(" ");
+  assert(allLogs.includes("category") && allLogs.includes("timeout"), "timeout category must be logged");
+  assert(allLogs.includes("abdm-token") === false, "ABDM token must not be logged");
+});
+
+for (const status of [400, 401, 403, 404, 405, 500]) {
+  Deno.test(`bridge maps upstream ${status} to ABDM_BRIDGE_${status} (never a network timeout)`, async () => {
+    const { res, body, logs, errors } = await runBridgeRequest(() => {
+      return gatewayResponse(
+        {
+          error: {
+            code: `UPSTREAM_${status}`,
+            message: `upstream rejected ${status}`,
+          },
+        },
+        status,
+      );
+    });
+
+    assertEquals(res.status, 502);
+    assertBridgeDiagnostic(body, `ABDM_BRIDGE_${status}`, status);
+    const text = JSON.stringify(body);
+    assert(text.includes("network") === false && text.includes("timeout") === false,
+      "HTTP upstream errors must never be described as network/timeout");
+    assert(String(body["error"]).includes(`HTTP ${status}`), "error must mention upstream status");
+
+    const allLogs = [...logs, ...errors].join(" ");
+    assert(allLogs.includes(`"upstreamStatus":${status}`), "upstream status must be logged");
+    assert(allLogs.includes("abdm-token") === false, "ABDM token must not be logged");
+    assert(allLogs.includes("client-secret") === false, "client secret must not be logged");
+  });
+}
+
+Deno.test("bridge failure diagnostics never leak tokens or secrets in logs or responses", async () => {
+  const { body, logs, errors } = await runBridgeRequest(() => {
+    return gatewayResponse({
+      error: {
+        code: "BAD",
+        message: "bad secret client-secret and token abdm-token",
+      },
+      accessToken: "abdm-token",
+      clientSecret: "client-secret",
+    }, 400);
+  });
+
+  const responseText = JSON.stringify(body);
+  assert(responseText.includes("abdm-token") === false, "token must not be returned");
+  assert(responseText.includes("client-secret") === false, "secret must not be returned");
+
+  const allLogs = [...logs, ...errors].join(" ");
+  assert(allLogs.includes("abdm-token") === false, "token must not be logged");
+  assert(allLogs.includes("client-secret") === false, "secret must not be logged");
+});

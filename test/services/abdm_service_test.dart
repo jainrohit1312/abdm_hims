@@ -494,6 +494,48 @@ void main() {
         ),
       );
     });
+
+    test(
+      'preserves the server ABDM_BRIDGE_* diagnostic code from a 502',
+      () async {
+        final mockHttp = MockClient((request) async {
+          return http.Response(
+            jsonEncode({
+              'error': 'ABDM Bridge update failed (HTTP 400): bad request',
+              'code': 'ABDM_BRIDGE_400',
+              'upstreamStatus': 400,
+            }),
+            502,
+            headers: {'content-type': 'application/json'},
+          );
+        });
+
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: mockHttp,
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: false,
+          currentSessionReader: () => ownerSession(),
+        );
+
+        await expectLater(
+          service.configureBridge(),
+          throwsA(
+            isA<AbdmException>()
+                .having((e) => e.statusCode, 'statusCode', 502)
+                .having((e) => e.code, 'code', 'ABDM_BRIDGE_400')
+                .having(
+                  (e) => e.payload?['upstreamStatus'],
+                  'upstreamStatus',
+                  400,
+                ),
+          ),
+        );
+      },
+    );
   });
 
   group('client-side secret hygiene', () {

@@ -12,6 +12,9 @@ import {
   MAX_BODY_BYTES,
   SlidingWindowRateLimiter,
   acquireAccessToken,
+  buildBridgeGatewayDiagnostic,
+  buildBridgeHttpDiagnostic,
+  buildBridgeSuccessDiagnostic,
   buildCallbackRow,
   gatewayRequest,
   getSubpath,
@@ -22,14 +25,17 @@ import {
   readConfig,
   readHeader,
   readJsonBody,
+  redactSensitiveText,
   resolveBridgePath,
   resolveInternalAction,
   sanitizePayload,
   validateCallbackBaseUrl,
   validateServicesPayload,
+  type BridgeDiagnostic,
   type CallbackRow,
   type FetchImpl,
   type GatewayConfig,
+  type GatewayHttpResponse,
   type InternalAction,
   type TokenCacheRef,
   type TokenRecord,
@@ -150,8 +156,9 @@ export async function handleRequest(
       404,
     );
   } catch (error) {
-    // SECURITY: never log request bodies / headers — only the safe message.
-    const message = error instanceof Error ? error.message : String(error);
+    // SECURITY: never log request bodies / headers — only a redacted message.
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const message = redactSensitiveText(rawMessage);
     const status = error instanceof HttpError ? error.status : 500;
     console.error(`abdm-gateway error (status ${status}): ${message}`);
     return jsonResponse({ error: message }, status);
@@ -183,7 +190,7 @@ async function handleInternalAction(
     case "session":
       return handleSession(config, deps);
     case "bridge":
-      return handleBridge(config, body, deps);
+      return handleBridge(config, body, deps, req);
     case "services":
       return req.method === "GET"
         ? handleGetServices(config, deps)
@@ -270,10 +277,37 @@ function sessionGatewayError(error: GatewayError): HttpError {
   );
 }
 
+/**
+ * Logs exactly the allow-listed structured fields for the Bridge action.
+ * Authorization headers, JWT, ABDM tokens, client id/secret and complete
+ * request/response bodies are NEVER logged.
+ */
+function logBridgeDiagnostic(diag: BridgeDiagnostic, req: Request): void {
+  const requestId = readHeader(req.headers, "x-request-id", "x-request_id", "request-id");
+
+  const entry: Record<string, unknown> = {
+    operation: diag.operation,
+    upstreamHostname: diag.upstreamHostname,
+    method: diag.method,
+    pathname: diag.pathname,
+  };
+  if (diag.upstreamStatus !== null) entry.upstreamStatus = diag.upstreamStatus;
+  if (diag.contentType) entry.contentType = diag.contentType;
+  if (diag.errorCode) entry.errorCode = diag.errorCode;
+  if (diag.errorMessage) entry.errorMessage = diag.errorMessage;
+  if (diag.category === "timeout" || diag.category === "network") {
+    entry.category = diag.category;
+  }
+  if (requestId) entry.requestId = requestId;
+
+  console.log(`abdm-gateway bridge_update ${JSON.stringify(entry)}`);
+}
+
 async function handleBridge(
   config: GatewayConfig,
   body: Record<string, unknown>,
   deps: RequestDeps,
+  req: Request,
 ): Promise<Response> {
   // SECURITY: the callback URL may ONLY come from the ABDM_CALLBACK_BASE_URL
   // Edge Function secret. A client-supplied callbackUrl/url is rejected so the
@@ -297,25 +331,58 @@ async function handleBridge(
     throw new HttpError(400, validation.error ?? "Invalid ABDM_CALLBACK_BASE_URL");
   }
 
+  const bridgePath = resolveBridgePath(config);
+  const tokenCache = deps.tokenCache ?? defaultTokenCache;
   const gatewayBody: Record<string, unknown> = {
     url: config.callbackBaseUrl.trim(),
   };
 
-  const response = await gatewayRequest(
-    deps.fetchImpl,
-    config,
-    deps.tokenCache ?? defaultTokenCache,
-    "PATCH",
-    resolveBridgePath(config),
-    gatewayBody,
-  );
+  let response: GatewayHttpResponse;
+  try {
+    response = await gatewayRequest(
+      deps.fetchImpl,
+      config,
+      tokenCache,
+      "PATCH",
+      bridgePath,
+      gatewayBody,
+    );
+  } catch (error) {
+    if (error instanceof GatewayError) {
+      const diagnostic = buildBridgeGatewayDiagnostic(error, config);
+      logBridgeDiagnostic(diagnostic, req);
+      return jsonResponse(
+        {
+          error: diagnostic.message,
+          code: diagnostic.code,
+          ...(diagnostic.upstreamStatus !== null
+            ? { upstreamStatus: diagnostic.upstreamStatus }
+            : {}),
+        },
+        502,
+      );
+    }
+    throw error;
+  }
 
   if (!response.ok) {
-    throw new HttpError(
-      response.status || 502,
-      `ABDM bridge update failed (${response.status})`,
+    const diagnostic = buildBridgeHttpDiagnostic(response, config, [
+      config.clientSecret,
+      config.clientId,
+      tokenCache.current?.accessToken ?? "",
+    ]);
+    logBridgeDiagnostic(diagnostic, req);
+    return jsonResponse(
+      {
+        error: diagnostic.message,
+        code: diagnostic.code,
+        upstreamStatus: diagnostic.upstreamStatus,
+      },
+      502,
     );
   }
+
+  logBridgeDiagnostic(buildBridgeSuccessDiagnostic(response, config), req);
 
   return jsonResponse({
     status: "bridge_configured",
