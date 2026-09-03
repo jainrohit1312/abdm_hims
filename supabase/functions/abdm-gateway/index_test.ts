@@ -899,3 +899,126 @@ Deno.test("bridge failure diagnostics never leak tokens or secrets in logs or re
   assert(allLogs.includes("abdm-token") === false, "token must not be logged");
   assert(allLogs.includes("client-secret") === false, "secret must not be logged");
 });
+
+// ----------------------------------------------------------------------------
+// 6. CORS preflight (browser flow for the PATCH Bridge action)
+// ----------------------------------------------------------------------------
+
+Deno.test("OPTIONS preflight returns 204 without auth and advertises PATCH", async () => {
+  let authCalled = false;
+
+  const requestDeps = deps(
+    recordingFetch(() => {
+      throw new Error("preflight must not call the ABDM gateway");
+    }).fetchImpl,
+    async () => {
+      authCalled = true;
+      throw new Error("preflight must not require Supabase auth");
+    },
+    async () => {},
+  );
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "OPTIONS",
+    headers: {
+      "Access-Control-Request-Method": "PATCH",
+      "Access-Control-Request-Headers": "authorization, content-type",
+    },
+  });
+
+  const res = await handleRequest(req, requestDeps);
+
+  assertEquals(res.status, 204);
+  assert(!authCalled, "OPTIONS must never trigger Supabase auth");
+
+  assertEquals(res.headers.get("Access-Control-Allow-Origin"), "*");
+  const allowMethods = res.headers.get("Access-Control-Allow-Methods") ?? "";
+  assert(allowMethods.includes("PATCH"), "PATCH must be advertised");
+  assert(allowMethods.includes("GET"), "GET must be advertised");
+  assert(allowMethods.includes("POST"), "POST must be advertised");
+  assert(allowMethods.includes("OPTIONS"), "OPTIONS must be advertised");
+
+  const allowHeaders = res.headers.get("Access-Control-Allow-Headers") ?? "";
+  assert(allowHeaders.includes("authorization"), "authorization must be allowed");
+  assert(allowHeaders.includes("content-type"), "content-type must be allowed");
+});
+
+Deno.test("preflight followed by an authenticated PATCH reaches handleBridge", async () => {
+  let authCalled = false;
+  const { fetchImpl, calls } = recordingFetch((url, method) => {
+    if (url.endsWith("/gateway/v1/sessions")) {
+      return gatewayResponse({ accessToken: "abdm-token", expiresIn: 3600 });
+    }
+    if (url.endsWith("/gateway/v1/bridges") && method === "PATCH") {
+      return gatewayResponse({ ok: true });
+    }
+    throw new Error(`unexpected gateway call: ${method} ${url}`);
+  });
+
+  const requestDeps = deps(
+    fetchImpl,
+    async () => {
+      authCalled = true;
+      return adminUser();
+    },
+    async () => {},
+    envWithSecrets,
+    freshTokenCache(),
+  );
+
+  const preflight = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "OPTIONS",
+    headers: { "Access-Control-Request-Method": "PATCH" },
+  });
+  const preflightRes = await handleRequest(preflight, requestDeps);
+  assertEquals(preflightRes.status, 204);
+  assert(
+    (preflightRes.headers.get("Access-Control-Allow-Methods") ?? "").includes("PATCH"),
+    "preflight must advertise PATCH before the real request",
+  );
+
+  const patchReq = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer owner-jwt",
+    },
+    body: JSON.stringify({ action: "bridge" }),
+  });
+  const res = await handleRequest(patchReq, requestDeps);
+  const body = await res.json() as Record<string, unknown>;
+
+  assertEquals(res.status, 200);
+  assertEquals(body["status"], "bridge_configured");
+  assert(authCalled, "PATCH must validate the Supabase JWT through authenticate");
+  const bridgeCall = calls.find((c) => c.url.endsWith("/gateway/v1/bridges"));
+  assert(bridgeCall, "authenticated PATCH must reach the ABDM bridge endpoint");
+  assertEquals(bridgeCall.method, "PATCH");
+});
+
+Deno.test("PATCH bridge remains 403 for a non-admin authenticated user", async () => {
+  const { fetchImpl, calls } = recordingFetch(() => {
+    throw new Error("non-admin PATCH must not call the ABDM gateway");
+  });
+
+  const requestDeps = deps(
+    fetchImpl,
+    async () => doctorUser(),
+    async () => {},
+    envWithSecrets,
+    freshTokenCache(),
+  );
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "bridge" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const body = await res.json() as Record<string, unknown>;
+
+  assertEquals(res.status, 403);
+  assertEquals(body["error"], "Owner / super-admin role required for this action");
+  assertEquals(calls.length, 0, "ABDM gateway must never be called for non-admin");
+});

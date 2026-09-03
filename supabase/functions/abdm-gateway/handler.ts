@@ -52,6 +52,9 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, request-id, timestamp",
+  // PATCH must be explicitly advertised, otherwise the browser blocks the
+  // preflighted Bridge PATCH request after a 200 OPTIONS.
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
 };
 
 function jsonResponse(
@@ -107,7 +110,9 @@ export async function handleRequest(
   deps: RequestDeps,
 ): Promise<Response> {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    // Preflight must succeed without Supabase auth and advertise every method
+    // the browser may follow up with (GET/POST/PATCH/OPTIONS).
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   const url = new URL(req.url);
