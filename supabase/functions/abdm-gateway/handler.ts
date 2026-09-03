@@ -25,6 +25,7 @@ import {
   resolveBridgePath,
   resolveInternalAction,
   sanitizePayload,
+  validateCallbackBaseUrl,
   validateServicesPayload,
   type CallbackRow,
   type FetchImpl,
@@ -274,19 +275,31 @@ async function handleBridge(
   body: Record<string, unknown>,
   deps: RequestDeps,
 ): Promise<Response> {
-  const requestedUrl =
-    (body["callbackUrl"] as string | undefined) ??
-    (body["url"] as string | undefined) ??
-    config.callbackBaseUrl;
-
-  if (!requestedUrl || !/^https:\/\//i.test(requestedUrl.trim())) {
+  // SECURITY: the callback URL may ONLY come from the ABDM_CALLBACK_BASE_URL
+  // Edge Function secret. A client-supplied callbackUrl/url is rejected so the
+  // ABDM Bridge can never be redirected to an arbitrary endpoint.
+  if (body["callbackUrl"] !== undefined || body["url"] !== undefined) {
     throw new HttpError(
       400,
-      "A valid https callbackUrl is required (or configure ABDM_CALLBACK_BASE_URL)",
+      "Client-supplied callbackUrl is not allowed. The Bridge URL is set from ABDM_CALLBACK_BASE_URL.",
     );
   }
 
-  const gatewayBody: Record<string, unknown> = { url: requestedUrl.trim() };
+  if (!config.callbackBaseUrl) {
+    throw new HttpError(
+      500,
+      "Missing ABDM_CALLBACK_BASE_URL Edge Function secret",
+    );
+  }
+
+  const validation = validateCallbackBaseUrl(config.callbackBaseUrl);
+  if (!validation.ok) {
+    throw new HttpError(400, validation.error ?? "Invalid ABDM_CALLBACK_BASE_URL");
+  }
+
+  const gatewayBody: Record<string, unknown> = {
+    url: config.callbackBaseUrl.trim(),
+  };
 
   const response = await gatewayRequest(
     deps.fetchImpl,
@@ -305,9 +318,9 @@ async function handleBridge(
   }
 
   return jsonResponse({
-    status: "bridge_updated",
-    bridgeId: config.bridgeId || null,
-    callbackUrl: requestedUrl.trim(),
+    status: "bridge_configured",
+    baseUrl: config.baseUrl,
+    callbackUrl: config.callbackBaseUrl.trim(),
     gateway: sanitizePayload(response.data),
   });
 }

@@ -16,6 +16,7 @@ import {
   buildGatewayHeaders,
   getSubpath,
   isAdminRole,
+  isLocalOrPrivateHost,
   isReservedSubpath,
   parsePositiveInt,
   persistCallback,
@@ -24,6 +25,7 @@ import {
   resolveBridgePath,
   resolveInternalAction,
   sanitizePayload,
+  validateCallbackBaseUrl,
   validateServicesPayload,
   type CallbackRow,
   type GatewayConfig,
@@ -117,6 +119,61 @@ Deno.test("readConfig uses the reviewed ABDM dev defaults", () => {
 
 Deno.test("resolveBridgePath does not append a bridge id", () => {
   assertEquals(resolveBridgePath(makeConfig()), "/gateway/v1/bridges");
+});
+
+// ----------------------------------------------------------------------------
+// 1b. Server-side callback URL validation
+// ----------------------------------------------------------------------------
+
+Deno.test("validateCallbackBaseUrl accepts a public HTTPS Supabase function URL", () => {
+  assertEquals(
+    validateCallbackBaseUrl("https://example.supabase.co/functions/v1/abdm-gateway").ok,
+    true,
+  );
+});
+
+Deno.test("validateCallbackBaseUrl rejects empty, non-absolute and non-HTTPS URLs", () => {
+  assertEquals(validateCallbackBaseUrl("").ok, false);
+  assertEquals(validateCallbackBaseUrl("   ").ok, false);
+  assertEquals(validateCallbackBaseUrl("abdm-gateway").ok, false);
+  assertEquals(validateCallbackBaseUrl("http://cb.example/abdm").ok, false);
+  assertEquals(validateCallbackBaseUrl("ftp://cb.example/abdm").ok, false);
+});
+
+Deno.test("validateCallbackBaseUrl rejects localhost and local names", () => {
+  assertEquals(validateCallbackBaseUrl("https://localhost/abdm").ok, false);
+  assertEquals(validateCallbackBaseUrl("https://api.localhost/abdm").ok, false);
+  assertEquals(validateCallbackBaseUrl("https://machine.local/abdm").ok, false);
+});
+
+Deno.test("validateCallbackBaseUrl rejects private and local IPv4 addresses", () => {
+  assertEquals(validateCallbackBaseUrl("https://10.0.0.5/abdm").ok, false);
+  assertEquals(validateCallbackBaseUrl("https://127.0.0.1/abdm").ok, false);
+  assertEquals(validateCallbackBaseUrl("https://192.168.1.10/abdm").ok, false);
+  assertEquals(validateCallbackBaseUrl("https://172.16.0.2/abdm").ok, false);
+  assertEquals(validateCallbackBaseUrl("https://169.254.169.254/abdm").ok, false);
+  assertEquals(validateCallbackBaseUrl("https://0.0.0.0/abdm").ok, false);
+  assertEquals(validateCallbackBaseUrl("https://2130706433/abdm").ok, false);
+});
+
+Deno.test("validateCallbackBaseUrl rejects IPv6 loopback and link-local addresses", () => {
+  assertEquals(validateCallbackBaseUrl("https://[::1]/abdm").ok, false);
+  assertEquals(validateCallbackBaseUrl("https://[fe80::1]/abdm").ok, false);
+  assertEquals(validateCallbackBaseUrl("https://[::ffff:10.0.0.1]/abdm").ok, false);
+});
+
+Deno.test("validateCallbackBaseUrl rejects query strings and fragments", () => {
+  assertEquals(validateCallbackBaseUrl("https://cb.example/abdm?x=1").ok, false);
+  assertEquals(validateCallbackBaseUrl("https://cb.example/abdm#frag").ok, false);
+});
+
+Deno.test("isLocalOrPrivateHost classifies private/local hosts only", () => {
+  assertEquals(isLocalOrPrivateHost("localhost"), true);
+  assertEquals(isLocalOrPrivateHost("10.0.0.5"), true);
+  assertEquals(isLocalOrPrivateHost("192.168.1.1"), true);
+  assertEquals(isLocalOrPrivateHost("127.0.0.1"), true);
+  assertEquals(isLocalOrPrivateHost("example.supabase.co"), false);
+  assertEquals(isLocalOrPrivateHost("dev.abdm.gov.in"), false);
 });
 
 // ----------------------------------------------------------------------------

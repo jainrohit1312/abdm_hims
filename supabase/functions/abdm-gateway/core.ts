@@ -139,6 +139,147 @@ export function resolveBridgePath(config: GatewayConfig): string {
   return config.bridgePath;
 }
 
+// ----------------------------------------------------------------------------
+// Server-side callback URL validation
+// ----------------------------------------------------------------------------
+
+export interface CallbackUrlValidation {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * True when a hostname points at the local machine or a private/local/reserved
+ * network. Used by the Bridge flow so an attacker can never register a
+ * callback that would exfiltrate ABDM data to a local service.
+ */
+export function isLocalOrPrivateHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host) return true;
+
+  if (
+    host === "localhost" ||
+    host === "local" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local")
+  ) {
+    return true;
+  }
+
+  // IPv4-compatible numeric host (for example https://2130706433 == 127.0.0.1).
+  if (/^\d+$/.test(host)) {
+    const numeric = Number(host);
+    if (Number.isFinite(numeric) && numeric >= 0 && numeric <= 0xffffffff) {
+      return isLocalOrPrivateHost(
+        `${(numeric >>> 24) & 0xff}.${(numeric >>> 16) & 0xff}.${(numeric >>> 8) & 0xff}.${numeric & 0xff}`,
+      );
+    }
+    return true;
+  }
+
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const octets = ipv4.slice(1).map(Number);
+    if (octets.some((n) => n > 255)) return true; // malformed IPv4
+    const [a, b, c] = octets;
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // 100.64/10 CGNAT
+    if (a === 169 && b === 254) return true; // link-local
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16/12
+    if (a === 192 && b === 0 && (c === 0 || c === 2)) return true; // 192.0.0/24, 192.0.2/24
+    if (a === 192 && b === 168) return true; // 192.168/16
+    if (a === 198 && (b === 18 || b === 19)) return true; // 198.18/15
+    if (a === 198 && b === 51 && c === 100) return true; // 198.51.100/24
+    if (a === 203 && b === 0 && c === 113) return true; // 203.0.113/24
+    if (a >= 224) return true; // multicast + reserved + broadcast
+    return false;
+  }
+
+  if (host.includes(":")) {
+    if (host === "::" || host === "::1") return true;
+    // fc00::/7 unique-local addresses.
+    if (host.startsWith("fc") || host.startsWith("fd")) return true;
+    // fe80::/10 link-local addresses.
+    if (/^fe[89ab]/.test(host)) return true;
+    // IPv4-mapped IPv6 (for example ::ffff:10.0.0.1).
+    if (host.startsWith("::ffff:")) {
+      const embedded = host.slice("::ffff:".length);
+      if (embedded.includes(".")) return isLocalOrPrivateHost(embedded);
+      // Hex form (for example ::ffff:7f00:1). Parse the last 32 bits.
+      const hexParts = embedded.split(":").filter(Boolean);
+      const last = hexParts[hexParts.length - 1] ?? "";
+      const value = Number.parseInt(last, 16);
+      if (Number.isFinite(value)) {
+        return isLocalOrPrivateHost(
+          `${(value >>> 24) & 0xff}.${(value >>> 16) & 0xff}.${(value >>> 8) & 0xff}.${value & 0xff}`,
+        );
+      }
+      return true;
+    }
+    return false; // other IPv6 (global unicast)
+  }
+
+  return false;
+}
+
+/**
+ * Validates the server-side `ABDM_CALLBACK_BASE_URL` value before it is sent
+ * to the ABDM Bridge update endpoint:
+ *   * non-empty, absolute URL
+ *   * HTTPS only
+ *   * no localhost / private / local / reserved IP
+ *   * no query string or fragment
+ */
+export function validateCallbackBaseUrl(
+  value: string,
+): CallbackUrlValidation {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { ok: false, error: "ABDM_CALLBACK_BASE_URL is not configured" };
+  }
+
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch (_) {
+    return {
+      ok: false,
+      error: "ABDM_CALLBACK_BASE_URL must be a valid absolute URL",
+    };
+  }
+
+  if (url.protocol !== "https:") {
+    return { ok: false, error: "ABDM_CALLBACK_BASE_URL must use HTTPS" };
+  }
+  if (url.username || url.password) {
+    return {
+      ok: false,
+      error: "ABDM_CALLBACK_BASE_URL must not contain credentials",
+    };
+  }
+  if (url.search) {
+    return {
+      ok: false,
+      error: "ABDM_CALLBACK_BASE_URL must not contain a query string",
+    };
+  }
+  if (url.hash) {
+    return {
+      ok: false,
+      error: "ABDM_CALLBACK_BASE_URL must not contain a fragment",
+    };
+  }
+  if (isLocalOrPrivateHost(url.hostname)) {
+    return {
+      ok: false,
+      error:
+        "ABDM_CALLBACK_BASE_URL must not use localhost or a private/local IP address",
+    };
+  }
+
+  return { ok: true };
+}
+
 /** Owner/super-admin check shared by every privileged internal action. */
 export function isAdminRole(role: string): boolean {
   const normalized = role.toLowerCase();

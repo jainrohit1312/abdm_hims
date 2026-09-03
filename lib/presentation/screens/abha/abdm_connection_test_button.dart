@@ -155,15 +155,16 @@ String abdmConnectionFailureMessage(Object error) {
         lower.contains('could not reach')) {
       return 'Network timeout or ABDM gateway unavailable.';
     }
-    return _redactTokenLike(message);
+    return redactTokenLike(message);
   }
   return 'Network timeout or ABDM gateway unavailable.';
 }
 
 /// Defensive fallback redaction for any message that reaches the UI through an
 /// unexpected path. JWT-shaped strings (`eyJ...`) and long `Bearer <token>`
-/// values are replaced before display.
-String _redactTokenLike(String message) {
+/// values are replaced before display. Shared by the connection-test and
+/// Bridge-configure actions so credentials can never leak through a snackbar.
+String redactTokenLike(String message) {
   var redacted = message;
   redacted = redacted.replaceAll(
     RegExp(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'),

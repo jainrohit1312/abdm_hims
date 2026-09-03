@@ -74,6 +74,7 @@ function doctorUser(): AuthenticatedUser {
 const envWithSecrets = {
   ABDM_CLIENT_ID: "client-id",
   ABDM_CLIENT_SECRET: "client-secret",
+  ABDM_CALLBACK_BASE_URL: "https://cb.example/abdm",
 };
 
 function gatewayResponse(data: unknown, status = 200): Response {
@@ -345,7 +346,7 @@ Deno.test("non-owner authenticated user receives 403 for session", async () => {
 // 3. Exact Bridge / addUpdateServices / getServices contracts
 // ----------------------------------------------------------------------------
 
-Deno.test("bridge update uses PATCH /gateway/v1/bridges with exact url body", async () => {
+Deno.test("bridge update uses PATCH /gateway/v1/bridges with exact url body from the secret", async () => {
   const { fetchImpl, calls } = recordingFetch((url, method) => {
     if (url.endsWith("/gateway/v1/sessions")) {
       return gatewayResponse({ accessToken: "abdm-token", expiresIn: 3600 });
@@ -361,11 +362,14 @@ Deno.test("bridge update uses PATCH /gateway/v1/bridges with exact url body", as
   const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "bridge", callbackUrl: "https://cb.example/abdm" }),
+    body: JSON.stringify({ action: "bridge" }),
   });
 
   const res = await handleRequest(req, requestDeps);
   assertEquals(res.status, 200);
+  const resBody = await res.json() as Record<string, unknown>;
+  assertEquals(resBody["status"], "bridge_configured");
+  assertEquals(resBody["callbackUrl"], "https://cb.example/abdm");
 
   const bridgeCall = calls.find((c) => c.url.endsWith("/gateway/v1/bridges"));
   assert(bridgeCall, "bridge endpoint must be called");
@@ -549,14 +553,206 @@ Deno.test("gateway responses echoed to Flutter are sanitized", async () => {
   const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "bridge", callbackUrl: "https://cb.example" }),
+    body: JSON.stringify({ action: "bridge" }),
   });
 
   const res = await handleRequest(req, requestDeps);
   const body = await res.json();
 
   assertEquals(res.status, 200);
-  const gateway = (body as Record<string, unknown>)["gateway"] as Record<string, unknown>;
+  const gateway = (body as Record<string, unknown>)[
+    "gateway"
+  ] as Record<string, unknown>;
   assertEquals(gateway["accessToken"], "[REDACTED]");
   assertEquals(JSON.stringify(body).includes("echoed-token"), false);
+});
+
+Deno.test("bridge rejects a client-supplied callbackUrl without calling the gateway", async () => {
+  const { fetchImpl, calls } = recordingFetch(() => {
+    throw new Error("ABDM gateway must not be called when callbackUrl is supplied by the client");
+  });
+
+  const requestDeps = deps(fetchImpl, async () => adminUser(), async () => {}, envWithSecrets, freshTokenCache());
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "bridge", callbackUrl: "https://evil.example/steal" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const body = await res.json();
+
+  assertEquals(res.status, 400);
+  assert(
+    String((body as Record<string, unknown>)["error"]).includes("not allowed"),
+    "client-supplied callbackUrl must be rejected",
+  );
+  assertEquals(calls.length, 0, "gateway must never be called");
+});
+
+Deno.test("bridge rejects a client-supplied url field without calling the gateway", async () => {
+  const { fetchImpl, calls } = recordingFetch(() => {
+    throw new Error("ABDM gateway must not be called when url is supplied by the client");
+  });
+
+  const requestDeps = deps(fetchImpl, async () => adminUser(), async () => {}, envWithSecrets, freshTokenCache());
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "bridge", url: "https://evil.example/steal" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const body = await res.json();
+
+  assertEquals(res.status, 400);
+  assert(
+    String((body as Record<string, unknown>)["error"]).includes("not allowed"),
+    "client-supplied url must be rejected",
+  );
+  assertEquals(calls.length, 0, "gateway must never be called");
+});
+
+Deno.test("bridge fails sanitized when ABDM_CALLBACK_BASE_URL is missing", async () => {
+  const { fetchImpl, calls } = recordingFetch(() => {
+    throw new Error("ABDM gateway must not be called without a callback secret");
+  });
+
+  const env = { ABDM_CLIENT_ID: "client-id", ABDM_CLIENT_SECRET: "client-secret" };
+  const requestDeps = deps(fetchImpl, async () => adminUser(), async () => {}, env, freshTokenCache());
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "bridge" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const body = await res.json();
+
+  assertEquals(res.status, 500);
+  assert(
+    String((body as Record<string, unknown>)["error"]).includes(
+      "Missing ABDM_CALLBACK_BASE_URL",
+    ),
+    "missing callback secret must surface a clear error",
+  );
+  assertEquals(calls.length, 0, "gateway must never be called");
+});
+
+Deno.test("bridge rejects a non-HTTPS ABDM_CALLBACK_BASE_URL", async () => {
+  const { fetchImpl, calls } = recordingFetch(() => {
+    throw new Error("ABDM gateway must not be called for an invalid callback URL");
+  });
+
+  const env = {
+    ABDM_CLIENT_ID: "client-id",
+    ABDM_CLIENT_SECRET: "client-secret",
+    ABDM_CALLBACK_BASE_URL: "http://cb.example/abdm",
+  };
+  const requestDeps = deps(fetchImpl, async () => adminUser(), async () => {}, env, freshTokenCache());
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "bridge" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const body = await res.json();
+
+  assertEquals(res.status, 400);
+  assert(
+    String((body as Record<string, unknown>)["error"]).includes("HTTPS"),
+    "non-HTTPS callback URL must be rejected",
+  );
+  assertEquals(calls.length, 0, "gateway must never be called");
+});
+
+Deno.test("bridge rejects a localhost ABDM_CALLBACK_BASE_URL", async () => {
+  const { fetchImpl, calls } = recordingFetch(() => {
+    throw new Error("ABDM gateway must not be called for a local callback URL");
+  });
+
+  const env = {
+    ABDM_CLIENT_ID: "client-id",
+    ABDM_CLIENT_SECRET: "client-secret",
+    ABDM_CALLBACK_BASE_URL: "https://localhost/abdm",
+  };
+  const requestDeps = deps(fetchImpl, async () => adminUser(), async () => {}, env, freshTokenCache());
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "bridge" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const body = await res.json();
+
+  assertEquals(res.status, 400);
+  assert(
+    String((body as Record<string, unknown>)["error"]).includes("localhost"),
+    "localhost callback URL must be rejected",
+  );
+  assertEquals(calls.length, 0, "gateway must never be called");
+});
+
+Deno.test("bridge rejects a private-IP ABDM_CALLBACK_BASE_URL", async () => {
+  const { fetchImpl, calls } = recordingFetch(() => {
+    throw new Error("ABDM gateway must not be called for a private-IP callback URL");
+  });
+
+  const env = {
+    ABDM_CLIENT_ID: "client-id",
+    ABDM_CLIENT_SECRET: "client-secret",
+    ABDM_CALLBACK_BASE_URL: "https://10.0.0.5/abdm",
+  };
+  const requestDeps = deps(fetchImpl, async () => adminUser(), async () => {}, env, freshTokenCache());
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "bridge" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const body = await res.json();
+
+  assertEquals(res.status, 400);
+  assert(
+    String((body as Record<string, unknown>)["error"]).includes("private/local IP"),
+    "private-IP callback URL must be rejected",
+  );
+  assertEquals(calls.length, 0, "gateway must never be called");
+});
+
+Deno.test("bridge success response never returns the raw ABDM token or client secret", async () => {
+  const { fetchImpl } = recordingFetch((url) => {
+    if (url.endsWith("/gateway/v1/sessions")) {
+      return gatewayResponse({ accessToken: "super-secret-abdm-token", expiresIn: 3600 });
+    }
+    if (url.endsWith("/gateway/v1/bridges")) {
+      return gatewayResponse({ ok: true });
+    }
+    throw new Error(`unexpected gateway call: ${url}`);
+  });
+
+  const requestDeps = deps(fetchImpl, async () => adminUser(), async () => {}, envWithSecrets, freshTokenCache());
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "bridge" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const text = await res.text();
+
+  assertEquals(res.status, 200);
+  assert(!text.includes("super-secret-abdm-token"), "raw ABDM token must never be returned");
+  assert(!text.includes("client-secret"), "client secret must never be returned");
+  assert(!text.includes("accessToken"), "accessToken key must never be returned");
 });

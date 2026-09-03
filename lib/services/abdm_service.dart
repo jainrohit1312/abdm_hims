@@ -103,20 +103,31 @@ class AbdmService {
     return _invokeEdge('session');
   }
 
-  /// Updates the ABDM Bridge callback URL. Owner/super-admin only (enforced
-  /// server-side by the Edge Function).
-  Future<Map<String, dynamic>> updateBridgeCallbackUrl(
-    String callbackUrl,
-  ) async {
-    _requireBackendEnabled('Bridge callback update');
-    final url = callbackUrl.trim();
-    if (url.isEmpty || !url.startsWith('https://')) {
+  /// Owner/super-admin-only "Configure ABDM Bridge" action.
+  ///
+  /// Reads the current authenticated Supabase session first. When no session
+  /// exists it throws [AbdmException] with code `NO_SESSION` so the UI can show
+  /// "Please log in again." without making a network call.
+  ///
+  /// The Flutter client sends ONLY `{"action": "bridge"}` to the secure Edge
+  /// Function. The callback URL is never supplied, logged, persisted or
+  /// hard-coded by the client — the Edge Function resolves it exclusively from
+  /// the `ABDM_CALLBACK_BASE_URL` secret.
+  ///
+  /// The Supabase Functions client attaches the session's access token as
+  /// `Authorization: Bearer <owner-jwt>` on the outgoing request internally;
+  /// this method never reads, logs, persists or returns the JWT value.
+  Future<Map<String, dynamic>> configureBridge() async {
+    _requireBackendEnabled('ABDM Bridge configuration');
+    final session = _currentSessionReader();
+    if (session == null) {
       throw const AbdmException(
-        'Bridge callback URL must start with https://',
-        code: 'INVALID_CALLBACK_URL',
+        'Please log in again.',
+        code: 'NO_SESSION',
+        statusCode: 401,
       );
     }
-    return _invokeEdge('bridge', body: {'callbackUrl': url});
+    return _invokeEdge('bridge', method: HttpMethod.patch);
   }
 
   /// Registers / updates HIP/HIU service definitions using the exact ABDM

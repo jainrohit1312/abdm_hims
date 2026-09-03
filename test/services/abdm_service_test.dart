@@ -104,10 +104,21 @@ void main() {
       final service = AbdmService(
         supabaseClient: client,
         mockModeOverride: false,
+        currentSessionReader: () => Session(
+          accessToken: 'owner-jwt-raw-token',
+          tokenType: 'bearer',
+          user: User(
+            id: 'auth-owner',
+            appMetadata: const {},
+            userMetadata: const {},
+            aud: 'authenticated',
+            createdAt: '2026-09-04T00:00:00.000Z',
+          ),
+        ),
       );
 
       await expectLater(
-        service.updateBridgeCallbackUrl('https://callback.example/abdm'),
+        service.configureBridge(),
         throwsA(
           isA<AbdmException>()
               .having((e) => e.statusCode, 'statusCode', 403)
@@ -314,6 +325,168 @@ void main() {
 
       await expectLater(
         service.testSandboxConnection(),
+        throwsA(
+          isA<AbdmException>()
+              .having((e) => e.statusCode, 'statusCode', 403)
+              .having((e) => e.code, 'code', 'EDGE_403'),
+        ),
+      );
+    });
+  });
+
+  group('AbdmService configureBridge (owner session)', () {
+    Session ownerSession() => Session(
+      accessToken: 'owner-jwt-raw-token',
+      tokenType: 'bearer',
+      user: User(
+        id: 'auth-owner',
+        appMetadata: const {},
+        userMetadata: const {},
+        aud: 'authenticated',
+        createdAt: '2026-09-04T00:00:00.000Z',
+      ),
+    );
+
+    test(
+      'throws "Please log in again." when there is no current session',
+      () async {
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: MockClient((request) async {
+            fail('the Edge Function must not be called without a session');
+          }),
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: false,
+          currentSessionReader: () => null,
+        );
+
+        await expectLater(
+          service.configureBridge(),
+          throwsA(
+            isA<AbdmException>()
+                .having((e) => e.code, 'code', 'NO_SESSION')
+                .having((e) => e.message, 'message', 'Please log in again.'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'valid owner session sends exactly {"action":"bridge"} with PATCH',
+      () async {
+        late http.Request captured;
+        final session = ownerSession();
+        final mockHttp = MockClient((request) async {
+          captured = request;
+          expect(
+            request.url.toString(),
+            contains('/functions/v1/abdm-gateway'),
+          );
+          return http.Response(
+            jsonEncode({
+              'status': 'bridge_configured',
+              'baseUrl': 'https://dev.abdm.gov.in',
+              'callbackUrl':
+                  'https://example.supabase.co/functions/v1/abdm-gateway',
+              'gateway': {'ok': true},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        });
+
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: mockHttp,
+          // Simulates the Supabase Functions client attaching the current
+          // session's access token internally (AuthHttpClient).
+          accessToken: () async => session.accessToken,
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: false,
+          currentSessionReader: () => session,
+        );
+
+        final result = await service.configureBridge();
+
+        expect(result['status'], 'bridge_configured');
+        expect(
+          result['callbackUrl'],
+          'https://example.supabase.co/functions/v1/abdm-gateway',
+        );
+        expect(result.containsKey('accessToken'), isFalse);
+        expect(result.containsKey('clientSecret'), isFalse);
+        expect(jsonEncode(result).contains('owner-jwt-raw-token'), isFalse);
+
+        expect(captured.method.toUpperCase(), 'PATCH');
+        final sentBody = jsonDecode(captured.body) as Map<String, dynamic>;
+        expect(sentBody, {'action': 'bridge'});
+        expect(sentBody.containsKey('callbackUrl'), isFalse);
+        expect(sentBody.containsKey('url'), isFalse);
+        expect(captured.headers['Authorization'], 'Bearer owner-jwt-raw-token');
+        expect(captured.body.contains('owner-jwt-raw-token'), isFalse);
+      },
+    );
+
+    test('expired/invalid JWT surfaces a 401 typed AbdmException', () async {
+      final mockHttp = MockClient((request) async {
+        return http.Response(
+          jsonEncode({'error': 'Invalid or expired user session'}),
+          401,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final client = SupabaseClient(
+        'http://localhost',
+        'anon-key',
+        httpClient: mockHttp,
+      );
+      final service = AbdmService(
+        supabaseClient: client,
+        mockModeOverride: false,
+        currentSessionReader: () => ownerSession(),
+      );
+
+      await expectLater(
+        service.configureBridge(),
+        throwsA(
+          isA<AbdmException>()
+              .having((e) => e.statusCode, 'statusCode', 401)
+              .having((e) => e.code, 'code', 'EDGE_401'),
+        ),
+      );
+    });
+
+    test('non-owner receives a 403 typed AbdmException', () async {
+      final mockHttp = MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'error': 'Owner / super-admin role required for this action',
+          }),
+          403,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final client = SupabaseClient(
+        'http://localhost',
+        'anon-key',
+        httpClient: mockHttp,
+      );
+      final service = AbdmService(
+        supabaseClient: client,
+        mockModeOverride: false,
+        currentSessionReader: () => ownerSession(),
+      );
+
+      await expectLater(
+        service.configureBridge(),
         throwsA(
           isA<AbdmException>()
               .having((e) => e.statusCode, 'statusCode', 403)

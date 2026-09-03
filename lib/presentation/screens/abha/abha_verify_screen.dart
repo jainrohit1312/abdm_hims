@@ -9,6 +9,7 @@ import '../../../app/providers.dart';
 import '../../../core/extensions/datetime_extensions.dart';
 import '../../../services/abdm_service.dart';
 import '../../widgets/smart_navigation.dart';
+import 'abdm_bridge_configure_button.dart';
 import 'abdm_connection_test_button.dart';
 
 /// ABHA module hub covering M1 (verify/search/address/card/QR), M2 (care
@@ -359,6 +360,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
         ),
         actions: [
           const AbdmConnectionTestButton(),
+          const AbdmBridgeConfigureButton(),
           TextButton.icon(
             onPressed: () => context.push('/abha/create'),
             icon: const Icon(Icons.add),
