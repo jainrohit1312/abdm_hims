@@ -16,6 +16,9 @@ import {
   buildBridgeHttpDiagnostic,
   buildCallbackRow,
   buildGatewayHeaders,
+  buildGetServicesGatewayDiagnostic,
+  buildGetServicesHttpDiagnostic,
+  extractSanitizedServices,
   extractSanitizedUpstreamError,
   getSubpath,
   isAdminRole,
@@ -267,6 +270,85 @@ Deno.test("buildBridgeGatewayDiagnostic never maps an HTTP session failure to ne
   assertEquals(session404.category, "http");
   assertEquals(session404.method, "POST");
   assertEquals(session404.pathname, "/gateway/v1/sessions");
+});
+
+// ----------------------------------------------------------------------------
+// 1d. getServices diagnostics + sanitized service list
+// ----------------------------------------------------------------------------
+
+Deno.test("extractSanitizedServices keeps only allowed fields and drops secrets", () => {
+  const services = extractSanitizedServices([
+    {
+      id: "hip-1",
+      name: "Demo HIP",
+      type: "HIP",
+      active: true,
+      alias: ["Demo"],
+      endpoints: [
+        { address: "https://cb.example/notify", connectionType: "https", use: "X" },
+      ],
+      accessToken: "should-be-dropped",
+      clientSecret: "should-be-dropped",
+    },
+    "not-an-object",
+  ]);
+
+  assertEquals(services.length, 1);
+  const first = services[0] as Record<string, unknown>;
+  assertEquals(first["id"], "hip-1");
+  assertEquals(first["name"], "Demo HIP");
+  assertEquals(first["type"], "HIP");
+  assertEquals(first["active"], true);
+  assertEquals(first["alias"], ["Demo"]);
+  assertEquals(
+    ((first["endpoints"] as Record<string, unknown>[])[0])["address"],
+    "https://cb.example/notify",
+  );
+  assert(first["accessToken"] === undefined, "sensitive keys must be dropped");
+  assert(first["clientSecret"] === undefined, "sensitive keys must be dropped");
+});
+
+Deno.test("buildGetServicesHttpDiagnostic maps a 403 to ABDM_GET_SERVICES_403", () => {
+  const response: GatewayHttpResponse = {
+    ok: false,
+    status: 403,
+    data: { error: { code: "FORBIDDEN", message: "Resource forbidden" } },
+    contentType: "application/json",
+  };
+  const diag = buildGetServicesHttpDiagnostic(response, makeConfig());
+  assertEquals(diag.operation, "get_services");
+  assertEquals(diag.code, "ABDM_GET_SERVICES_403");
+  assertEquals(diag.upstreamStatus, 403);
+  assertEquals(diag.method, "GET");
+  assertEquals(diag.pathname, "/gateway/v1/bridges/getServices");
+  assertEquals(diag.errorCode, "FORBIDDEN");
+  assertEquals(diag.errorMessage, "Resource forbidden");
+});
+
+Deno.test("buildGetServicesGatewayDiagnostic distinguishes network vs timeout", () => {
+  const network = buildGetServicesGatewayDiagnostic(
+    new GatewayError(0, "ABDM gateway unreachable", undefined, "network", {
+      method: "GET",
+      hostname: "dev.abdm.gov.in",
+      pathname: "/gateway/v1/bridges/getServices",
+    }),
+    makeConfig(),
+  );
+  assertEquals(network.code, "ABDM_GET_SERVICES_NETWORK");
+  assertEquals(network.category, "network");
+  assertEquals(network.upstreamStatus, null);
+
+  const timeout = buildGetServicesGatewayDiagnostic(
+    new GatewayError(0, "ABDM gateway timed out", undefined, "timeout", {
+      method: "GET",
+      hostname: "dev.abdm.gov.in",
+      pathname: "/gateway/v1/bridges/getServices",
+    }),
+    makeConfig(),
+  );
+  assertEquals(timeout.code, "ABDM_GET_SERVICES_TIMEOUT");
+  assertEquals(timeout.category, "timeout");
+  assertEquals(timeout.upstreamStatus, null);
 });
 
 // ----------------------------------------------------------------------------

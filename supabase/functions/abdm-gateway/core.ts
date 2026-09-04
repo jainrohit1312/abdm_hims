@@ -902,6 +902,182 @@ export function buildBridgeSuccessDiagnostic(
 }
 
 // ----------------------------------------------------------------------------
+// getServices action diagnostics + sanitized service list
+// ----------------------------------------------------------------------------
+
+export interface GetServicesDiagnostic {
+  operation: "get_services";
+  code: string;
+  upstreamStatus: number | null;
+  message: string;
+  upstreamHostname: string;
+  method: string;
+  pathname: string;
+  contentType: string | null;
+  category: "timeout" | "network" | "http";
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+function sanitizeDiagnosticText(value: unknown): string {
+  if (typeof value === "string") {
+    return truncateDiagnosticText(redactSensitiveText(value));
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
+}
+
+function sanitizeServiceEndpoint(endpoint: unknown): Record<string, unknown> {
+  const record = asRecord(endpoint);
+  const out: Record<string, unknown> = {};
+  if (record["address"] !== undefined) {
+    out["address"] = sanitizeDiagnosticText(record["address"]);
+  }
+  if (record["connectionType"] !== undefined) {
+    out["connectionType"] = sanitizeDiagnosticText(record["connectionType"]);
+  }
+  if (record["use"] !== undefined) {
+    out["use"] = sanitizeDiagnosticText(record["use"]);
+  }
+  return out;
+}
+
+function sanitizeServiceEntry(entry: unknown): Record<string, unknown> {
+  const record = asRecord(entry);
+  const out: Record<string, unknown> = {};
+  if (record["id"] !== undefined) out["id"] = sanitizeDiagnosticText(record["id"]);
+  if (record["name"] !== undefined) out["name"] = sanitizeDiagnosticText(record["name"]);
+  if (record["type"] !== undefined) out["type"] = sanitizeDiagnosticText(record["type"]);
+  if (typeof record["active"] === "boolean") out["active"] = record["active"];
+  if (Array.isArray(record["alias"])) {
+    out["alias"] = record["alias"].map((value) => sanitizeDiagnosticText(value));
+  }
+  if (Array.isArray(record["endpoints"])) {
+    out["endpoints"] = record["endpoints"].map((endpoint) =>
+      sanitizeServiceEndpoint(endpoint)
+    );
+  }
+  return out;
+}
+
+/**
+ * Extracts only the non-sensitive ABDM service fields from a getServices
+ * response. The raw payload first passes through `sanitizePayload` (key/value
+ * redaction) and each remaining string is truncated and text-redacted.
+ */
+export function extractSanitizedServices(data: unknown): Record<string, unknown>[] {
+  const sanitized = sanitizePayload(data);
+  const record = asRecord(sanitized);
+  const raw = Array.isArray(sanitized)
+    ? sanitized
+    : Array.isArray(record["services"])
+      ? record["services"]
+      : [];
+  return raw
+    .filter((entry) => typeof entry === "object" && entry !== null)
+    .map((entry) => sanitizeServiceEntry(entry));
+}
+
+function getServicesBase(config: GatewayConfig): {
+  upstreamHostname: string;
+  method: string;
+  pathname: string;
+} {
+  return {
+    upstreamHostname: hostnameOfUrl(config.baseUrl),
+    method: "GET",
+    pathname: config.getServicesPath,
+  };
+}
+
+/** Diagnostic for an ABDM non-2xx HTTP response to the getServices GET call. */
+export function buildGetServicesHttpDiagnostic(
+  response: GatewayHttpResponse,
+  config: GatewayConfig,
+  secrets: string[] = [],
+): GetServicesDiagnostic {
+  const status = response.status || 0;
+  const upstream = extractSanitizedUpstreamError(response.data, secrets);
+  const detail = upstream.message ?? upstream.code;
+  return {
+    operation: "get_services",
+    code: status === 0 ? "ABDM_GET_SERVICES_NETWORK" : `ABDM_GET_SERVICES_${status}`,
+    upstreamStatus: status === 0 ? null : status,
+    message:
+      `ABDM getServices failed (HTTP ${status})` +
+      (detail ? `: ${detail}` : ""),
+    ...getServicesBase(config),
+    contentType: response.contentType,
+    category: "http",
+    errorCode: upstream.code,
+    errorMessage: upstream.message,
+  };
+}
+
+/** Diagnostic for a fetch-level GatewayError (timeout/network) in getServices. */
+export function buildGetServicesGatewayDiagnostic(
+  error: GatewayError,
+  config: GatewayConfig,
+): GetServicesDiagnostic {
+  const category: GetServicesDiagnostic["category"] = error.category;
+  const upstreamStatus = error.status === 0 ? null : error.status;
+  const fallback: GatewayRequestInfo = {
+    method: "GET",
+    hostname: hostnameOfUrl(config.baseUrl),
+    pathname: config.getServicesPath,
+  };
+  const target = error.request ?? fallback;
+
+  const code =
+    category === "timeout"
+      ? "ABDM_GET_SERVICES_TIMEOUT"
+      : category === "network"
+        ? "ABDM_GET_SERVICES_NETWORK"
+        : `ABDM_GET_SERVICES_${error.status}`;
+
+  const message =
+    category === "timeout"
+      ? "ABDM getServices timed out before receiving a response."
+      : category === "network"
+        ? "ABDM getServices failed: the ABDM gateway is unreachable."
+        : `ABDM getServices failed (HTTP ${error.status}).`;
+
+  return {
+    operation: "get_services",
+    code,
+    upstreamStatus,
+    message,
+    upstreamHostname: target.hostname,
+    method: target.method,
+    pathname: target.pathname,
+    contentType: null,
+    category,
+    errorCode: null,
+    errorMessage: null,
+  };
+}
+
+/** Diagnostic for a successful getServices GET call. */
+export function buildGetServicesSuccessDiagnostic(
+  response: GatewayHttpResponse,
+  config: GatewayConfig,
+): GetServicesDiagnostic {
+  return {
+    operation: "get_services",
+    code: "ABDM_GET_SERVICES_OK",
+    upstreamStatus: response.status,
+    message: "ABDM getServices succeeded.",
+    ...getServicesBase(config),
+    contentType: response.contentType,
+    category: "http",
+    errorCode: null,
+    errorMessage: null,
+  };
+}
+
+// ----------------------------------------------------------------------------
 // Routing
 // ----------------------------------------------------------------------------
 
@@ -915,7 +1091,12 @@ export function getSubpath(url: string, functionName = FUNCTION_NAME): string {
   return remainder ? `/${remainder}` : "";
 }
 
-export type InternalAction = "session" | "bridge" | "services" | "health";
+export type InternalAction =
+  | "session"
+  | "bridge"
+  | "services"
+  | "getServices"
+  | "health";
 
 const RESERVED_SUBPATHS = new Set([
   "/session",
@@ -966,6 +1147,9 @@ export function resolveInternalAction(
     const action = (bodyAction ?? queryAction ?? "").toLowerCase();
     if (action === "session" && m === "POST") return "session";
     if (action === "bridge" && (m === "POST" || m === "PATCH")) return "bridge";
+    // The production Flutter client uses POST {"action":"getServices"} so the
+    // browser never has to preflight a non-simple GET method token.
+    if (action === "getservices" && m === "POST") return "getServices";
     if (action === "services" && (m === "POST" || m === "GET")) return "services";
     if (action === "health" && m === "GET") return "health";
   }

@@ -1145,3 +1145,256 @@ Deno.test("POST action=bridge as non-admin returns 403", async () => {
   assertEquals(body["error"], "Owner / super-admin role required for this action");
   assertEquals(calls.length, 0, "ABDM gateway must never be called for non-admin");
 });
+
+// ----------------------------------------------------------------------------
+// 8. getServices inspect flow (POST action=getServices -> outbound GET)
+// ----------------------------------------------------------------------------
+
+async function runGetServicesRequest(
+  getServicesHandler: BridgeHandler,
+  authenticate: RequestDeps["authenticate"] = async () => adminUser(),
+  env: Record<string, string | undefined> = envWithSecrets,
+): Promise<{ res: Response; body: Record<string, unknown>; logs: string[]; errors: string[] }> {
+  const { fetchImpl } = recordingFetch((url, method, headers, body) => {
+    if (url.endsWith("/gateway/v1/sessions")) {
+      return gatewayResponse({ accessToken: "abdm-token", expiresIn: 3600 });
+    }
+    return getServicesHandler(url, method, headers, body);
+  });
+
+  const logs: string[] = [];
+  const errors: string[] = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  console.error = (...args: unknown[]) => {
+    errors.push(args.map(String).join(" "));
+  };
+
+  try {
+    const requestDeps = deps(fetchImpl, authenticate, async () => {}, env, freshTokenCache());
+    const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-request-id": "corr-456",
+        Authorization: "Bearer owner-jwt",
+      },
+      body: JSON.stringify({ action: "getServices" }),
+    });
+    const res = await handleRequest(req, requestDeps);
+    const body = await res.json() as Record<string, unknown>;
+    return { res, body, logs, errors };
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
+}
+
+Deno.test("POST action=getServices reaches the GET /gateway/v1/bridges/getServices contract", async () => {
+  let authCalled = false;
+  const services = [
+    {
+      id: "hip-1",
+      name: "Demo HIP",
+      type: "HIP",
+      active: true,
+      alias: ["Demo"],
+      endpoints: [
+        {
+          address: "https://cb.example/abdm/patients/status/notify",
+          connectionType: "https",
+          use: "PATIENT_STATUS_NOTIFY",
+        },
+      ],
+      accessToken: "must-be-dropped",
+    },
+    {
+      id: "hiu-1",
+      name: "Demo HIU",
+      type: "HIU",
+      active: false,
+      alias: [],
+      endpoints: [],
+    },
+  ];
+
+  const { fetchImpl, calls } = recordingFetch((url, method) => {
+    if (url.endsWith("/gateway/v1/sessions")) {
+      return gatewayResponse({ accessToken: "abdm-token", expiresIn: 3600 });
+    }
+    if (url.endsWith("/gateway/v1/bridges/getServices") && method === "GET") {
+      return gatewayResponse(services);
+    }
+    throw new Error(`unexpected gateway call: ${method} ${url}`);
+  });
+
+  const requestDeps = deps(
+    fetchImpl,
+    async () => {
+      authCalled = true;
+      return adminUser();
+    },
+    async () => {},
+    envWithSecrets,
+    freshTokenCache(),
+  );
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "getServices" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const body = await res.json() as Record<string, unknown>;
+
+  assertEquals(res.status, 200);
+  assertEquals(body["status"], "services_fetched");
+  assertEquals(body["upstreamStatus"], 200);
+  assertEquals(body["serviceCount"], 2);
+  assert(authCalled, "getServices must validate the Supabase JWT");
+
+  const serviceList = body["services"] as Record<string, unknown>[];
+  assertEquals(serviceList.length, 2);
+  assertEquals(serviceList[0]["id"], "hip-1");
+  assertEquals(serviceList[0]["name"], "Demo HIP");
+  assertEquals(serviceList[0]["type"], "HIP");
+  assertEquals(serviceList[0]["active"], true);
+  assertEquals(serviceList[0]["alias"], ["Demo"]);
+  assertEquals(
+    (serviceList[0]["endpoints"] as Record<string, unknown>[])[0]["address"],
+    "https://cb.example/abdm/patients/status/notify",
+  );
+  assert(JSON.stringify(body).includes("accessToken") === false, "sensitive keys must be dropped");
+  assert(JSON.stringify(body).includes("must-be-dropped") === false, "sensitive values must be dropped");
+
+  const getCall = calls.find((c) => c.url.endsWith("/gateway/v1/bridges/getServices"));
+  assert(getCall, "getServices endpoint must be called");
+  assertEquals(getCall.method, "GET", "outbound ABDM request must be uppercase GET");
+  assertEquals(getCall.headers.get("Authorization"), "Bearer abdm-token");
+});
+
+Deno.test("POST action=getServices without JWT returns 401", async () => {
+  const { fetchImpl, calls } = recordingFetch(() => {
+    throw new Error("ABDM gateway must not be called without a JWT");
+  });
+
+  const requestDeps = deps(
+    fetchImpl,
+    async () => {
+      throw new HttpError(401, "Invalid or expired user session");
+    },
+    async () => {},
+    envWithSecrets,
+    freshTokenCache(),
+  );
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "getServices" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+
+  assertEquals(res.status, 401);
+  assertEquals(calls.length, 0, "ABDM gateway must never be called without a JWT");
+});
+
+Deno.test("POST action=getServices as non-admin returns 403", async () => {
+  const { fetchImpl, calls } = recordingFetch(() => {
+    throw new Error("ABDM gateway must not be called for non-admin");
+  });
+
+  const requestDeps = deps(
+    fetchImpl,
+    async () => doctorUser(),
+    async () => {},
+    envWithSecrets,
+    freshTokenCache(),
+  );
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "getServices" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const body = await res.json() as Record<string, unknown>;
+
+  assertEquals(res.status, 403);
+  assertEquals(body["error"], "Owner / super-admin role required for this action");
+  assertEquals(calls.length, 0, "ABDM gateway must never be called for non-admin");
+});
+
+for (const status of [400, 401, 403, 404, 405, 500]) {
+  Deno.test(`getServices maps upstream ${status} to ABDM_GET_SERVICES_${status}`, async () => {
+    const { res, body, logs, errors } = await runGetServicesRequest(() => {
+      return gatewayResponse(
+        { error: { code: `UPSTREAM_${status}`, message: `upstream rejected ${status}` } },
+        status,
+      );
+    });
+
+    assertEquals(res.status, 502);
+    assertEquals(body["code"], `ABDM_GET_SERVICES_${status}`);
+    assertEquals(body["upstreamStatus"], status);
+    const text = JSON.stringify(body);
+    assert(text.includes("network") === false && text.includes("timeout") === false,
+      "HTTP upstream errors must never be described as network/timeout");
+
+    const allLogs = [...logs, ...errors].join(" ");
+    assert(allLogs.includes("get_services"), "structured getServices log must be emitted");
+    assert(allLogs.includes("abdm-token") === false, "ABDM token must not be logged");
+    assert(allLogs.includes("client-secret") === false, "client secret must not be logged");
+  });
+}
+
+Deno.test("getServices network exception maps to ABDM_GET_SERVICES_NETWORK", async () => {
+  const { res, body, logs } = await runGetServicesRequest(() => {
+    throw new TypeError("fetch failed");
+  });
+
+  assertEquals(res.status, 502);
+  assertEquals(body["code"], "ABDM_GET_SERVICES_NETWORK");
+  assertEquals(body["upstreamStatus"] ?? null, null);
+  assert(String(body["error"]).includes("unreachable"), "network failure must be described as unreachable");
+  assert(logs.join(" ").includes("network"), "network category must be logged");
+});
+
+Deno.test("getServices timeout maps to ABDM_GET_SERVICES_TIMEOUT", async () => {
+  const { res, body, logs } = await runGetServicesRequest(() => {
+    throw new DOMException("The operation timed out.", "TimeoutError");
+  });
+
+  assertEquals(res.status, 502);
+  assertEquals(body["code"], "ABDM_GET_SERVICES_TIMEOUT");
+  assertEquals(body["upstreamStatus"] ?? null, null);
+  assert(String(body["error"]).includes("timed out"), "timeout message must mention timed out");
+  assert(logs.join(" ").includes("timeout"), "timeout category must be logged");
+});
+
+Deno.test("getServices diagnostics never leak tokens or secrets in logs or responses", async () => {
+  const { body, logs, errors } = await runGetServicesRequest(() => {
+    return gatewayResponse({
+      error: {
+        code: "FORBIDDEN",
+        message: "Resource forbidden with client-secret and token abdm-token",
+      },
+      accessToken: "abdm-token",
+      clientSecret: "client-secret",
+    }, 403);
+  });
+
+  const responseText = JSON.stringify(body);
+  assert(responseText.includes("abdm-token") === false, "token must not be returned");
+  assert(responseText.includes("client-secret") === false, "secret must not be returned");
+
+  const allLogs = [...logs, ...errors].join(" ");
+  assert(allLogs.includes("abdm-token") === false, "token must not be logged");
+  assert(allLogs.includes("client-secret") === false, "secret must not be logged");
+});

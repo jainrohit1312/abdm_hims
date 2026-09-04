@@ -220,6 +220,34 @@ class AbdmService {
     return _invokeEdge('services', method: HttpMethod.get);
   }
 
+  /// Owner/super-admin-only "Inspect ABDM Services" action.
+  ///
+  /// Reads the current authenticated Supabase session first. When no session
+  /// exists it throws [AbdmException] with code `NO_SESSION` so the UI can show
+  /// "Please log in again." without making a network call.
+  ///
+  /// The Flutter client sends ONLY `{"action": "getServices"}` to the secure
+  /// Edge Function using **POST** (avoids browser method-casing/CORS preflight
+  /// issues). The Edge Function then issues the official ABDM contract as an
+  /// uppercase GET to `/gateway/v1/bridges/getServices` using the server-side
+  /// ABDM token.
+  ///
+  /// The Supabase Functions client attaches the session's access token as
+  /// `Authorization: Bearer <owner-jwt>` on the outgoing request internally;
+  /// this method never reads, logs, persists or returns the JWT value.
+  Future<Map<String, dynamic>> inspectAbdmServices() async {
+    _requireBackendEnabled('ABDM getServices inspection');
+    final session = _currentSessionReader();
+    if (session == null) {
+      throw const AbdmException(
+        'Please log in again.',
+        code: 'NO_SESSION',
+        statusCode: 401,
+      );
+    }
+    return _invokeEdge('getServices');
+  }
+
   // ===========================================================================
   // M1 – ABHA identity layer
   // ===========================================================================

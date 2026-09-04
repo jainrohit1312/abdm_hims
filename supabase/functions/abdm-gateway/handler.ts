@@ -16,6 +16,10 @@ import {
   buildBridgeHttpDiagnostic,
   buildBridgeSuccessDiagnostic,
   buildCallbackRow,
+  buildGetServicesGatewayDiagnostic,
+  buildGetServicesHttpDiagnostic,
+  buildGetServicesSuccessDiagnostic,
+  extractSanitizedServices,
   gatewayRequest,
   getSubpath,
   isAdminRole,
@@ -36,6 +40,7 @@ import {
   type FetchImpl,
   type GatewayConfig,
   type GatewayHttpResponse,
+  type GetServicesDiagnostic,
   type InternalAction,
   type TokenCacheRef,
   type TokenRecord,
@@ -207,8 +212,12 @@ async function handleInternalAction(
       return handleBridge(config, body, deps, req);
     case "services":
       return method === "GET"
-        ? handleGetServices(config, deps)
+        ? handleInspectServices(config, deps, req)
         : handlePostServices(config, body, deps);
+    case "getServices":
+      // Production Flutter path: POST {"action":"getServices"} on the bare
+      // function URL (avoids browser method-casing/CORS preflight issues).
+      return handleInspectServices(config, deps, req);
     case "health":
       return jsonResponse({
         status: "ok",
@@ -406,28 +415,94 @@ async function handleBridge(
   });
 }
 
-async function handleGetServices(
+/**
+ * Logs exactly the allow-listed structured fields for the getServices action.
+ * Authorization headers, JWT, ABDM tokens, client id/secret and complete
+ * request/response bodies are NEVER logged.
+ */
+function logGetServicesDiagnostic(
+  diag: GetServicesDiagnostic,
+  req: Request,
+): void {
+  const requestId = readHeader(req.headers, "x-request-id", "x-request_id", "request-id");
+
+  const entry: Record<string, unknown> = {
+    operation: diag.operation,
+    upstreamHostname: diag.upstreamHostname,
+    method: diag.method,
+    pathname: diag.pathname,
+  };
+  if (diag.upstreamStatus !== null) entry.upstreamStatus = diag.upstreamStatus;
+  if (diag.contentType) entry.contentType = diag.contentType;
+  if (diag.errorCode) entry.errorCode = diag.errorCode;
+  if (diag.errorMessage) entry.errorMessage = diag.errorMessage;
+  if (diag.category === "timeout" || diag.category === "network") {
+    entry.category = diag.category;
+  }
+  if (requestId) entry.requestId = requestId;
+
+  console.log(`abdm-gateway get_services ${JSON.stringify(entry)}`);
+}
+
+async function handleInspectServices(
   config: GatewayConfig,
   deps: RequestDeps,
+  req: Request,
 ): Promise<Response> {
-  const response = await gatewayRequest(
-    deps.fetchImpl,
-    config,
-    deps.tokenCache ?? defaultTokenCache,
-    "GET",
-    config.getServicesPath,
-  );
+  const tokenCache = deps.tokenCache ?? defaultTokenCache;
+
+  let response: GatewayHttpResponse;
+  try {
+    response = await gatewayRequest(
+      deps.fetchImpl,
+      config,
+      tokenCache,
+      "GET",
+      config.getServicesPath,
+    );
+  } catch (error) {
+    if (error instanceof GatewayError) {
+      const diagnostic = buildGetServicesGatewayDiagnostic(error, config);
+      logGetServicesDiagnostic(diagnostic, req);
+      return jsonResponse(
+        {
+          error: diagnostic.message,
+          code: diagnostic.code,
+          ...(diagnostic.upstreamStatus !== null
+            ? { upstreamStatus: diagnostic.upstreamStatus }
+            : {}),
+        },
+        502,
+      );
+    }
+    throw error;
+  }
 
   if (!response.ok) {
-    throw new HttpError(
-      response.status || 502,
-      `ABDM getServices failed (${response.status})`,
+    const diagnostic = buildGetServicesHttpDiagnostic(response, config, [
+      config.clientSecret,
+      config.clientId,
+      tokenCache.current?.accessToken ?? "",
+    ]);
+    logGetServicesDiagnostic(diagnostic, req);
+    return jsonResponse(
+      {
+        error: diagnostic.message,
+        code: diagnostic.code,
+        upstreamStatus: diagnostic.upstreamStatus,
+      },
+      502,
     );
   }
 
+  const services = extractSanitizedServices(response.data);
+  logGetServicesDiagnostic(buildGetServicesSuccessDiagnostic(response, config), req);
+
   return jsonResponse({
     status: "services_fetched",
-    gateway: sanitizePayload(response.data),
+    upstreamStatus: response.status,
+    serviceCount: services.length,
+    services,
   });
 }
 

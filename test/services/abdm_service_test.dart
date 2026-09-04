@@ -538,6 +538,115 @@ void main() {
     );
   });
 
+  group('AbdmService inspectAbdmServices (owner session)', () {
+    Session ownerSession() => Session(
+      accessToken: 'owner-jwt-raw-token',
+      tokenType: 'bearer',
+      user: User(
+        id: 'auth-owner',
+        appMetadata: const {},
+        userMetadata: const {},
+        aud: 'authenticated',
+        createdAt: '2026-09-04T00:00:00.000Z',
+      ),
+    );
+
+    test(
+      'throws "Please log in again." when there is no current session',
+      () async {
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: MockClient((request) async {
+            fail('the Edge Function must not be called without a session');
+          }),
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: false,
+          currentSessionReader: () => null,
+        );
+
+        await expectLater(
+          service.inspectAbdmServices(),
+          throwsA(
+            isA<AbdmException>()
+                .having((e) => e.code, 'code', 'NO_SESSION')
+                .having((e) => e.message, 'message', 'Please log in again.'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'valid owner session sends exactly {"action":"getServices"} with POST',
+      () async {
+        late http.Request captured;
+        final session = ownerSession();
+        final mockHttp = MockClient((request) async {
+          captured = request;
+          expect(
+            request.url.toString(),
+            contains('/functions/v1/abdm-gateway'),
+          );
+          return http.Response(
+            jsonEncode({
+              'status': 'services_fetched',
+              'upstreamStatus': 200,
+              'serviceCount': 1,
+              'services': [
+                {
+                  'id': 'hip-1',
+                  'name': 'Demo HIP',
+                  'type': 'HIP',
+                  'active': true,
+                  'alias': ['Demo'],
+                  'endpoints': [
+                    {
+                      'address':
+                          'https://example.supabase.co/functions/v1/abdm-gateway',
+                      'connectionType': 'https',
+                      'use': 'PATIENT_STATUS_NOTIFY',
+                    },
+                  ],
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        });
+
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: mockHttp,
+          accessToken: () async => session.accessToken,
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: false,
+          currentSessionReader: () => session,
+        );
+
+        final result = await service.inspectAbdmServices();
+
+        expect(result['status'], 'services_fetched');
+        expect(result['serviceCount'], 1);
+        expect(result.containsKey('accessToken'), isFalse);
+        expect(result.containsKey('clientSecret'), isFalse);
+        expect(jsonEncode(result).contains('owner-jwt-raw-token'), isFalse);
+
+        expect(captured.method.toUpperCase(), 'POST');
+        final sentBody = jsonDecode(captured.body) as Map<String, dynamic>;
+        expect(sentBody, {'action': 'getServices'});
+        expect(sentBody.containsKey('services'), isFalse);
+        expect(captured.headers['Authorization'], 'Bearer owner-jwt-raw-token');
+        expect(captured.body.contains('owner-jwt-raw-token'), isFalse);
+      },
+    );
+  });
+
   group('client-side secret hygiene', () {
     test('AppConfig exposes no ABDM client id or secret', () {
       expect(AppConfig.abdmRealModeEnabled, isFalse);
