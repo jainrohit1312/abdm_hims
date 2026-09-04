@@ -1038,3 +1038,110 @@ Deno.test("PATCH bridge remains 403 for a non-admin authenticated user", async (
   assertEquals(body["error"], "Owner / super-admin role required for this action");
   assertEquals(calls.length, 0, "ABDM gateway must never be called for non-admin");
 });
+
+// ----------------------------------------------------------------------------
+// 7. Production Flutter flow: inbound POST {"action":"bridge"} -> outbound PATCH
+// ----------------------------------------------------------------------------
+
+Deno.test("POST action=bridge reaches handleBridge and performs an uppercase PATCH outbound", async () => {
+  let authCalled = false;
+  const { fetchImpl, calls } = recordingFetch((url, method) => {
+    if (url.endsWith("/gateway/v1/sessions")) {
+      return gatewayResponse({ accessToken: "abdm-token", expiresIn: 3600 });
+    }
+    if (url.endsWith("/gateway/v1/bridges") && method === "PATCH") {
+      return gatewayResponse({ ok: true });
+    }
+    throw new Error(`unexpected gateway call: ${method} ${url}`);
+  });
+
+  const requestDeps = deps(
+    fetchImpl,
+    async () => {
+      authCalled = true;
+      return adminUser();
+    },
+    async () => {},
+    envWithSecrets,
+    freshTokenCache(),
+  );
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer owner-jwt",
+    },
+    body: JSON.stringify({ action: "bridge" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const body = await res.json() as Record<string, unknown>;
+
+  assertEquals(res.status, 200, "POST action=bridge must not be rejected");
+  assertEquals(body["status"], "bridge_configured");
+  assert(authCalled, "POST action=bridge must still validate the Supabase JWT");
+
+  const bridgeCall = calls.find((c) => c.url.endsWith("/gateway/v1/bridges"));
+  assert(bridgeCall, "POST action=bridge must reach the ABDM bridge endpoint");
+  assertEquals(bridgeCall.method, "PATCH", "outbound ABDM request must be uppercase PATCH");
+  assertEquals(
+    bridgeCall.body,
+    { url: "https://cb.example/abdm" },
+    "outbound body must contain only the server-side callback URL",
+  );
+});
+
+Deno.test("POST action=bridge without JWT returns 401", async () => {
+  const { fetchImpl, calls } = recordingFetch(() => {
+    throw new Error("ABDM gateway must not be called without a JWT");
+  });
+
+  const requestDeps = deps(
+    fetchImpl,
+    async () => {
+      throw new HttpError(401, "Invalid or expired user session");
+    },
+    async () => {},
+    envWithSecrets,
+    freshTokenCache(),
+  );
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "bridge" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+
+  assertEquals(res.status, 401);
+  assertEquals(calls.length, 0, "ABDM gateway must never be called without a JWT");
+});
+
+Deno.test("POST action=bridge as non-admin returns 403", async () => {
+  const { fetchImpl, calls } = recordingFetch(() => {
+    throw new Error("ABDM gateway must not be called for non-admin");
+  });
+
+  const requestDeps = deps(
+    fetchImpl,
+    async () => doctorUser(),
+    async () => {},
+    envWithSecrets,
+    freshTokenCache(),
+  );
+
+  const req = new Request("https://x.supabase.co/functions/v1/abdm-gateway", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "bridge" }),
+  });
+
+  const res = await handleRequest(req, requestDeps);
+  const body = await res.json() as Record<string, unknown>;
+
+  assertEquals(res.status, 403);
+  assertEquals(body["error"], "Owner / super-admin role required for this action");
+  assertEquals(calls.length, 0, "ABDM gateway must never be called for non-admin");
+});

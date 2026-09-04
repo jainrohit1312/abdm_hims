@@ -956,6 +956,8 @@ export function resolveInternalAction(
   const m = method.toUpperCase();
 
   if (path === "/session" && m === "POST") return "session";
+  // The production Flutter client uses POST `{"action":"bridge"}` on the bare
+  // function URL. Inbound PATCH remains supported for backward compatibility.
   if (path === "/bridge" && m === "PATCH") return "bridge";
   if (path === "/services" && (m === "POST" || m === "GET")) return "services";
   if (path === "/health" && m === "GET") return "health";
@@ -963,7 +965,7 @@ export function resolveInternalAction(
   if (!path) {
     const action = (bodyAction ?? queryAction ?? "").toLowerCase();
     if (action === "session" && m === "POST") return "session";
-    if (action === "bridge" && m === "PATCH") return "bridge";
+    if (action === "bridge" && (m === "POST" || m === "PATCH")) return "bridge";
     if (action === "services" && (m === "POST" || m === "GET")) return "services";
     if (action === "health" && m === "GET") return "health";
   }

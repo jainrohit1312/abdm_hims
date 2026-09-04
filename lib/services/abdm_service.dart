@@ -110,9 +110,11 @@ class AbdmService {
   /// "Please log in again." without making a network call.
   ///
   /// The Flutter client sends ONLY `{"action": "bridge"}` to the secure Edge
-  /// Function. The callback URL is never supplied, logged, persisted or
-  /// hard-coded by the client — the Edge Function resolves it exclusively from
-  /// the `ABDM_CALLBACK_BASE_URL` secret.
+  /// Function using **POST** (the Supabase API gateway rejects a lowercase
+  /// `patch` before the Edge Function can attach CORS headers). The callback
+  /// URL is never supplied, logged, persisted or hard-coded by the client — the
+  /// Edge Function resolves it exclusively from the `ABDM_CALLBACK_BASE_URL`
+  /// secret and issues the ABDM call as an uppercase PATCH server-side.
   ///
   /// The Supabase Functions client attaches the session's access token as
   /// `Authorization: Bearer <owner-jwt>` on the outgoing request internally;
@@ -127,7 +129,7 @@ class AbdmService {
         statusCode: 401,
       );
     }
-    return _invokeEdge('bridge', method: HttpMethod.patch);
+    return _invokeEdge('bridge');
   }
 
   /// Registers / updates HIP/HIU service definitions using the exact ABDM

@@ -375,7 +375,7 @@ void main() {
     );
 
     test(
-      'valid owner session sends exactly {"action":"bridge"} with PATCH',
+      'valid owner session sends exactly {"action":"bridge"} with POST',
       () async {
         late http.Request captured;
         final session = ownerSession();
@@ -423,7 +423,7 @@ void main() {
         expect(result.containsKey('clientSecret'), isFalse);
         expect(jsonEncode(result).contains('owner-jwt-raw-token'), isFalse);
 
-        expect(captured.method.toUpperCase(), 'PATCH');
+        expect(captured.method.toUpperCase(), 'POST');
         final sentBody = jsonDecode(captured.body) as Map<String, dynamic>;
         expect(sentBody, {'action': 'bridge'});
         expect(sentBody.containsKey('callbackUrl'), isFalse);
