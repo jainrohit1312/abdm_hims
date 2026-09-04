@@ -31,6 +31,12 @@
 //   ABDM_GET_SERVICES_PATH     (default /gateway/v1/bridges/getServices)
 //   ABDM_SERVICE_TYPES         (default HIP,HIU — confirm onboarding email)
 //
+// Non-secret configuration (safe to set in the dashboard):
+//   ABDM_CM_ID                Bridge-management X-CM-ID value. Defaults to
+//                             "sbx" ONLY when ABDM_BASE_URL hostname is
+//                             dev.abdm.gov.in. Set empty to disable. Never
+//                             read from the request body/query.
+//
 // The raw ABDM token never leaves this function. It is used only for outgoing
 // Bridge / service-management requests and cached in worker memory with an
 // expiration safety margin.

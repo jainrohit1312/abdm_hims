@@ -234,10 +234,13 @@ function requireConfig(env: Record<string, string | undefined>): GatewayConfig {
   const result = readConfig(env);
   if (!result.ok || !result.config) {
     // Never echo the missing secret VALUES (only the names).
-    throw new HttpError(
-      500,
-      `Missing Edge Function secrets: ${result.missing.join(", ")}`,
-    );
+    const problems = [
+      ...(result.missing.length > 0
+        ? [`Missing Edge Function secrets: ${result.missing.join(", ")}`]
+        : []),
+      ...result.errors,
+    ];
+    throw new HttpError(500, problems.join("; "));
   }
   return result.config;
 }
@@ -302,28 +305,47 @@ function sessionGatewayError(error: GatewayError): HttpError {
 
 /**
  * Logs exactly the allow-listed structured fields for the Bridge action.
- * Authorization headers, JWT, ABDM tokens, client id/secret and complete
- * request/response bodies are NEVER logged.
+ * Authorization headers, JWT, ABDM tokens, client id/secret, X-CM-ID raw
+ * value and complete request/response bodies are NEVER logged.
  */
-function logBridgeDiagnostic(diag: BridgeDiagnostic, req: Request): void {
-  const requestId = readHeader(req.headers, "x-request-id", "x-request_id", "request-id");
-
+function logBridgeDiagnostic(diag: BridgeDiagnostic, requestId: string): void {
   const entry: Record<string, unknown> = {
     operation: diag.operation,
-    upstreamHostname: diag.upstreamHostname,
+    hostname: diag.upstreamHostname,
     method: diag.method,
     pathname: diag.pathname,
   };
   if (diag.upstreamStatus !== null) entry.upstreamStatus = diag.upstreamStatus;
-  if (diag.contentType) entry.contentType = diag.contentType;
+  if (diag.initialUpstreamStatus !== null) {
+    entry.initialUpstreamStatus = diag.initialUpstreamStatus;
+  }
+  entry.freshTokenRetryPerformed = diag.freshTokenRetryPerformed;
+  if (diag.retryStatus !== null) entry.retryStatus = diag.retryStatus;
+  entry.cmContextApplied = diag.cmContextApplied;
   if (diag.errorCode) entry.errorCode = diag.errorCode;
   if (diag.errorMessage) entry.errorMessage = diag.errorMessage;
   if (diag.category === "timeout" || diag.category === "network") {
     entry.category = diag.category;
   }
-  if (requestId) entry.requestId = requestId;
+  entry.requestId = requestId;
 
   console.log(`abdm-gateway bridge_update ${JSON.stringify(entry)}`);
+}
+
+/** Returns a safe request id for diagnostics (validated inbound or generated). */
+function safeRequestId(req: Request): string {
+  const inbound = readHeader(req.headers, "x-request-id", "x-request_id", "request-id");
+  if (inbound && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(inbound)) {
+    return inbound;
+  }
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return `req_${crypto.randomUUID()}`;
+    }
+  } catch (_) {
+    // fall through to timestamp-based id
+  }
+  return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 async function handleBridge(
@@ -356,6 +378,7 @@ async function handleBridge(
 
   const bridgePath = resolveBridgePath(config);
   const tokenCache = deps.tokenCache ?? defaultTokenCache;
+  const requestId = safeRequestId(req);
   const gatewayBody: Record<string, unknown> = {
     url: config.callbackBaseUrl.trim(),
   };
@@ -373,7 +396,7 @@ async function handleBridge(
   } catch (error) {
     if (error instanceof GatewayError) {
       const diagnostic = buildBridgeGatewayDiagnostic(error, config);
-      logBridgeDiagnostic(diagnostic, req);
+      logBridgeDiagnostic(diagnostic, requestId);
       return jsonResponse(
         {
           error: diagnostic.message,
@@ -381,6 +404,12 @@ async function handleBridge(
           ...(diagnostic.upstreamStatus !== null
             ? { upstreamStatus: diagnostic.upstreamStatus }
             : {}),
+          freshTokenRetryPerformed: diagnostic.freshTokenRetryPerformed,
+          ...(diagnostic.retryStatus !== null
+            ? { retryStatus: diagnostic.retryStatus }
+            : {}),
+          cmContextApplied: diagnostic.cmContextApplied,
+          supportReference: requestId,
         },
         502,
       );
@@ -394,18 +423,24 @@ async function handleBridge(
       config.clientId,
       tokenCache.current?.accessToken ?? "",
     ]);
-    logBridgeDiagnostic(diagnostic, req);
+    logBridgeDiagnostic(diagnostic, requestId);
     return jsonResponse(
       {
         error: diagnostic.message,
         code: diagnostic.code,
         upstreamStatus: diagnostic.upstreamStatus,
+        freshTokenRetryPerformed: diagnostic.freshTokenRetryPerformed,
+        ...(diagnostic.retryStatus !== null
+          ? { retryStatus: diagnostic.retryStatus }
+          : {}),
+        cmContextApplied: diagnostic.cmContextApplied,
+        supportReference: requestId,
       },
       502,
     );
   }
 
-  logBridgeDiagnostic(buildBridgeSuccessDiagnostic(response, config), req);
+  logBridgeDiagnostic(buildBridgeSuccessDiagnostic(response, config), requestId);
 
   return jsonResponse({
     status: "bridge_configured",
@@ -417,29 +452,32 @@ async function handleBridge(
 
 /**
  * Logs exactly the allow-listed structured fields for the getServices action.
- * Authorization headers, JWT, ABDM tokens, client id/secret and complete
- * request/response bodies are NEVER logged.
+ * Authorization headers, JWT, ABDM tokens, client id/secret, X-CM-ID raw
+ * value and complete request/response bodies are NEVER logged.
  */
 function logGetServicesDiagnostic(
   diag: GetServicesDiagnostic,
-  req: Request,
+  requestId: string,
 ): void {
-  const requestId = readHeader(req.headers, "x-request-id", "x-request_id", "request-id");
-
   const entry: Record<string, unknown> = {
     operation: diag.operation,
-    upstreamHostname: diag.upstreamHostname,
+    hostname: diag.upstreamHostname,
     method: diag.method,
     pathname: diag.pathname,
   };
   if (diag.upstreamStatus !== null) entry.upstreamStatus = diag.upstreamStatus;
-  if (diag.contentType) entry.contentType = diag.contentType;
+  if (diag.initialUpstreamStatus !== null) {
+    entry.initialUpstreamStatus = diag.initialUpstreamStatus;
+  }
+  entry.freshTokenRetryPerformed = diag.freshTokenRetryPerformed;
+  if (diag.retryStatus !== null) entry.retryStatus = diag.retryStatus;
+  entry.cmContextApplied = diag.cmContextApplied;
   if (diag.errorCode) entry.errorCode = diag.errorCode;
   if (diag.errorMessage) entry.errorMessage = diag.errorMessage;
   if (diag.category === "timeout" || diag.category === "network") {
     entry.category = diag.category;
   }
-  if (requestId) entry.requestId = requestId;
+  entry.requestId = requestId;
 
   console.log(`abdm-gateway get_services ${JSON.stringify(entry)}`);
 }
@@ -450,6 +488,7 @@ async function handleInspectServices(
   req: Request,
 ): Promise<Response> {
   const tokenCache = deps.tokenCache ?? defaultTokenCache;
+  const requestId = safeRequestId(req);
 
   let response: GatewayHttpResponse;
   try {
@@ -463,7 +502,7 @@ async function handleInspectServices(
   } catch (error) {
     if (error instanceof GatewayError) {
       const diagnostic = buildGetServicesGatewayDiagnostic(error, config);
-      logGetServicesDiagnostic(diagnostic, req);
+      logGetServicesDiagnostic(diagnostic, requestId);
       return jsonResponse(
         {
           error: diagnostic.message,
@@ -471,6 +510,12 @@ async function handleInspectServices(
           ...(diagnostic.upstreamStatus !== null
             ? { upstreamStatus: diagnostic.upstreamStatus }
             : {}),
+          freshTokenRetryPerformed: diagnostic.freshTokenRetryPerformed,
+          ...(diagnostic.retryStatus !== null
+            ? { retryStatus: diagnostic.retryStatus }
+            : {}),
+          cmContextApplied: diagnostic.cmContextApplied,
+          supportReference: requestId,
         },
         502,
       );
@@ -484,19 +529,28 @@ async function handleInspectServices(
       config.clientId,
       tokenCache.current?.accessToken ?? "",
     ]);
-    logGetServicesDiagnostic(diagnostic, req);
+    logGetServicesDiagnostic(diagnostic, requestId);
     return jsonResponse(
       {
         error: diagnostic.message,
         code: diagnostic.code,
         upstreamStatus: diagnostic.upstreamStatus,
+        freshTokenRetryPerformed: diagnostic.freshTokenRetryPerformed,
+        ...(diagnostic.retryStatus !== null
+          ? { retryStatus: diagnostic.retryStatus }
+          : {}),
+        cmContextApplied: diagnostic.cmContextApplied,
+        supportReference: requestId,
       },
       502,
     );
   }
 
   const services = extractSanitizedServices(response.data);
-  logGetServicesDiagnostic(buildGetServicesSuccessDiagnostic(response, config), req);
+  logGetServicesDiagnostic(
+    buildGetServicesSuccessDiagnostic(response, config),
+    requestId,
+  );
 
   return jsonResponse({
     status: "services_fetched",

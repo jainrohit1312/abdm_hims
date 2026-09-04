@@ -419,6 +419,12 @@ enabled = true
 # actions (session / bridge / services / health) manually validate the
 # Supabase user JWT inside the function; public callback POST routes never
 # reach an administrative action.
+#
+# Non-secret env configuration used by the function (see index.ts for the
+# full secret list):
+#   ABDM_CM_ID  Bridge-management X-CM-ID value. Defaults to "sbx" ONLY when
+#               ABDM_BASE_URL hostname is dev.abdm.gov.in. Set empty to
+#               disable. Never read from the request body/query.
 # ---------------------------------------------------------------------------
 [functions.abdm-gateway]
 verify_jwt = false

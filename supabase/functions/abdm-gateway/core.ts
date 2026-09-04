@@ -78,6 +78,15 @@ export interface GatewayConfig {
    * CONFIRMATION from the onboarding email / current official docs.
    */
   allowedServiceTypes: string[];
+  /**
+   * Consent-manager context identifier for Bridge-management calls only
+   * (PATCH bridges / GET getServices / POST addUpdateServices).
+   *
+   * Not a secret. Empty string disables the X-CM-ID header. Defaults to
+   * `sbx` only when the ABDM_BASE_URL hostname is `dev.abdm.gov.in`.
+   * Never read from the request — server-side configuration only.
+   */
+  cmId: string;
   /** Seconds subtracted from token expiry before it is considered stale. */
   tokenSafetyMarginSeconds: number;
 }
@@ -86,10 +95,43 @@ export interface ConfigResult {
   ok: boolean;
   config?: GatewayConfig;
   missing: string[];
+  /** Non-secret configuration errors (for example an invalid ABDM_CM_ID). */
+  errors: string[];
 }
 
 /** Secret names that MUST exist only as Supabase Edge Function secrets. */
 export const REQUIRED_SECRET_NAMES = ["ABDM_CLIENT_ID", "ABDM_CLIENT_SECRET"] as const;
+
+/**
+ * X-CM-ID is a short, safe identifier (letters, digits, dot, underscore,
+ * colon, hyphen) of at most 32 characters. It is NOT a secret, but it must
+ * still be validated before it is ever added to an outgoing header, and its
+ * raw value is never logged.
+ */
+export const CM_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,31}$/;
+
+/** True when a value is usable as an X-CM-ID header value. */
+export function isValidCmId(value: string): boolean {
+  return CM_ID_PATTERN.test(value);
+}
+
+/**
+ * Default X-CM-ID for the ABDM base URL. The Sandbox consent-manager context
+ * `sbx` is applied only for the dev gateway; every other environment has no
+ * default so operators can set ABDM_CM_ID explicitly (or leave it disabled).
+ */
+export function defaultCmIdForBaseUrl(baseUrl: string): string {
+  return hostnameOfUrl(baseUrl) === "dev.abdm.gov.in" ? "sbx" : "";
+}
+
+/**
+ * Resolves the validated X-CM-ID header value from configuration.
+ * Empty string means "disabled" (header omitted).
+ */
+export function resolvedCmId(config: GatewayConfig): string {
+  const value = (config.cmId ?? "").trim();
+  return isValidCmId(value) ? value : "";
+}
 
 function csv(value: string): string[] {
   return value
@@ -102,6 +144,7 @@ export function readConfig(
   env: Record<string, string | undefined>,
 ): ConfigResult {
   const missing: string[] = [];
+  const errors: string[] = [];
   for (const name of REQUIRED_SECRET_NAMES) {
     const value = (env[name] ?? "").trim();
     if (!value) missing.push(name);
@@ -109,9 +152,31 @@ export function readConfig(
 
   const clientId = (env["ABDM_CLIENT_ID"] ?? "").trim();
   const clientSecret = (env["ABDM_CLIENT_SECRET"] ?? "").trim();
+  const baseUrl = (env["ABDM_BASE_URL"] ?? "https://dev.abdm.gov.in").trim();
+
+  // ABDM_CM_ID is not a secret: default `sbx` only for the dev gateway, allow
+  // explicit override, and allow an empty value to disable the header.
+  // The value is NEVER read from the request body/query/headers.
+  const rawCmId = env["ABDM_CM_ID"];
+  let cmId: string;
+  if (rawCmId === undefined) {
+    cmId = defaultCmIdForBaseUrl(baseUrl);
+  } else {
+    const trimmed = rawCmId.trim();
+    if (trimmed === "") {
+      cmId = "";
+    } else if (!isValidCmId(trimmed)) {
+      cmId = "";
+      errors.push(
+        "ABDM_CM_ID must be 1-32 characters using only letters, digits, dot, underscore, colon or hyphen",
+      );
+    } else {
+      cmId = trimmed;
+    }
+  }
 
   const config: GatewayConfig = {
-    baseUrl: (env["ABDM_BASE_URL"] ?? "https://dev.abdm.gov.in").trim(),
+    baseUrl,
     clientId,
     clientSecret,
     bridgeId: (env["ABDM_BRIDGE_ID"] ?? "").trim(),
@@ -125,10 +190,11 @@ export function readConfig(
     getServicesPath:
       (env["ABDM_GET_SERVICES_PATH"] ?? "/gateway/v1/bridges/getServices").trim(),
     allowedServiceTypes: csv(env["ABDM_SERVICE_TYPES"] ?? "HIP,HIU"),
+    cmId,
     tokenSafetyMarginSeconds: 120,
   };
 
-  return { ok: missing.length === 0, config, missing };
+  return { ok: missing.length === 0 && errors.length === 0, config, missing, errors };
 }
 
 /**
@@ -312,13 +378,35 @@ export interface GatewayHttpResponse {
   contentType: string | null;
 }
 
+/**
+ * Metadata attached to a gateway request that returned an HTTP response.
+ * `initialStatus` is the very first upstream status (before any fresh-token
+ * retry); `freshTokenRetryPerformed` / `retryStatus` describe the single
+ * retry that may have been attempted on 401/403.
+ */
+export interface GatewayRequestResult extends GatewayHttpResponse {
+  initialStatus: number | null;
+  freshTokenRetryPerformed: boolean;
+  retryStatus: number | null;
+  cmContextApplied: boolean;
+}
+
 export type GatewayErrorCategory = "timeout" | "network" | "http";
+
+export interface GatewayErrorMeta {
+  /** True when the 401/403 fresh-token retry had already been attempted. */
+  freshTokenRetryPerformed?: boolean;
+  /** The very first upstream status that triggered the retry, when known. */
+  initialStatus?: number | null;
+}
 
 export class GatewayError extends Error {
   readonly status: number;
   readonly body: unknown;
   readonly category: GatewayErrorCategory;
   readonly request?: GatewayRequestInfo;
+  readonly freshTokenRetryPerformed: boolean;
+  readonly initialStatus: number | null;
 
   constructor(
     status: number,
@@ -326,12 +414,15 @@ export class GatewayError extends Error {
     body?: unknown,
     category: GatewayErrorCategory = status === 0 ? "network" : "http",
     request?: GatewayRequestInfo,
+    meta?: GatewayErrorMeta,
   ) {
     super(message);
     this.status = status;
     this.body = body;
     this.category = category;
     this.request = request;
+    this.freshTokenRetryPerformed = meta?.freshTokenRetryPerformed === true;
+    this.initialStatus = meta?.initialStatus ?? null;
   }
 }
 
@@ -395,12 +486,22 @@ export function redactSensitiveText(value: string): string {
  * `Authorization: Bearer <access-token>` and `Content-Type: application/json`.
  * (The session-creation call itself sends ONLY Content-Type — it authenticates
  * with the clientId/clientSecret body.)
+ *
+ * For Bridge-management calls only, a validated `X-CM-ID` header is added when
+ * `cmId` is provided. Session creation must NOT use this builder.
  */
-export function buildGatewayHeaders(token: string): Record<string, string> {
-  return {
+export function buildGatewayHeaders(
+  token: string,
+  cmId?: string | null,
+): Record<string, string> {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
   };
+  const value = (cmId ?? "").trim();
+  // Defense in depth: only a validated identifier ever becomes a header value.
+  if (value && isValidCmId(value)) headers["X-CM-ID"] = value;
+  return headers;
 }
 
 export async function safeFetchJson(
@@ -631,10 +732,18 @@ export async function getAccessToken(
 }
 
 /**
- * Performs an authenticated ABDM gateway request. On a 401 the cached token is
- * invalidated and exactly one retry with a fresh session is attempted.
+ * Performs an authenticated ABDM gateway request with a single fresh-token
+ * retry on 401/403:
+ *
+ *   1. First attempt uses the current cached/reused token.
+ *   2. If ABDM returns 401 or 403, the in-memory token cache is invalidated,
+ *      one fresh session token is requested, and the identical operation is
+ *      repeated exactly once.
+ *   3. 400/404/405/429/5xx and network/timeout failures are NEVER retried.
+ *
  * Returns the parsed JSON response (already sanitized for any token-like
- * fields that the gateway might echo back).
+ * fields that the gateway might echo back) plus safe retry/context metadata.
+ * The raw access token never leaves this module.
  */
 export async function gatewayRequest(
   fetchImpl: FetchImpl,
@@ -643,19 +752,43 @@ export async function gatewayRequest(
   method: "GET" | "POST" | "PATCH" | "PUT",
   path: string,
   body?: unknown,
-): Promise<GatewayHttpResponse> {
+): Promise<GatewayRequestResult> {
+  const cmId = resolvedCmId(config);
+
   async function send(token: string): Promise<GatewayHttpResponse> {
     return safeFetchJson(fetchImpl, `${config.baseUrl}${path}`, {
       method,
-      headers: buildGatewayHeaders(token),
+      headers: buildGatewayHeaders(token, cmId),
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   }
 
   let response = await send(await getAccessToken(fetchImpl, config, cache));
-  if (response.status === 401) {
+  const initialStatus = response.status;
+  let freshTokenRetryPerformed = false;
+  let retryStatus: number | null = null;
+
+  if (response.status === 401 || response.status === 403) {
+    // Invalidate ONLY the in-memory token cache, then request one fresh
+    // session token and repeat the identical operation exactly once.
     cache.current = null;
-    response = await send(await getAccessToken(fetchImpl, config, cache));
+    try {
+      response = await send(await getAccessToken(fetchImpl, config, cache));
+    } catch (error) {
+      if (error instanceof GatewayError) {
+        throw new GatewayError(
+          error.status,
+          error.message,
+          error.body,
+          error.category,
+          error.request,
+          { freshTokenRetryPerformed: true, initialStatus },
+        );
+      }
+      throw error;
+    }
+    freshTokenRetryPerformed = true;
+    retryStatus = response.status;
   }
 
   return {
@@ -663,6 +796,10 @@ export async function gatewayRequest(
     status: response.status,
     data: sanitizePayload(response.data),
     contentType: response.contentType,
+    initialStatus,
+    freshTokenRetryPerformed,
+    retryStatus,
+    cmContextApplied: cmId !== "",
   };
 }
 
@@ -740,6 +877,31 @@ export interface BridgeDiagnostic {
   errorCode: string | null;
   /** Sanitized upstream error message (may be null). */
   errorMessage: string | null;
+  /** Status of the very first attempt (before any fresh-token retry). */
+  initialUpstreamStatus: number | null;
+  /** True when the single 401/403 fresh-token retry was performed. */
+  freshTokenRetryPerformed: boolean;
+  /** Status of the retry attempt (null when no retry was performed). */
+  retryStatus: number | null;
+  /** True when X-CM-ID was applied to the outgoing request. */
+  cmContextApplied: boolean;
+}
+
+/** Reads retry/context metadata from a GatewayRequestResult (defaults for plain responses). */
+function gatewayRequestMeta(response: GatewayHttpResponse | GatewayRequestResult): {
+  initialStatus: number | null;
+  freshTokenRetryPerformed: boolean;
+  retryStatus: number | null;
+  cmContextApplied: boolean;
+} {
+  const meta = response as Partial<GatewayRequestResult>;
+  return {
+    initialStatus:
+      typeof meta.initialStatus === "number" ? meta.initialStatus : response.status,
+    freshTokenRetryPerformed: meta.freshTokenRetryPerformed === true,
+    retryStatus: typeof meta.retryStatus === "number" ? meta.retryStatus : null,
+    cmContextApplied: meta.cmContextApplied === true,
+  };
 }
 
 const MAX_DIAGNOSTIC_TEXT_LENGTH = 160;
@@ -821,6 +983,7 @@ export function buildBridgeHttpDiagnostic(
   const status = response.status || 0;
   const upstream = extractSanitizedUpstreamError(response.data, secrets);
   const detail = upstream.message ?? upstream.code;
+  const meta = gatewayRequestMeta(response);
   return {
     operation: "bridge_update",
     code: status === 0 ? "ABDM_BRIDGE_NETWORK" : `ABDM_BRIDGE_${status}`,
@@ -835,6 +998,10 @@ export function buildBridgeHttpDiagnostic(
     category: "http",
     errorCode: upstream.code,
     errorMessage: upstream.message,
+    initialUpstreamStatus: status === 0 ? null : meta.initialStatus,
+    freshTokenRetryPerformed: meta.freshTokenRetryPerformed,
+    retryStatus: meta.retryStatus,
+    cmContextApplied: meta.cmContextApplied,
   };
 }
 
@@ -878,6 +1045,10 @@ export function buildBridgeGatewayDiagnostic(
     category,
     errorCode: null,
     errorMessage: null,
+    initialUpstreamStatus: error.initialStatus ?? upstreamStatus,
+    freshTokenRetryPerformed: error.freshTokenRetryPerformed,
+    retryStatus: null,
+    cmContextApplied: resolvedCmId(config) !== "",
   };
 }
 
@@ -886,6 +1057,7 @@ export function buildBridgeSuccessDiagnostic(
   response: GatewayHttpResponse,
   config: GatewayConfig,
 ): BridgeDiagnostic {
+  const meta = gatewayRequestMeta(response);
   return {
     operation: "bridge_update",
     code: "ABDM_BRIDGE_OK",
@@ -898,6 +1070,10 @@ export function buildBridgeSuccessDiagnostic(
     category: "http",
     errorCode: null,
     errorMessage: null,
+    initialUpstreamStatus: meta.initialStatus,
+    freshTokenRetryPerformed: meta.freshTokenRetryPerformed,
+    retryStatus: meta.retryStatus,
+    cmContextApplied: meta.cmContextApplied,
   };
 }
 
@@ -917,6 +1093,14 @@ export interface GetServicesDiagnostic {
   category: "timeout" | "network" | "http";
   errorCode: string | null;
   errorMessage: string | null;
+  /** Status of the very first attempt (before any fresh-token retry). */
+  initialUpstreamStatus: number | null;
+  /** True when the single 401/403 fresh-token retry was performed. */
+  freshTokenRetryPerformed: boolean;
+  /** Status of the retry attempt (null when no retry was performed). */
+  retryStatus: number | null;
+  /** True when X-CM-ID was applied to the outgoing request. */
+  cmContextApplied: boolean;
 }
 
 function sanitizeDiagnosticText(value: unknown): string {
@@ -1001,6 +1185,7 @@ export function buildGetServicesHttpDiagnostic(
   const status = response.status || 0;
   const upstream = extractSanitizedUpstreamError(response.data, secrets);
   const detail = upstream.message ?? upstream.code;
+  const meta = gatewayRequestMeta(response);
   return {
     operation: "get_services",
     code: status === 0 ? "ABDM_GET_SERVICES_NETWORK" : `ABDM_GET_SERVICES_${status}`,
@@ -1013,6 +1198,10 @@ export function buildGetServicesHttpDiagnostic(
     category: "http",
     errorCode: upstream.code,
     errorMessage: upstream.message,
+    initialUpstreamStatus: status === 0 ? null : meta.initialStatus,
+    freshTokenRetryPerformed: meta.freshTokenRetryPerformed,
+    retryStatus: meta.retryStatus,
+    cmContextApplied: meta.cmContextApplied,
   };
 }
 
@@ -1056,6 +1245,10 @@ export function buildGetServicesGatewayDiagnostic(
     category,
     errorCode: null,
     errorMessage: null,
+    initialUpstreamStatus: error.initialStatus ?? upstreamStatus,
+    freshTokenRetryPerformed: error.freshTokenRetryPerformed,
+    retryStatus: null,
+    cmContextApplied: resolvedCmId(config) !== "",
   };
 }
 
@@ -1064,6 +1257,7 @@ export function buildGetServicesSuccessDiagnostic(
   response: GatewayHttpResponse,
   config: GatewayConfig,
 ): GetServicesDiagnostic {
+  const meta = gatewayRequestMeta(response);
   return {
     operation: "get_services",
     code: "ABDM_GET_SERVICES_OK",
@@ -1074,6 +1268,10 @@ export function buildGetServicesSuccessDiagnostic(
     category: "http",
     errorCode: null,
     errorMessage: null,
+    initialUpstreamStatus: meta.initialStatus,
+    freshTokenRetryPerformed: meta.freshTokenRetryPerformed,
+    retryStatus: meta.retryStatus,
+    cmContextApplied: meta.cmContextApplied,
   };
 }
 

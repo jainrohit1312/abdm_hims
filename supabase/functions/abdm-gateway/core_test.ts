@@ -18,18 +18,22 @@ import {
   buildGatewayHeaders,
   buildGetServicesGatewayDiagnostic,
   buildGetServicesHttpDiagnostic,
+  defaultCmIdForBaseUrl,
   extractSanitizedServices,
   extractSanitizedUpstreamError,
+  gatewayRequest,
   getSubpath,
   isAdminRole,
   isLocalOrPrivateHost,
   isReservedSubpath,
+  isValidCmId,
   parsePositiveInt,
   persistCallback,
   readConfig,
   readJsonBody,
   redactSensitiveText,
   resolveBridgePath,
+  resolvedCmId,
   resolveInternalAction,
   sanitizePayload,
   validateCallbackBaseUrl,
@@ -69,6 +73,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     servicesPath: "/gateway/v1/bridges/addUpdateServices",
     getServicesPath: "/gateway/v1/bridges/getServices",
     allowedServiceTypes: ["HIP", "HIU"],
+    cmId: "sbx",
     tokenSafetyMarginSeconds: 120,
     ...overrides,
   };
@@ -126,8 +131,116 @@ Deno.test("readConfig uses the reviewed ABDM dev defaults", () => {
   assertEquals(result.config?.allowedServiceTypes, ["HIP", "HIU"]);
 });
 
+Deno.test("readConfig honors the production-confirmed ABDM_SESSION_PATH override", () => {
+  const result = readConfig({
+    ABDM_CLIENT_ID: "id",
+    ABDM_CLIENT_SECRET: "secret",
+    ABDM_SESSION_PATH: "/gateway/v0.5/sessions",
+  });
+  assertEquals(result.ok, true);
+  assertEquals(result.config?.sessionPath, "/gateway/v0.5/sessions");
+});
+
 Deno.test("resolveBridgePath does not append a bridge id", () => {
   assertEquals(resolveBridgePath(makeConfig()), "/gateway/v1/bridges");
+});
+
+// ----------------------------------------------------------------------------
+// 1a. ABDM_CM_ID configuration + X-CM-ID header builder
+// ----------------------------------------------------------------------------
+
+Deno.test("readConfig defaults ABDM_CM_ID to sbx only for dev.abdm.gov.in", () => {
+  const dev = readConfig({
+    ABDM_CLIENT_ID: "id",
+    ABDM_CLIENT_SECRET: "secret",
+  });
+  assertEquals(dev.ok, true);
+  assertEquals(dev.config?.cmId, "sbx");
+
+  const sandbox = readConfig({
+    ABDM_CLIENT_ID: "id",
+    ABDM_CLIENT_SECRET: "secret",
+    ABDM_BASE_URL: "https://sandbox.abdm.gov.in",
+  });
+  assertEquals(sandbox.ok, true);
+  assertEquals(sandbox.config?.cmId, "", "non-dev base URL must default to disabled");
+
+  const abha = readConfig({
+    ABDM_CLIENT_ID: "id",
+    ABDM_CLIENT_SECRET: "secret",
+    ABDM_BASE_URL: "https://abha.abdm.gov.in",
+  });
+  assertEquals(abha.config?.cmId, "");
+});
+
+Deno.test("readConfig allows explicit ABDM_CM_ID override and disable", () => {
+  const override = readConfig({
+    ABDM_CLIENT_ID: "id",
+    ABDM_CLIENT_SECRET: "secret",
+    ABDM_BASE_URL: "https://sandbox.abdm.gov.in",
+    ABDM_CM_ID: "prod-cm-01",
+  });
+  assertEquals(override.ok, true);
+  assertEquals(override.config?.cmId, "prod-cm-01");
+
+  const disabled = readConfig({
+    ABDM_CLIENT_ID: "id",
+    ABDM_CLIENT_SECRET: "secret",
+    ABDM_CM_ID: "   ",
+  });
+  assertEquals(disabled.ok, true);
+  assertEquals(disabled.config?.cmId, "");
+});
+
+Deno.test("readConfig rejects an invalid ABDM_CM_ID value", () => {
+  const result = readConfig({
+    ABDM_CLIENT_ID: "id",
+    ABDM_CLIENT_SECRET: "secret",
+    ABDM_CM_ID: "sbx<script>alert(1)</script>",
+  });
+  assertEquals(result.ok, false);
+  assert(result.errors.some((e) => e.includes("ABDM_CM_ID")), "invalid cm id must be reported");
+  assertEquals(result.config?.cmId, "");
+});
+
+Deno.test("isValidCmId accepts short safe identifiers only", () => {
+  assertEquals(isValidCmId("sbx"), true);
+  assertEquals(isValidCmId("prod-cm_01:eu"), true);
+  assertEquals(isValidCmId("a".repeat(32)), true);
+  assertEquals(isValidCmId(""), false);
+  assertEquals(isValidCmId("a".repeat(33)), false);
+  assertEquals(isValidCmId("sbx\nx"), false);
+  assertEquals(isValidCmId("sbx<script>"), false);
+  assertEquals(isValidCmId("with space"), false);
+});
+
+Deno.test("defaultCmIdForBaseUrl only defaults sbx for the dev gateway", () => {
+  assertEquals(defaultCmIdForBaseUrl("https://dev.abdm.gov.in"), "sbx");
+  assertEquals(defaultCmIdForBaseUrl("https://dev.abdm.gov.in/gateway"), "sbx");
+  assertEquals(defaultCmIdForBaseUrl("https://sandbox.abdm.gov.in"), "");
+  assertEquals(defaultCmIdForBaseUrl("https://abha.abdm.gov.in"), "");
+});
+
+Deno.test("buildGatewayHeaders adds X-CM-ID only when a validated value is supplied", () => {
+  assertEquals(buildGatewayHeaders("tok-123"), {
+    "Content-Type": "application/json",
+    Authorization: "Bearer tok-123",
+  });
+  assertEquals(buildGatewayHeaders("tok-123", "sbx"), {
+    "Content-Type": "application/json",
+    Authorization: "Bearer tok-123",
+    "X-CM-ID": "sbx",
+  });
+  assertEquals(buildGatewayHeaders("tok-123", ""), {
+    "Content-Type": "application/json",
+    Authorization: "Bearer tok-123",
+  });
+  assertEquals(buildGatewayHeaders("tok-123", "bad value"), {
+    "Content-Type": "application/json",
+    Authorization: "Bearer tok-123",
+  });
+  assertEquals(resolvedCmId(makeConfig({ cmId: "sbx" })), "sbx");
+  assertEquals(resolvedCmId(makeConfig({ cmId: "" })), "");
 });
 
 // ----------------------------------------------------------------------------
@@ -441,6 +554,161 @@ Deno.test("buildGatewayHeaders adds Authorization Bearer + Content-Type", () => 
     "Content-Type": "application/json",
     Authorization: "Bearer tok-123",
   });
+});
+
+// ----------------------------------------------------------------------------
+// 2a. gatewayRequest single fresh-token retry on 401/403
+// ----------------------------------------------------------------------------
+
+function gatewayRequestHarness(
+  operation: (url: string, init: RequestInit) => Response,
+  cache: TokenCacheRef,
+  config = makeConfig(),
+) {
+  const sessionCalls: string[] = [];
+  const operationCalls: { url: string; init: RequestInit }[] = [];
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string"
+      ? input
+      : input instanceof URL
+      ? input.toString()
+      : input.url;
+    if (url.endsWith(config.sessionPath)) {
+      sessionCalls.push(url);
+      return new Response(
+        JSON.stringify({ accessToken: `fresh-token-${sessionCalls.length}`, expiresIn: 3600 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    operationCalls.push({ url, init: init ?? {} });
+    return operation(url, init ?? {});
+  }) as typeof fetch;
+
+  return { fetchImpl, sessionCalls, operationCalls };
+}
+
+Deno.test("gatewayRequest first 403 invalidates cache, fetches a fresh session and retries once", async () => {
+  const cache: TokenCacheRef = {
+    current: {
+      accessToken: "stale-cached-token",
+      expiresAt: Date.now() + 3600_000,
+    },
+  };
+  let operationCalls = 0;
+  const { fetchImpl, sessionCalls } = gatewayRequestHarness(() => {
+    operationCalls += 1;
+    return new Response(JSON.stringify({ error: { code: "FORBIDDEN" } }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }, cache);
+
+  const result = await gatewayRequest(fetchImpl, makeConfig(), cache, "PATCH", "/gateway/v1/bridges", { url: "https://cb.example/abdm" });
+
+  assertEquals(result.status, 403);
+  assertEquals(result.initialStatus, 403);
+  assertEquals(result.freshTokenRetryPerformed, true);
+  assertEquals(result.retryStatus, 403);
+  assertEquals(result.cmContextApplied, true);
+  assertEquals(operationCalls, 2, "the operation must be attempted exactly twice");
+  assertEquals(sessionCalls.length, 1, "only one fresh session may be requested");
+  assert(result.data !== null && !JSON.stringify(result.data).includes("stale-cached-token"), "cached token must not be returned");
+});
+
+Deno.test("gatewayRequest retry succeeds on the second attempt", async () => {
+  const cache: TokenCacheRef = {
+    current: {
+      accessToken: "stale-cached-token",
+      expiresAt: Date.now() + 3600_000,
+    },
+  };
+  let operationCalls = 0;
+  const { fetchImpl } = gatewayRequestHarness(() => {
+    operationCalls += 1;
+    return operationCalls === 1
+      ? new Response(JSON.stringify({ error: "forbidden" }), { status: 403 })
+      : new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }, cache);
+
+  const result = await gatewayRequest(fetchImpl, makeConfig(), cache, "GET", "/gateway/v1/bridges/getServices");
+
+  assertEquals(result.ok, true);
+  assertEquals(result.status, 200);
+  assertEquals(result.freshTokenRetryPerformed, true);
+  assertEquals(result.retryStatus, 200);
+  assertEquals(operationCalls, 2);
+});
+
+Deno.test("gatewayRequest never retries 400/404/405/429/500", async () => {
+  for (const status of [400, 404, 405, 429, 500]) {
+    const cache: TokenCacheRef = {
+      current: {
+        accessToken: "cached-token",
+        expiresAt: Date.now() + 3600_000,
+      },
+    };
+    let operationCalls = 0;
+    const { fetchImpl, sessionCalls } = gatewayRequestHarness(() => {
+      operationCalls += 1;
+      return new Response(JSON.stringify({ error: `status ${status}` }), { status });
+    }, cache);
+
+    const result = await gatewayRequest(fetchImpl, makeConfig(), cache, "PATCH", "/gateway/v1/bridges", { url: "https://cb.example/abdm" });
+
+    assertEquals(result.status, status);
+    assertEquals(result.freshTokenRetryPerformed, false, `${status} must not be retried`);
+    assertEquals(result.retryStatus, null, `${status} must not produce a retry status`);
+    assertEquals(operationCalls, 1, `${status} must be attempted once only`);
+    assertEquals(sessionCalls.length, 0, `${status} must not trigger a fresh session`);
+  }
+});
+
+Deno.test("gatewayRequest never retries network or timeout failures", async () => {
+  for (const error of [new TypeError("fetch failed"), new DOMException("The operation timed out.", "TimeoutError")]) {
+    const cache: TokenCacheRef = {
+      current: {
+        accessToken: "cached-token",
+        expiresAt: Date.now() + 3600_000,
+      },
+    };
+    const { fetchImpl, sessionCalls } = gatewayRequestHarness(() => {
+      throw error;
+    }, cache);
+
+    let threw: GatewayError | null = null;
+    try {
+      await gatewayRequest(fetchImpl, makeConfig(), cache, "GET", "/gateway/v1/bridges/getServices");
+    } catch (e) {
+      threw = e as GatewayError;
+    }
+    assert(threw !== null, "network/timeout must throw");
+    assertEquals(threw!.freshTokenRetryPerformed, false, "network/timeout must not be retried");
+    assertEquals(sessionCalls.length, 0, "network/timeout must not trigger a fresh session");
+  }
+});
+
+Deno.test("gatewayRequest adds X-CM-ID to Bridge-management requests but never to session creation", async () => {
+  let bridgeHeaders: Record<string, string> = {};
+  let sessionHeaders: Record<string, string> = {};
+  const config = makeConfig();
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.endsWith(config.sessionPath)) {
+      sessionHeaders = init?.headers as Record<string, string>;
+      return new Response(JSON.stringify({ accessToken: "tok", expiresIn: 3600 }), { status: 200 });
+    }
+    bridgeHeaders = init?.headers as Record<string, string>;
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }) as typeof fetch;
+
+  const cache: TokenCacheRef = { current: null };
+  await gatewayRequest(fetchImpl, config, cache, "PATCH", "/gateway/v1/bridges", { url: "https://cb.example/abdm" });
+
+  assertEquals(sessionHeaders["X-CM-ID"] ?? null, null, "session creation must never receive X-CM-ID");
+  assertEquals(sessionHeaders["Content-Type"], "application/json");
+  assertEquals(bridgeHeaders["X-CM-ID"], "sbx");
+  assertEquals(bridgeHeaders["Content-Type"], "application/json");
+  assert(bridgeHeaders["Authorization"]?.startsWith("Bearer "), "Authorization must remain Bearer");
 });
 
 // ----------------------------------------------------------------------------
