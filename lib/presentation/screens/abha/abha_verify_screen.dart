@@ -11,6 +11,7 @@ import '../../../services/abdm_service.dart';
 import '../../widgets/smart_navigation.dart';
 import 'abdm_bridge_configure_button.dart';
 import 'abdm_connection_test_button.dart';
+import 'abdm_link_facility_hip_button.dart';
 import 'abdm_services_inspect_button.dart';
 import 'abdm_v3_bridge_inspect_button.dart';
 import 'abdm_v3_gateway_test_button.dart';
@@ -399,6 +400,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
           const AbdmServicesInspectButton(),
           const AbdmV3GatewayTestButton(),
           const AbdmV3BridgeInspectButton(),
+          const AbdmLinkFacilityHipButton(),
           TextButton.icon(
             onPressed: () => context.push('/abha/create'),
             icon: const Icon(Icons.add),
