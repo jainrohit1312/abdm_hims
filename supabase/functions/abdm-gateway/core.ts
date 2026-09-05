@@ -2251,12 +2251,100 @@ export function validateHfrLinkageInput(
 }
 
 /**
+ * Bounded, timed, redirect-safe JSON fetch for the HFR linkage endpoint. Like
+ * `v3FetchJson`, it never follows redirects (so the Bearer token can never be
+ * re-sent to another host) and enforces timeout + response-size limits. Unlike
+ * `v3FetchJson`, it preserves the raw text body when the response is not JSON
+ * so the caller can summarize a non-JSON/truncated body safely.
+ */
+async function hfrFetchJson(
+  fetchImpl: FetchImpl,
+  url: string,
+  init: RequestInit,
+  options: { timeoutMs?: number; maxBytes?: number } = {},
+): Promise<HfrGatewayHttpResponse> {
+  const timeoutMs = options.timeoutMs ?? HFR_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? HFR_MAX_BYTES;
+  const requestInfo: GatewayRequestInfo = {
+    method: (init?.method ?? "GET").toUpperCase(),
+    hostname: hostnameOfUrl(url),
+    pathname: pathnameOfUrl(url),
+  };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      ...init,
+      redirect: "manual",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const rawMessage = (error as Error)?.message ?? String(error);
+    const category: GatewayErrorCategory = isTimeoutError(error, rawMessage)
+      ? "timeout"
+      : "network";
+    throw new GatewayError(
+      0,
+      category === "timeout"
+        ? "ABDM HFR linkage service timed out"
+        : "ABDM HFR linkage service unreachable",
+      undefined,
+      category,
+      requestInfo,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const declared = Number(response.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new GatewayError(
+      response.status,
+      "ABDM HFR linkage response exceeded the size limit",
+      undefined,
+      "http",
+      requestInfo,
+    );
+  }
+
+  const text = await response.text();
+  if (text.length > maxBytes) {
+    throw new GatewayError(
+      response.status,
+      "ABDM HFR linkage response exceeded the size limit",
+      undefined,
+      "http",
+      requestInfo,
+    );
+  }
+
+  let data: unknown = null;
+  let rawText: string | null = null;
+  if (text.trim()) {
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      rawText = text;
+    }
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    data,
+    contentType: response.headers.get("content-type"),
+    rawText,
+  };
+}
+
+/**
  * POST /v1/bridges/MutipleHRPAddUpdateServices on the HFR Sandbox using the
  * CANONICAL V3 gateway access token as the Bearer credential. The deprecated
  * v0.5/v1 token cache is never read here.
  *
- * The bounded, redirect-safe V3 JSON fetch is reused so a Bearer token can
- * never be re-sent to another host and the response body stays capped.
  * Network/timeout GatewayErrors are re-labelled for the HFR operation.
  */
 export async function hfrPostAddUpdateServices(
@@ -2265,10 +2353,10 @@ export async function hfrPostAddUpdateServices(
   payload: HfrLinkagePayload,
   config: GatewayConfig,
   options: V3SessionRequestOptions = {},
-): Promise<GatewayHttpResponse> {
+): Promise<HfrGatewayHttpResponse> {
   const url = `${config.hfrBaseUrl}${config.hfrServicesPath}`;
   try {
-    return await v3FetchJson(
+    return await hfrFetchJson(
       fetchImpl,
       url,
       {
@@ -2302,6 +2390,237 @@ export async function hfrPostAddUpdateServices(
     }
     throw error;
   }
+}
+
+// ----------------------------------------------------------------------------
+// HFR upstream response summarization + semantic disposition
+// ----------------------------------------------------------------------------
+
+/** HFR HTTP response with the raw (non-JSON) text preserved for diagnostics. */
+export interface HfrGatewayHttpResponse extends GatewayHttpResponse {
+  rawText: string | null;
+}
+
+/** Sanitized, allow-listed summary of the HFR upstream response body. */
+export interface HfrUpstreamSummary {
+  status: number | null;
+  contentType: string | null;
+  bodyType: "json" | "text" | "empty";
+  code: string | null;
+  statusField: string | null;
+  message: string | null;
+  facilityId: string | null;
+  bridgeId: string | null;
+  error: string | null;
+  validation: string | null;
+}
+
+export type HfrBodyDisposition = "success" | "failure" | "unknown";
+
+export interface HfrResponseInterpretation {
+  disposition: HfrBodyDisposition;
+  summary: HfrUpstreamSummary;
+}
+
+const HFR_TEXT_LIMIT = 400;
+
+function hfrSafeText(value: unknown): string {
+  const text = typeof value === "string"
+    ? value
+    : typeof value === "number" || typeof value === "boolean"
+    ? String(value)
+    : "";
+  const clean = text.replace(/\s+/g, " ").trim();
+  return clean.length > HFR_TEXT_LIMIT
+    ? `${clean.slice(0, HFR_TEXT_LIMIT)}…`
+    : clean;
+}
+
+function hfrFirstDefinedString(
+  record: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (value === null || value === undefined) continue;
+    const text = hfrSafeText(value);
+    if (text) return redactSensitiveText(text);
+  }
+  return null;
+}
+
+function hfrErrorLike(value: unknown): string | null {
+  if (typeof value === "string") {
+    const text = hfrSafeText(value);
+    return text ? redactSensitiveText(text) : null;
+  }
+  if (typeof value === "object" && value !== null) {
+    const record = asRecord(value);
+    return hfrFirstDefinedString(record, [
+      "message",
+      "errorMessage",
+      "error_message",
+      "code",
+      "errorCode",
+      "error_code",
+      "description",
+      "detail",
+    ]);
+  }
+  return null;
+}
+
+/**
+ * Builds a sanitized summary of the HFR upstream response. Only whitelisted
+ * safe fields are read: status, content-type, body type, code/status/message,
+ * facilityId, bridgeId, and error/validation info. Tokens, secrets, Aadhaar,
+ * OTP and patient data are never included.
+ */
+export function summarizeHfrUpstreamResponse(
+  response: HfrGatewayHttpResponse,
+): HfrUpstreamSummary {
+  const data = sanitizePayload(response.data);
+  let bodyType: HfrUpstreamSummary["bodyType"] = "empty";
+  let code: string | null = null;
+  let statusField: string | null = null;
+  let message: string | null = null;
+  let facilityId: string | null = null;
+  let bridgeId: string | null = null;
+  let error: string | null = null;
+  let validation: string | null = null;
+
+  if (typeof data === "string") {
+    bodyType = "text";
+    message = hfrSafeText(redactSensitiveText(data));
+  } else if (Array.isArray(data)) {
+    bodyType = "json";
+    // HFR success bodies are objects; an array is summarized defensively with
+    // no whitelisted fields extracted.
+    message = null;
+  } else if (typeof data === "object" && data !== null) {
+    bodyType = "json";
+    const record = data as Record<string, unknown>;
+    code = hfrFirstDefinedString(record, [
+      "code",
+      "statusCode",
+      "status_code",
+      "errorCode",
+      "error_code",
+      "responseCode",
+    ]);
+    statusField = hfrFirstDefinedString(record, [
+      "status",
+      "statusValue",
+      "status_value",
+      "result",
+    ]);
+    message = hfrFirstDefinedString(record, [
+      "message",
+      "errorMessage",
+      "error_message",
+      "description",
+      "msg",
+    ]);
+    facilityId = hfrFirstDefinedString(record, ["facilityId", "facility_id"]);
+    bridgeId = hfrFirstDefinedString(record, ["bridgeId", "bridge_id"]);
+    error = hfrErrorLike(record["error"] ?? record["errors"]);
+    validation = hfrErrorLike(
+      record["validation"] ?? record["validationErrors"] ??
+        record["validation_errors"],
+    );
+  } else if (data !== null && data !== undefined) {
+    bodyType = "text";
+    message = hfrSafeText(redactSensitiveText(String(data)));
+  }
+
+  if (response.rawText && !message && bodyType === "empty") {
+    bodyType = "text";
+    message = hfrSafeText(redactSensitiveText(response.rawText));
+  }
+
+  return {
+    status: response.status,
+    contentType: response.contentType,
+    bodyType,
+    code,
+    statusField,
+    message,
+    facilityId,
+    bridgeId,
+    error,
+    validation,
+  };
+}
+
+const HFR_FAILURE_WORDS = [
+  "fail",
+  "error",
+  "invalid",
+  "reject",
+  "denied",
+  "unauthorized",
+  "forbidden",
+];
+const HFR_SUCCESS_STATUS_VALUES = new Set([
+  "success",
+  "accepted",
+  "ok",
+  "true",
+  "200",
+  "201",
+  "202",
+  "204",
+]);
+const HFR_SUCCESS_CODE_VALUES = new Set([
+  "success",
+  "accepted",
+  "ok",
+  "0",
+  "200",
+  "201",
+  "202",
+  "204",
+]);
+
+function hfrContainsFailureSignal(text: string | null): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  return HFR_FAILURE_WORDS.some((word) => lower.includes(word));
+}
+
+/**
+ * Interprets the HFR upstream body semantically. A 2xx status is NOT enough to
+ * classify the linkage as accepted:
+ *
+ *   - explicit error/validation/failure fields or words -> "failure"
+ *   - explicit success/status/accepted/ok signal and no failure -> "success"
+ *   - anything else (including empty, text, or unrecognized JSON) -> "unknown"
+ */
+export function interpretHfrUpstreamResponse(
+  response: HfrGatewayHttpResponse,
+): HfrResponseInterpretation {
+  const summary = summarizeHfrUpstreamResponse(response);
+
+  const failureEvidence =
+    hfrContainsFailureSignal(summary.code) ||
+    hfrContainsFailureSignal(summary.statusField) ||
+    hfrContainsFailureSignal(summary.message) ||
+    summary.error !== null ||
+    summary.validation !== null;
+
+  if (failureEvidence) return { disposition: "failure", summary };
+
+  const statusField = summary.statusField?.toLowerCase() ?? "";
+  const code = summary.code?.toLowerCase() ?? "";
+  const message = summary.message?.toLowerCase() ?? "";
+  const successSignal = HFR_SUCCESS_STATUS_VALUES.has(statusField) ||
+    HFR_SUCCESS_CODE_VALUES.has(code) ||
+    message.includes("success") ||
+    message.includes("accepted") ||
+    message.includes("ok");
+
+  if (successSignal) return { disposition: "success", summary };
+  return { disposition: "unknown", summary };
 }
 
 // ----------------------------------------------------------------------------

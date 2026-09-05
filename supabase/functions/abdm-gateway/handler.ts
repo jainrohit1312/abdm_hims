@@ -23,7 +23,10 @@ import {
   gatewayRequest,
   getSubpath,
   hfrPostAddUpdateServices,
+  type HfrGatewayHttpResponse,
+  type HfrUpstreamSummary,
   hostnameOfUrl,
+  interpretHfrUpstreamResponse,
   type InternalAction,
   isAdminRole,
   isM1ActionName,
@@ -1589,12 +1592,49 @@ function logHfrLinkage(
   console.log(`abdm-gateway hfr_linkage ${JSON.stringify(entry)}`);
 }
 
+function hfrUpstreamJson(summary: HfrUpstreamSummary): Record<string, unknown> {
+  return {
+    status: summary.status,
+    contentType: summary.contentType,
+    bodyType: summary.bodyType,
+    code: summary.code,
+    statusField: summary.statusField,
+    message: summary.message,
+    facilityId: summary.facilityId,
+    bridgeId: summary.bridgeId,
+  };
+}
+
+/**
+ * Single server-side log line for the HFR upstream response. Only whitelisted
+ * safe fields are logged — never tokens, secrets, headers, Aadhaar, OTP or
+ * patient data.
+ */
+function logHfrUpstreamResponse(
+  requestId: string,
+  summary: HfrUpstreamSummary,
+  facilityId: string,
+  bridgeId: string,
+): void {
+  const entry: Record<string, unknown> = {
+    operation: "hfr_upstream_response",
+    supportReference: requestId,
+    upstreamStatus: summary.status,
+    upstreamCode: summary.code,
+    upstreamMessage: summary.message,
+    facilityId,
+    bridgeId,
+  };
+  console.log(`abdm-gateway hfr_upstream_response ${JSON.stringify(entry)}`);
+}
+
 function hfrFailureResponse(
   requestId: string,
   code: string,
   message: string,
   upstreamStatus: number | null,
   category: "timeout" | "network" | "http" = "http",
+  hfrUpstream?: Record<string, unknown>,
 ): Response {
   logHfrLinkage(requestId, {
     method: "POST",
@@ -1608,6 +1648,7 @@ function hfrFailureResponse(
       error: message,
       code,
       ...(upstreamStatus !== null ? { upstreamStatus } : {}),
+      ...(hfrUpstream ? { hfrUpstream } : {}),
       supportReference: requestId,
     },
     502,
@@ -1962,7 +2003,7 @@ async function handlePostServices(
   );
   if (!bridgeVerification.ok) return bridgeVerification.response!;
 
-  let response: GatewayHttpResponse;
+  let response: HfrGatewayHttpResponse;
   try {
     response = await hfrPostAddUpdateServices(
       deps.fetchImpl,
@@ -1984,6 +2025,16 @@ async function handlePostServices(
     throw error;
   }
 
+  // Sanitized diagnostic summary of the actual HFR upstream response.
+  const interpretation = interpretHfrUpstreamResponse(response);
+  const hfrUpstream = hfrUpstreamJson(interpretation.summary);
+  logHfrUpstreamResponse(
+    requestId,
+    interpretation.summary,
+    payload.facilityId,
+    payload.HRP[0].bridgeId,
+  );
+
   if (!response.ok) {
     const status = response.status || 0;
     if (status === 401 || status === 403) {
@@ -1994,6 +2045,8 @@ async function handlePostServices(
         "HFR_AUTH_REJECTED",
         "ABDM HFR linkage was rejected: the V3 gateway access token was not accepted by HFR.",
         status,
+        "http",
+        hfrUpstream,
       );
     }
     return hfrFailureResponse(
@@ -2001,10 +2054,37 @@ async function handlePostServices(
       status === 0 ? "HFR_LINKAGE_NETWORK" : `HFR_LINKAGE_${status}`,
       `ABDM HFR linkage failed (HTTP ${status}).`,
       status === 0 ? null : status,
+      "http",
+      hfrUpstream,
     );
   }
 
-  // Accepted by HFR. Run exactly ONE normal verification sequence.
+  // A 2xx status alone does NOT mean the linkage was accepted. The body must
+  // semantically indicate success/accepted; an explicit failure/validation
+  // body inside HTTP 200 is a distinct sanitized failure code, and an
+  // unrecognized body never proceeds to verification.
+  if (interpretation.disposition === "failure") {
+    return hfrFailureResponse(
+      requestId,
+      "HFR_LINKAGE_REJECTED",
+      "ABDM HFR returned a failure/validation response inside HTTP 200; linkage was not accepted.",
+      response.status,
+      "http",
+      hfrUpstream,
+    );
+  }
+  if (interpretation.disposition === "unknown") {
+    return hfrFailureResponse(
+      requestId,
+      "HFR_LINKAGE_UNRECOGNIZED",
+      "ABDM HFR response did not semantically confirm acceptance; linkage was not treated as accepted.",
+      response.status,
+      "http",
+      hfrUpstream,
+    );
+  }
+
+  // Semantically accepted by HFR. Run exactly ONE normal verification sequence.
   const verification = await verifyHfrLinkageOnce(
     deps,
     tokenRecord.accessToken,
@@ -2032,6 +2112,7 @@ async function handlePostServices(
       : "HFR facility/HIP linkage accepted; verification pending ABDM propagation.",
     facilityId: payload.facilityId,
     bridgeId: payload.HRP[0].bridgeId,
+    hfrUpstream,
     verification: {
       byId: {
         serviceIdMatches: verification.byId.serviceIdMatches,

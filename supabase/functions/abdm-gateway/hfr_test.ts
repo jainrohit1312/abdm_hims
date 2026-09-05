@@ -745,3 +745,171 @@ Deno.test("hfr: by-id bridgeId match is required and allows verified when all ch
   const byId = verification["byId"] as Record<string, unknown>;
   assertEquals(byId["bridgeIdMatches"], true);
 });
+
+// ----------------------------------------------------------------------------
+// 9. HFR upstream response diagnostics + semantic acceptance
+// ----------------------------------------------------------------------------
+
+Deno.test("hfr: HTTP 200 with explicit success body includes sanitized hfrUpstream summary", async () => {
+  const { res, calls } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse({
+        status: "accepted",
+        code: "SUCCESS",
+        message: "Facility service accepted",
+        facilityId: "IN2810014366",
+        bridgeId: "bridge-1",
+      });
+    }
+    if (url.includes("/bridge-service/serviceId/IN2810014366")) {
+      return serviceByIdOkResponse();
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  assertEquals(res.status, 200);
+  assertEquals(body["status"], "linkage_verified");
+
+  const hfrUpstream = body["hfrUpstream"] as Record<string, unknown>;
+  assert(hfrUpstream, "hfrUpstream summary must be present");
+  assertEquals(hfrUpstream["status"], 200);
+  assertEquals(hfrUpstream["bodyType"], "json");
+  assertEquals(hfrUpstream["code"], "SUCCESS");
+  assertEquals(hfrUpstream["statusField"], "accepted");
+  assertEquals(hfrUpstream["facilityId"], "IN2810014366");
+  assertEquals(hfrUpstream["bridgeId"], "bridge-1");
+
+  // Exactly one HFR POST; no retries.
+  assertEquals(calls.filter((c) => c.url.includes("apihspsbx")).length, 1);
+});
+
+Deno.test("hfr: HTTP 200 with explicit failure/error body returns HFR_LINKAGE_REJECTED and skips verification", async () => {
+  const { res, calls } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse({
+        status: "200",
+        code: "ERROR",
+        message: "Facility validation failed",
+        error: "Invalid facility id",
+      });
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  assertEquals(res.status, 502);
+  assertEquals(body["code"], "HFR_LINKAGE_REJECTED");
+
+  const hfrUpstream = body["hfrUpstream"] as Record<string, unknown>;
+  assert(hfrUpstream, "hfrUpstream summary must be present");
+  assertEquals(hfrUpstream["status"], 200);
+  assertEquals(hfrUpstream["code"], "ERROR");
+
+  // No verification calls after a semantically rejected 200 body.
+  assertEquals(
+    calls.filter((c) => c.url.includes("/bridge-service/serviceId/")).length,
+    0,
+  );
+});
+
+Deno.test("hfr: non-2xx HFR response includes sanitized hfrUpstream summary", async () => {
+  const { res } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse({
+        status: "error",
+        message: "Internal server error",
+        error: "upstream exploded",
+      }, 500);
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  assertEquals(res.status, 502);
+  assertEquals(body["code"], "HFR_LINKAGE_500");
+  const hfrUpstream = body["hfrUpstream"] as Record<string, unknown>;
+  assert(hfrUpstream, "hfrUpstream summary must be present");
+  assertEquals(hfrUpstream["status"], 500);
+  assertEquals(hfrUpstream["statusField"], "error");
+});
+
+Deno.test("hfr: malformed/non-JSON 200 response returns HFR_LINKAGE_UNRECOGNIZED with truncated text", async () => {
+  const { res, calls } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return new Response("plain text body that is not json", {
+        status: 200,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  assertEquals(res.status, 502);
+  assertEquals(body["code"], "HFR_LINKAGE_UNRECOGNIZED");
+  const hfrUpstream = body["hfrUpstream"] as Record<string, unknown>;
+  assert(hfrUpstream, "hfrUpstream summary must be present");
+  assertEquals(hfrUpstream["status"], 200);
+  assertEquals(hfrUpstream["bodyType"], "text");
+  assertEquals(hfrUpstream["message"], "plain text body that is not json");
+
+  assertEquals(
+    calls.filter((c) => c.url.includes("/bridge-service/serviceId/")).length,
+    0,
+  );
+});
+
+Deno.test("hfr: diagnostics never leak tokens, secrets, Aadhaar or OTP", async () => {
+  const { res } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse({
+        status: "error",
+        message: "rejected",
+        accessToken: "hfr-access-token",
+        clientSecret: "hfr-client-secret",
+        aadhaar: "123456789012",
+        otp: "123456",
+        patient: { name: "Rahul" },
+      });
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const text = await res.text();
+  assert(!text.includes("hfr-access-token"), "token leaked");
+  assert(!text.includes("hfr-client-secret"), "client secret leaked");
+  assert(!text.includes("123456789012"), "Aadhaar leaked");
+  assert(!text.includes("123456"), "OTP leaked");
+  assert(!text.includes("Rahul"), "patient data leaked");
+});
