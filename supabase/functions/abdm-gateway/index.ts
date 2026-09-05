@@ -43,10 +43,15 @@
 // ============================================================================
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  createClient,
+  type SupabaseClient,
+} from "https://esm.sh/@supabase/supabase-js@2";
 import {
   handleRequest,
   type AuthenticatedUser,
+  type HospitalAbdmSettingsStore,
+  type M1TransactionStore,
 } from "./handler.ts";
 import { HttpError, persistCallback, type CallbackRow } from "./core.ts";
 
@@ -110,18 +115,7 @@ async function persistCallbackRow(
   env: Record<string, string | undefined>,
 ): Promise<void> {
   try {
-    const supabaseUrl = env["SUPABASE_URL"] ?? "";
-    const serviceRoleKey = env["SUPABASE_SERVICE_ROLE_KEY"] ?? "";
-    if (!supabaseUrl || !serviceRoleKey) {
-      console.error(
-        `abdm-gateway callback not persisted: missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (request_id=${row.request_id})`,
-      );
-      return;
-    }
-
-    const adminClient = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    const adminClient = createServiceRoleClient(env);
 
     const result = await persistCallback(
       {
@@ -146,6 +140,103 @@ async function persistCallbackRow(
   }
 }
 
+function createServiceRoleClient(
+  env: Record<string, string | undefined>,
+): SupabaseClient {
+  const supabaseUrl = env["SUPABASE_URL"] ?? "";
+  const serviceRoleKey = env["SUPABASE_SERVICE_ROLE_KEY"] ?? "";
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error(
+      "Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY for service-role access",
+    );
+  }
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+/**
+ * Server-side M1 transaction binding backed by `abdm_m1_transactions`.
+ *
+ * A browser-supplied ABDM `txnId` is validated against the row owned by the
+ * current HIMS user + hospital + operation before any continuation step
+ * (OTP verification / ABHA creation) may proceed. OTP and raw Aadhaar are
+ * never stored in this table.
+ */
+function m1TransactionStoreFor(
+  env: Record<string, string | undefined>,
+): M1TransactionStore {
+  return {
+    async findByTransactionId(transactionId) {
+      const adminClient = createServiceRoleClient(env);
+      const { data, error } = await adminClient
+        .from("abdm_m1_transactions")
+        .select(
+          "transaction_id, user_id, hospital_id, operation, expires_at, consumed_at",
+        )
+        .eq("transaction_id", transactionId)
+        .maybeSingle();
+      if (error) {
+        throw new Error(`M1 transaction lookup failed: ${error.message}`);
+      }
+      if (!data) return null;
+      return {
+        transactionId: String(data["transaction_id"]),
+        userId: String(data["user_id"]),
+        hospitalId: String(data["hospital_id"]),
+        operation: String(data["operation"]),
+        expiresAt: String(data["expires_at"]),
+        consumedAt: data["consumed_at"] ? String(data["consumed_at"]) : null,
+      };
+    },
+    async markConsumed(transactionId) {
+      const adminClient = createServiceRoleClient(env);
+      const { error } = await adminClient
+        .from("abdm_m1_transactions")
+        .update({ consumed_at: new Date().toISOString() })
+        .eq("transaction_id", transactionId)
+        .is("consumed_at", null);
+      if (error) {
+        throw new Error(`M1 transaction consume failed: ${error.message}`);
+      }
+    },
+  };
+}
+
+/**
+ * Server-side hospital ABDM/HFR settings backed by the `hospitals` table.
+ *
+ * facilityId is `hospitals.hfr_facility_id` (HFR facility id used as the ABDM
+ * V3 service-id), facilityName is `hospitals.name`, and hipName is the
+ * per-facility `hospitals.abdm_hip_name`. These values are never accepted from
+ * the Flutter client.
+ */
+function hospitalAbdmSettingsStoreFor(
+  env: Record<string, string | undefined>,
+): HospitalAbdmSettingsStore {
+  return {
+    async getByHospitalId(hospitalId) {
+      const adminClient = createServiceRoleClient(env);
+      const { data, error } = await adminClient
+        .from("hospitals")
+        .select("name, hfr_facility_id, abdm_hip_name")
+        .eq("id", hospitalId)
+        .maybeSingle();
+      if (error) {
+        throw new Error(`Hospital ABDM settings lookup failed: ${error.message}`);
+      }
+      if (!data) return null;
+      return {
+        facilityId: data["hfr_facility_id"]
+          ? String(data["hfr_facility_id"])
+          : "",
+        facilityName: data["name"] ? String(data["name"]) : "",
+        hipName: data["abdm_hip_name"] ? String(data["abdm_hip_name"]) : "",
+      };
+    },
+  };
+}
+
 // Only start the server when this file is the actual entrypoint (not when it
 // is imported by `deno test`).
 if (import.meta.main) {
@@ -156,5 +247,9 @@ if (import.meta.main) {
       authenticate: requireUser,
       persistCallbackRow: (row) =>
         persistCallbackRow(row, Deno.env.toObject()),
+      m1TransactionStore: m1TransactionStoreFor(Deno.env.toObject()),
+      hospitalAbdmSettingsStore: hospitalAbdmSettingsStoreFor(
+        Deno.env.toObject(),
+      ),
     }));
 }

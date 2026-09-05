@@ -73,6 +73,18 @@ export interface GatewayConfig {
    */
   getServicesPath: string;
   /**
+   * HFR software linkage base URL.
+   * Default `https://apihspsbx.abdm.gov.in/v4/int`. Override with
+   * ABDM_HFR_BASE_URL.
+   */
+  hfrBaseUrl: string;
+  /**
+   * HFR Multiple HRP AddUpdateServices endpoint path.
+   * Default `/v1/bridges/MutipleHRPAddUpdateServices`. Override with
+   * ABDM_HFR_SERVICES_PATH.
+   */
+  hfrServicesPath: string;
+  /**
    * Official service types accepted for `services[].type`. Configurable via
    * ABDM_SERVICE_TYPES (comma-separated). Defaults to HIP,HIU — REQUIRES
    * CONFIRMATION from the onboarding email / current official docs.
@@ -89,6 +101,52 @@ export interface GatewayConfig {
   cmId: string;
   /** Seconds subtracted from token expiry before it is considered stale. */
   tokenSafetyMarginSeconds: number;
+  /**
+   * ------------------------------------------------------------------------
+   * M1 (ABHA identity) contract configuration — CONTRACT-GATED.
+   * ------------------------------------------------------------------------
+   * Every value below is intentionally EMPTY by default. An empty value means
+   * "the official M1 contract for this client has not been confirmed yet", so
+   * the corresponding M1 action is STOPPED with ABDM_M1_CONTRACT_UNCONFIRMED
+   * before any outbound request is built. No endpoint path, method, request
+   * body, header set or encryption format for M1 is invented by this project.
+   *
+   * When the client supplies the current official Sandbox M1/ABHA contract,
+   * operators must set the exact values from that contract as Edge Function
+   * secrets (ABDM_M1_BASE_URL and the per-operation ABDM_M1_*_PATH entries).
+   * ------------------------------------------------------------------------
+   */
+  m1BaseUrl: string;
+  /** Official path for Aadhaar OTP generation. Empty = contract unconfirmed. */
+  m1GenerateAadhaarOtpPath: string;
+  /** Official path for Aadhaar OTP verification / eKYC. */
+  m1VerifyAadhaarOtpPath: string;
+  /** Official path for ABHA number creation (pre-verified flow). */
+  m1CreateAbhaPath: string;
+  /** Official path for ABHA profile retrieval. */
+  m1GetProfilePath: string;
+  /** Official path for ABHA number verification. */
+  m1VerifyAbhaNumberPath: string;
+  /** Official path for ABHA search by mobile. */
+  m1SearchByMobilePath: string;
+  /** Official path for ABHA Address verification. */
+  m1VerifyAbhaAddressPath: string;
+  /** Official path for ABHA card retrieval/download. */
+  m1GetAbhaCardPath: string;
+  /** Official path for ABHA QR retrieval. Empty = no official API confirmed. */
+  m1GetAbhaQrPath: string;
+  /**
+   * Roles allowed to perform patient-facing M1 operations (comma-separated,
+   * case-insensitive). Default `super_admin,admin,receptionist`. Bridge and
+   * service-management actions remain admin/super_admin-only.
+   */
+  m1AllowedRoles: string[];
+  /**
+   * Accepted ABHA Address domains (comma-separated). Default `abdm,sbx`.
+   * Configurable via ABDM_M1_ABHA_ADDRESS_SUFFIXES — never hard-coded to a
+   * single domain because the official contract may permit other domains.
+   */
+  m1AbhaAddressSuffixes: string[];
 }
 
 export interface ConfigResult {
@@ -100,7 +158,10 @@ export interface ConfigResult {
 }
 
 /** Secret names that MUST exist only as Supabase Edge Function secrets. */
-export const REQUIRED_SECRET_NAMES = ["ABDM_CLIENT_ID", "ABDM_CLIENT_SECRET"] as const;
+export const REQUIRED_SECRET_NAMES = [
+  "ABDM_CLIENT_ID",
+  "ABDM_CLIENT_SECRET",
+] as const;
 
 /**
  * X-CM-ID is a short, safe identifier (letters, digits, dot, underscore,
@@ -186,15 +247,51 @@ export function readConfig(
     sessionPath: (env["ABDM_SESSION_PATH"] ?? "/gateway/v1/sessions").trim(),
     bridgePath: (env["ABDM_BRIDGE_PATH"] ?? "/gateway/v1/bridges").trim(),
     servicesPath:
-      (env["ABDM_SERVICES_PATH"] ?? "/gateway/v1/bridges/addUpdateServices").trim(),
+      (env["ABDM_SERVICES_PATH"] ?? "/gateway/v1/bridges/addUpdateServices")
+        .trim(),
     getServicesPath:
-      (env["ABDM_GET_SERVICES_PATH"] ?? "/gateway/v1/bridges/getServices").trim(),
+      (env["ABDM_GET_SERVICES_PATH"] ?? "/gateway/v1/bridges/getServices")
+        .trim(),
+    hfrBaseUrl:
+      (env["ABDM_HFR_BASE_URL"] ?? "https://apihspsbx.abdm.gov.in/v4/int")
+        .trim(),
+    hfrServicesPath:
+      (env["ABDM_HFR_SERVICES_PATH"] ??
+        "/v1/bridges/MutipleHRPAddUpdateServices").trim(),
     allowedServiceTypes: csv(env["ABDM_SERVICE_TYPES"] ?? "HIP,HIU"),
     cmId,
     tokenSafetyMarginSeconds: 120,
+    // M1 contract configuration. All paths default to EMPTY so every M1
+    // action is contract-gated until the official client-supplied contract
+    // is configured by the operator. No M1 path/method/body is invented.
+    m1BaseUrl: (env["ABDM_M1_BASE_URL"] ?? "").trim(),
+    m1GenerateAadhaarOtpPath: (env["ABDM_M1_GENERATE_AADHAAR_OTP_PATH"] ?? "")
+      .trim(),
+    m1VerifyAadhaarOtpPath: (env["ABDM_M1_VERIFY_AADHAAR_OTP_PATH"] ?? "")
+      .trim(),
+    m1CreateAbhaPath: (env["ABDM_M1_CREATE_ABHA_PATH"] ?? "").trim(),
+    m1GetProfilePath: (env["ABDM_M1_GET_PROFILE_PATH"] ?? "").trim(),
+    m1VerifyAbhaNumberPath: (env["ABDM_M1_VERIFY_ABHA_NUMBER_PATH"] ?? "")
+      .trim(),
+    m1SearchByMobilePath: (env["ABDM_M1_SEARCH_BY_MOBILE_PATH"] ?? "").trim(),
+    m1VerifyAbhaAddressPath: (env["ABDM_M1_VERIFY_ABHA_ADDRESS_PATH"] ?? "")
+      .trim(),
+    m1GetAbhaCardPath: (env["ABDM_M1_GET_ABHA_CARD_PATH"] ?? "").trim(),
+    m1GetAbhaQrPath: (env["ABDM_M1_GET_ABHA_QR_PATH"] ?? "").trim(),
+    m1AllowedRoles: csv(
+      env["ABDM_M1_ALLOWED_ROLES"] ?? "super_admin,admin,receptionist",
+    ),
+    m1AbhaAddressSuffixes: csv(
+      env["ABDM_M1_ABHA_ADDRESS_SUFFIXES"] ?? "abdm,sbx",
+    ),
   };
 
-  return { ok: missing.length === 0 && errors.length === 0, config, missing, errors };
+  return {
+    ok: missing.length === 0 && errors.length === 0,
+    config,
+    missing,
+    errors,
+  };
 }
 
 /**
@@ -237,7 +334,9 @@ export function isLocalOrPrivateHost(hostname: string): boolean {
     const numeric = Number(host);
     if (Number.isFinite(numeric) && numeric >= 0 && numeric <= 0xffffffff) {
       return isLocalOrPrivateHost(
-        `${(numeric >>> 24) & 0xff}.${(numeric >>> 16) & 0xff}.${(numeric >>> 8) & 0xff}.${numeric & 0xff}`,
+        `${(numeric >>> 24) & 0xff}.${(numeric >>> 16) & 0xff}.${
+          (numeric >>> 8) & 0xff
+        }.${numeric & 0xff}`,
       );
     }
     return true;
@@ -277,7 +376,9 @@ export function isLocalOrPrivateHost(hostname: string): boolean {
       const value = Number.parseInt(last, 16);
       if (Number.isFinite(value)) {
         return isLocalOrPrivateHost(
-          `${(value >>> 24) & 0xff}.${(value >>> 16) & 0xff}.${(value >>> 8) & 0xff}.${value & 0xff}`,
+          `${(value >>> 24) & 0xff}.${(value >>> 16) & 0xff}.${
+            (value >>> 8) & 0xff
+          }.${value & 0xff}`,
         );
       }
       return true;
@@ -481,14 +582,11 @@ export function redactSensitiveText(value: string): string {
 }
 
 /**
- * Headers for every authenticated ABDM gateway request. Per the current
- * WorkingWithABDMapi authentication documentation, gateway requests carry
- * `Authorization: Bearer <access-token>` and `Content-Type: application/json`.
- * (The session-creation call itself sends ONLY Content-Type — it authenticates
- * with the clientId/clientSecret body.)
+ * LEGACY v0.5/v1 authenticated request headers. Kept intact for the legacy
+ * `addUpdateServices` flow. V3 production requests use
+ * `buildV3AuthenticatedHeaders` instead.
  *
- * For Bridge-management calls only, a validated `X-CM-ID` header is added when
- * `cmId` is provided. Session creation must NOT use this builder.
+ * @deprecated Use `buildV3AuthenticatedHeaders` for V3 requests.
  */
 export function buildGatewayHeaders(
   token: string,
@@ -588,7 +686,9 @@ export async function readJsonBody(
 
   try {
     const parsed = JSON.parse(text);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    if (
+      typeof parsed !== "object" || parsed === null || Array.isArray(parsed)
+    ) {
       return {
         ok: false,
         body: {},
@@ -642,10 +742,12 @@ export interface TokenCacheRef {
 }
 
 /**
- * Returns a cached ABDM access token when it is still valid (minus the safety
- * margin), otherwise POSTs to the configured ABDM session endpoint and caches
- * the new token. The token never leaves this module in raw form except through
- * the return value, which callers use only for outgoing gateway requests.
+ * LEGACY v0.5/v1 session management. Kept intact (do not delete) for the
+ * legacy `addUpdateServices` facility-registration flow until the official V3
+ * write contract is confirmed. New production session/Bridge/services actions
+ * must use `createV3Session` / `acquireV3AccessToken` instead.
+ *
+ * @deprecated Use the canonical V3 client (`acquireV3AccessToken`).
  */
 export async function acquireAccessToken(
   fetchImpl: FetchImpl,
@@ -690,8 +792,7 @@ export async function acquireAccessToken(
   }
 
   const body = asRecord(response.data);
-  const accessToken =
-    (body["accessToken"] as string | undefined) ??
+  const accessToken = (body["accessToken"] as string | undefined) ??
     (body["token"] as string | undefined) ??
     "";
   if (!accessToken) {
@@ -732,18 +833,13 @@ export async function getAccessToken(
 }
 
 /**
- * Performs an authenticated ABDM gateway request with a single fresh-token
- * retry on 401/403:
+ * LEGACY v0.5/v1 authenticated gateway request. Kept intact (do not delete)
+ * for the legacy `addUpdateServices` facility-registration flow until the
+ * official V3 write contract is confirmed. New production Bridge/services
+ * actions must use `v3GatewayRequest` / `v3GetBridgeServices` /
+ * `v3PatchBridgeUrl` instead.
  *
- *   1. First attempt uses the current cached/reused token.
- *   2. If ABDM returns 401 or 403, the in-memory token cache is invalidated,
- *      one fresh session token is requested, and the identical operation is
- *      repeated exactly once.
- *   3. 400/404/405/429/5xx and network/timeout failures are NEVER retried.
- *
- * Returns the parsed JSON response (already sanitized for any token-like
- * fields that the gateway might echo back) plus safe retry/context metadata.
- * The raw access token never leaves this module.
+ * @deprecated Use the canonical V3 client (`v3GatewayRequest`).
  */
 export async function gatewayRequest(
   fetchImpl: FetchImpl,
@@ -752,8 +848,10 @@ export async function gatewayRequest(
   method: "GET" | "POST" | "PATCH" | "PUT",
   path: string,
   body?: unknown,
+  options: { retryOnAuthFailure?: boolean } = {},
 ): Promise<GatewayRequestResult> {
   const cmId = resolvedCmId(config);
+  const retryOnAuthFailure = options.retryOnAuthFailure !== false;
 
   async function send(token: string): Promise<GatewayHttpResponse> {
     return safeFetchJson(fetchImpl, `${config.baseUrl}${path}`, {
@@ -768,7 +866,9 @@ export async function gatewayRequest(
   let freshTokenRetryPerformed = false;
   let retryStatus: number | null = null;
 
-  if (response.status === 401 || response.status === 403) {
+  if (
+    retryOnAuthFailure && (response.status === 401 || response.status === 403)
+  ) {
     // Invalidate ONLY the in-memory token cache, then request one fresh
     // session token and repeat the identical operation exactly once.
     cache.current = null;
@@ -835,7 +935,9 @@ function normalizeKey(key: string): string {
 export function sanitizePayload(value: unknown, depth = 0): unknown {
   if (value === null || value === undefined) return null;
   if (typeof value === "string") {
-    return value.length > 10_000 ? `${value.slice(0, 10_000)}...[truncated]` : value;
+    return value.length > 10_000
+      ? `${value.slice(0, 10_000)}...[truncated]`
+      : value;
   }
   if (typeof value === "number" || typeof value === "boolean") return value;
   if (typeof value === "bigint") return value.toString();
@@ -844,7 +946,9 @@ export function sanitizePayload(value: unknown, depth = 0): unknown {
   }
   if (typeof value === "object") {
     const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    for (
+      const [key, entry] of Object.entries(value as Record<string, unknown>)
+    ) {
       if (REDACT_KEYS.has(normalizeKey(key))) {
         out[key] = "[REDACTED]";
       } else {
@@ -888,7 +992,9 @@ export interface BridgeDiagnostic {
 }
 
 /** Reads retry/context metadata from a GatewayRequestResult (defaults for plain responses). */
-function gatewayRequestMeta(response: GatewayHttpResponse | GatewayRequestResult): {
+function gatewayRequestMeta(
+  response: GatewayHttpResponse | GatewayRequestResult,
+): {
   initialStatus: number | null;
   freshTokenRetryPerformed: boolean;
   retryStatus: number | null;
@@ -896,8 +1002,9 @@ function gatewayRequestMeta(response: GatewayHttpResponse | GatewayRequestResult
 } {
   const meta = response as Partial<GatewayRequestResult>;
   return {
-    initialStatus:
-      typeof meta.initialStatus === "number" ? meta.initialStatus : response.status,
+    initialStatus: typeof meta.initialStatus === "number"
+      ? meta.initialStatus
+      : response.status,
     freshTokenRetryPerformed: meta.freshTokenRetryPerformed === true,
     retryStatus: typeof meta.retryStatus === "number" ? meta.retryStatus : null,
     cmContextApplied: meta.cmContextApplied === true,
@@ -988,8 +1095,7 @@ export function buildBridgeHttpDiagnostic(
     operation: "bridge_update",
     code: status === 0 ? "ABDM_BRIDGE_NETWORK" : `ABDM_BRIDGE_${status}`,
     upstreamStatus: status === 0 ? null : status,
-    message:
-      `ABDM Bridge update failed (HTTP ${status})` +
+    message: `ABDM Bridge update failed (HTTP ${status})` +
       (detail ? `: ${detail}` : ""),
     upstreamHostname: hostnameOfUrl(config.baseUrl),
     method: "PATCH",
@@ -1019,19 +1125,17 @@ export function buildBridgeGatewayDiagnostic(
   };
   const target = error.request ?? fallback;
 
-  const code =
-    category === "timeout"
-      ? "ABDM_BRIDGE_TIMEOUT"
-      : category === "network"
-        ? "ABDM_BRIDGE_NETWORK"
-        : `ABDM_BRIDGE_${error.status}`;
+  const code = category === "timeout"
+    ? "ABDM_BRIDGE_TIMEOUT"
+    : category === "network"
+    ? "ABDM_BRIDGE_NETWORK"
+    : `ABDM_BRIDGE_${error.status}`;
 
-  const message =
-    category === "timeout"
-      ? "ABDM Bridge update timed out before receiving a response."
-      : category === "network"
-        ? "ABDM Bridge update failed: the ABDM gateway is unreachable."
-        : `ABDM Bridge update failed (HTTP ${error.status}).`;
+  const message = category === "timeout"
+    ? "ABDM Bridge update timed out before receiving a response."
+    : category === "network"
+    ? "ABDM Bridge update failed: the ABDM gateway is unreachable."
+    : `ABDM Bridge update failed (HTTP ${error.status}).`;
 
   return {
     operation: "bridge_update",
@@ -1128,15 +1232,55 @@ function sanitizeServiceEndpoint(endpoint: unknown): Record<string, unknown> {
   return out;
 }
 
+/**
+ * Normalizes ABDM service type information into the canonical V3 `types`
+ * array. The current official V3 schema uses `types: string[]`. For defensive
+ * backwards compatibility only, a legacy singular `type` is normalized to
+ * `[type]` when `types` is absent. Values are uppercased and deduplicated.
+ */
+export function normalizeServiceTypes(
+  record: Record<string, unknown>,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const normalized = value.trim().toUpperCase();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    out.push(normalized);
+  };
+
+  const rawTypes = record["types"];
+  if (Array.isArray(rawTypes)) {
+    for (const entry of rawTypes) push(entry);
+    if (out.length > 0) return out;
+  }
+  // Legacy defensive fallback: singular `type` only when `types` is absent
+  // (or present but not a usable non-empty array).
+  push(record["type"]);
+  return out;
+}
+
 function sanitizeServiceEntry(entry: unknown): Record<string, unknown> {
   const record = asRecord(entry);
   const out: Record<string, unknown> = {};
-  if (record["id"] !== undefined) out["id"] = sanitizeDiagnosticText(record["id"]);
-  if (record["name"] !== undefined) out["name"] = sanitizeDiagnosticText(record["name"]);
-  if (record["type"] !== undefined) out["type"] = sanitizeDiagnosticText(record["type"]);
+  const types = normalizeServiceTypes(record);
+  if (record["id"] !== undefined) {
+    out["id"] = sanitizeDiagnosticText(record["id"]);
+  }
+  if (record["name"] !== undefined) {
+    out["name"] = sanitizeDiagnosticText(record["name"]);
+  }
+  if (record["bridgeId"] !== undefined) {
+    out["bridgeId"] = sanitizeDiagnosticText(record["bridgeId"]);
+  }
+  if (types.length > 0) out["types"] = types;
   if (typeof record["active"] === "boolean") out["active"] = record["active"];
   if (Array.isArray(record["alias"])) {
-    out["alias"] = record["alias"].map((value) => sanitizeDiagnosticText(value));
+    out["alias"] = record["alias"].map((value) =>
+      sanitizeDiagnosticText(value)
+    );
   }
   if (Array.isArray(record["endpoints"])) {
     out["endpoints"] = record["endpoints"].map((endpoint) =>
@@ -1151,14 +1295,16 @@ function sanitizeServiceEntry(entry: unknown): Record<string, unknown> {
  * response. The raw payload first passes through `sanitizePayload` (key/value
  * redaction) and each remaining string is truncated and text-redacted.
  */
-export function extractSanitizedServices(data: unknown): Record<string, unknown>[] {
+export function extractSanitizedServices(
+  data: unknown,
+): Record<string, unknown>[] {
   const sanitized = sanitizePayload(data);
   const record = asRecord(sanitized);
   const raw = Array.isArray(sanitized)
     ? sanitized
     : Array.isArray(record["services"])
-      ? record["services"]
-      : [];
+    ? record["services"]
+    : [];
   return raw
     .filter((entry) => typeof entry === "object" && entry !== null)
     .map((entry) => sanitizeServiceEntry(entry));
@@ -1188,10 +1334,11 @@ export function buildGetServicesHttpDiagnostic(
   const meta = gatewayRequestMeta(response);
   return {
     operation: "get_services",
-    code: status === 0 ? "ABDM_GET_SERVICES_NETWORK" : `ABDM_GET_SERVICES_${status}`,
+    code: status === 0
+      ? "ABDM_GET_SERVICES_NETWORK"
+      : `ABDM_GET_SERVICES_${status}`,
     upstreamStatus: status === 0 ? null : status,
-    message:
-      `ABDM getServices failed (HTTP ${status})` +
+    message: `ABDM getServices failed (HTTP ${status})` +
       (detail ? `: ${detail}` : ""),
     ...getServicesBase(config),
     contentType: response.contentType,
@@ -1219,19 +1366,17 @@ export function buildGetServicesGatewayDiagnostic(
   };
   const target = error.request ?? fallback;
 
-  const code =
-    category === "timeout"
-      ? "ABDM_GET_SERVICES_TIMEOUT"
-      : category === "network"
-        ? "ABDM_GET_SERVICES_NETWORK"
-        : `ABDM_GET_SERVICES_${error.status}`;
+  const code = category === "timeout"
+    ? "ABDM_GET_SERVICES_TIMEOUT"
+    : category === "network"
+    ? "ABDM_GET_SERVICES_NETWORK"
+    : `ABDM_GET_SERVICES_${error.status}`;
 
-  const message =
-    category === "timeout"
-      ? "ABDM getServices timed out before receiving a response."
-      : category === "network"
-        ? "ABDM getServices failed: the ABDM gateway is unreachable."
-        : `ABDM getServices failed (HTTP ${error.status}).`;
+  const message = category === "timeout"
+    ? "ABDM getServices timed out before receiving a response."
+    : category === "network"
+    ? "ABDM getServices failed: the ABDM gateway is unreachable."
+    : `ABDM getServices failed (HTTP ${error.status}).`;
 
   return {
     operation: "get_services",
@@ -1276,6 +1421,1633 @@ export function buildGetServicesSuccessDiagnostic(
 }
 
 // ----------------------------------------------------------------------------
+// diagnoseV3Gateway action — isolated V3 session + bridge-services diagnostic
+// ----------------------------------------------------------------------------
+//
+// Contract source (recorded for this diagnostic):
+//   https://github.com/NHA-ABDM/ABDM-wrapper/blob/master/README.md
+//   commit bcc69513daddd18971a819a7afa44ec2b0ccf979
+//   Section: "Register bridge (hostUrl) with ABDM for callbacks".
+//
+// The README documents the V3 session and bridge-services REQUESTS (method,
+// headers and body). It does NOT document the response bodies. The wrapper
+// implementation parses the session response field `accessToken`
+// (SessionManager.java at the same commit), so this diagnostic requires an
+// object with a non-empty string `accessToken`; a 2xx without it is a protocol
+// failure. The bridge-services response body is NOT documented in the source,
+// so this diagnostic recognizes only explicit service-list shapes (a JSON
+// array, or an object carrying a `services` array) and reports anything else
+// as ABDM_V3_PROTOCOL_ERROR — never as an empty list.
+// ----------------------------------------------------------------------------
+
+/**
+ * Canonical production V3 gateway endpoints (verified live against Sandbox).
+ * The V3 origin is fixed for the Sandbox environment; production ABDM would
+ * use the production origin once configured by the operator.
+ */
+export const V3_GATEWAY_BASE_URL = "https://dev.abdm.gov.in";
+/** Official v3 session endpoint path (README curl example). */
+export const V3_GATEWAY_SESSION_PATH = "/api/hiecm/gateway/v3/sessions";
+/** Official v3 bridge-services endpoint path (README curl example). */
+export const V3_GATEWAY_BRIDGE_SERVICES_PATH =
+  "/api/hiecm/gateway/v3/bridge-services";
+/** Official v3 Bridge URL mutation endpoint path (README curl example). */
+export const V3_GATEWAY_BRIDGE_URL_PATH = "/api/hiecm/gateway/v3/bridge/url";
+/** Official v3 single bridge-service read endpoint (service-id = HFR facility id). */
+export const V3_GATEWAY_BRIDGE_SERVICE_BY_ID_PATH =
+  "/api/hiecm/gateway/v3/bridge-service/serviceId";
+/** Fixed Sandbox X-CM-ID. Never read from the request. */
+export const V3_GATEWAY_CM_ID = "sbx";
+/** Per-request upstream timeout for V3 production requests. */
+export const V3_GATEWAY_TIMEOUT_MS = 15_000;
+/** Hard cap for each V3 production response body. */
+export const V3_GATEWAY_MAX_BYTES = 512_000;
+
+// ---------------------------------------------------------------------------
+// Deprecated diagnostic-era aliases. Kept so older imports/tests keep working;
+// new code must use the V3_GATEWAY_* canonical names.
+// ---------------------------------------------------------------------------
+/** @deprecated Use V3_GATEWAY_BASE_URL. */
+export const V3_DIAGNOSTIC_BASE_URL = V3_GATEWAY_BASE_URL;
+/** @deprecated Use V3_GATEWAY_SESSION_PATH. */
+export const V3_SESSION_PATH = V3_GATEWAY_SESSION_PATH;
+/** @deprecated Use V3_GATEWAY_BRIDGE_SERVICES_PATH. */
+export const V3_BRIDGE_SERVICES_PATH = V3_GATEWAY_BRIDGE_SERVICES_PATH;
+/** @deprecated Use V3_GATEWAY_CM_ID. */
+export const V3_DIAGNOSTIC_CM_ID = V3_GATEWAY_CM_ID;
+/** @deprecated Use V3_GATEWAY_TIMEOUT_MS. */
+export const V3_DIAGNOSTIC_TIMEOUT_MS = V3_GATEWAY_TIMEOUT_MS;
+/** @deprecated Use V3_GATEWAY_MAX_BYTES. */
+export const V3_DIAGNOSTIC_MAX_BYTES = V3_GATEWAY_MAX_BYTES;
+
+/**
+ * Production V3 token cache (worker memory). This cache is COMPLETELY SEPARATE
+ * from the legacy v0.5/v1 `TokenCacheRef`; the two must never be mixed.
+ */
+export interface V3TokenRecord {
+  accessToken: string;
+  expiresAt: number;
+}
+
+export interface V3TokenCacheRef {
+  current: V3TokenRecord | null;
+}
+
+/** Generates a fresh REQUEST-ID (UUID v4) for every outbound V3 request. */
+export function freshV3RequestId(): string {
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+  } catch (_) {
+    // fall through to timestamp-based id
+  }
+  return `${Date.now().toString(36)}-${
+    Math.random().toString(36).slice(2, 10)
+  }`;
+}
+
+/** Current UTC ISO-8601 timestamp for outbound V3 requests. */
+export function freshV3Timestamp(): string {
+  return new Date().toISOString();
+}
+
+/** Headers for the V3 session-creation POST (no Authorization header). */
+export function buildV3SessionHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "REQUEST-ID": freshV3RequestId(),
+    "TIMESTAMP": freshV3Timestamp(),
+    "X-CM-ID": V3_GATEWAY_CM_ID,
+  };
+}
+
+/**
+ * Headers for authenticated V3 requests (bridge-services GET / bridge url
+ * PATCH). Content-Type is added separately by callers that send a body.
+ */
+export function buildV3AuthenticatedHeaders(
+  token: string,
+): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    "REQUEST-ID": freshV3RequestId(),
+    "TIMESTAMP": freshV3Timestamp(),
+    "X-CM-ID": V3_GATEWAY_CM_ID,
+  };
+}
+
+export interface V3SessionRequestOptions {
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface V3SessionSuccess {
+  ok: true;
+  token: string;
+  expiresAt: number;
+  upstreamStatus: number;
+}
+
+export interface V3SessionFailure {
+  ok: false;
+  category: V3FailureCategory;
+  /** Present only when an HTTP response existed (null for network/timeout). */
+  status: number | null;
+  message: string;
+}
+
+export type V3SessionResult = V3SessionSuccess | V3SessionFailure;
+
+/**
+ * THE single implementation of the official V3 session POST:
+ *
+ *   POST https://dev.abdm.gov.in/api/hiecm/gateway/v3/sessions
+ *   Content-Type: application/json
+ *   REQUEST-ID: fresh UUID
+ *   TIMESTAMP: current UTC ISO-8601
+ *   X-CM-ID: sbx
+ *   body: { clientId, clientSecret, grantType: "client_credentials" }
+ *
+ * No Authorization header is sent. The token is returned to the caller and is
+ * never logged. This function always performs a fresh POST; cached production
+ * flows use `acquireV3AccessToken`.
+ */
+export async function createV3Session(
+  fetchImpl: FetchImpl,
+  config: GatewayConfig,
+  options: V3SessionRequestOptions = {},
+): Promise<V3SessionResult> {
+  let response: GatewayHttpResponse;
+  try {
+    response = await v3FetchJson(
+      fetchImpl,
+      `${V3_GATEWAY_BASE_URL}${V3_GATEWAY_SESSION_PATH}`,
+      {
+        method: "POST",
+        headers: buildV3SessionHeaders(),
+        body: JSON.stringify({
+          clientId: config.clientId,
+          clientSecret: config.clientSecret,
+          grantType: "client_credentials",
+        }),
+      },
+      options,
+    );
+  } catch (error) {
+    if (error instanceof GatewayError) {
+      const status = error.status === 0 ? null : error.status;
+      return {
+        ok: false,
+        category: error.category,
+        status,
+        message: error.message,
+      };
+    }
+    throw error;
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      category: "http",
+      status: response.status,
+      message:
+        `V3 session request failed: ABDM returned HTTP ${response.status}.`,
+    };
+  }
+
+  const parsed = parseV3SessionResponse(response.data);
+  if (!parsed.ok || !parsed.accessToken) {
+    return {
+      ok: false,
+      category: "protocol",
+      status: response.status,
+      message: "V3 session response did not match the documented schema.",
+    };
+  }
+
+  const body = asRecord(response.data);
+  const expiresIn = parsePositiveInt(
+    body["expiresIn"] ?? body["expires_in"],
+    3600,
+  );
+
+  return {
+    ok: true,
+    token: parsed.accessToken,
+    expiresAt: Date.now() + expiresIn * 1000,
+    upstreamStatus: response.status,
+  };
+}
+
+/**
+ * Returns a cached V3 access token when still valid, otherwise creates a fresh
+ * V3 session and caches it in the SEPARATE V3 token cache. The legacy
+ * v0.5/v1 `TokenCacheRef` is never read, written or invalidated here.
+ */
+export async function acquireV3AccessToken(
+  fetchImpl: FetchImpl,
+  config: GatewayConfig,
+  cache: V3TokenCacheRef,
+  options: V3SessionRequestOptions & { forceRefresh?: boolean } = {},
+): Promise<V3TokenRecord> {
+  const now = Date.now();
+  const cached = cache.current;
+  if (
+    !options.forceRefresh &&
+    cached &&
+    now < cached.expiresAt - config.tokenSafetyMarginSeconds * 1000
+  ) {
+    return cached;
+  }
+
+  const result = await createV3Session(fetchImpl, config, options);
+  if (!result.ok) {
+    throw new GatewayError(
+      result.status ?? 0,
+      result.message,
+      undefined,
+      result.category === "protocol" ? "http" : result.category,
+      {
+        method: "POST",
+        hostname: hostnameOfUrl(V3_GATEWAY_BASE_URL),
+        pathname: V3_GATEWAY_SESSION_PATH,
+      },
+    );
+  }
+
+  const record: V3TokenRecord = {
+    accessToken: result.token,
+    expiresAt: result.expiresAt,
+  };
+  cache.current = record;
+  return record;
+}
+
+/**
+ * Performs an authenticated production V3 request using the SEPARATE V3 token
+ * cache. Unlike the legacy `gatewayRequest`, it never performs a fresh-token
+ * retry (the verified V3 flow is deterministic and the diagnostics previously
+ * required, and still require, no automatic retries).
+ */
+export async function v3GatewayRequest(
+  fetchImpl: FetchImpl,
+  config: GatewayConfig,
+  cache: V3TokenCacheRef,
+  method: "GET" | "POST" | "PATCH",
+  path: string,
+  body?: unknown,
+  options: V3SessionRequestOptions = {},
+): Promise<GatewayRequestResult> {
+  const token = await acquireV3AccessToken(fetchImpl, config, cache, options);
+  const headers = buildV3AuthenticatedHeaders(token.accessToken);
+  if (method === "POST" || method === "PATCH") {
+    headers["Content-Type"] = "application/json";
+  }
+
+  const response = await v3FetchJson(
+    fetchImpl,
+    `${V3_GATEWAY_BASE_URL}${path}`,
+    {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+    options,
+  );
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    data: response.data,
+    contentType: response.contentType,
+    initialStatus: response.status,
+    freshTokenRetryPerformed: false,
+    retryStatus: null,
+    cmContextApplied: true,
+  };
+}
+
+/**
+ * Direct authenticated V3 GET bridge-services using an explicit fresh token
+ * (used by the thin diagnostic wrappers so each diagnostic click performs
+ * exactly one session POST + one services GET, without touching any cache).
+ */
+export async function v3GetBridgeServices(
+  fetchImpl: FetchImpl,
+  token: string,
+  options: V3SessionRequestOptions = {},
+): Promise<GatewayHttpResponse> {
+  return v3FetchJson(
+    fetchImpl,
+    `${V3_GATEWAY_BASE_URL}${V3_GATEWAY_BRIDGE_SERVICES_PATH}`,
+    {
+      method: "GET",
+      headers: buildV3AuthenticatedHeaders(token),
+    },
+    options,
+  );
+}
+
+/**
+ * Direct authenticated V3 GET bridge-service/serviceId/{service-id}. The
+ * service-id is the configured HFR facility id. Uses the same bounded,
+ * redirect-safe V3 fetch and never touches the legacy token cache.
+ */
+export async function v3GetBridgeServiceById(
+  fetchImpl: FetchImpl,
+  token: string,
+  serviceId: string,
+  options: V3SessionRequestOptions = {},
+): Promise<GatewayHttpResponse> {
+  const trimmed = serviceId.trim();
+  const path = `${V3_GATEWAY_BRIDGE_SERVICE_BY_ID_PATH}/${encodeURIComponent(trimmed)}`;
+  return v3FetchJson(
+    fetchImpl,
+    `${V3_GATEWAY_BASE_URL}${path}`,
+    {
+      method: "GET",
+      headers: buildV3AuthenticatedHeaders(token),
+    },
+    options,
+  );
+}
+
+/**
+ * Direct authenticated V3 PATCH bridge/url with the official body
+ * `{"url": "<callback URL>"}` and Content-Type application/json.
+ */
+export async function v3PatchBridgeUrl(
+  fetchImpl: FetchImpl,
+  token: string,
+  url: string,
+  options: V3SessionRequestOptions = {},
+): Promise<GatewayHttpResponse> {
+  return v3FetchJson(
+    fetchImpl,
+    `${V3_GATEWAY_BASE_URL}${V3_GATEWAY_BRIDGE_URL_PATH}`,
+    {
+      method: "PATCH",
+      headers: {
+        ...buildV3AuthenticatedHeaders(token),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url }),
+    },
+    options,
+  );
+}
+
+export type V3Stage = "session" | "services" | "complete";
+export type V3FailureCategory = "timeout" | "network" | "http" | "protocol";
+
+/** Safe, allow-listed diagnostic result returned by the V3 diagnostic action. */
+export interface V3DiagnosticResult {
+  operation: "diagnoseV3Gateway";
+  environment: "sandbox";
+  sessionSucceeded: boolean;
+  /** Present only when the ABDM session request produced an HTTP response. */
+  sessionUpstreamStatus: number | null;
+  servicesSucceeded: boolean;
+  /** Present only when the ABDM services request produced an HTTP response. */
+  servicesUpstreamStatus: number | null;
+  /** Present only when a recognized service-list shape was parsed. */
+  serviceCount: number | null;
+  /** Sanitized id/name/type/active entries (allow-listed fields only). */
+  services: Record<string, unknown>[];
+  supportReference: string;
+  stage: V3Stage;
+  /** Structured failure code (ABDM_V3_*) or "ABDM_V3_OK" on success. */
+  code: string | null;
+  message: string;
+  upstreamHostname: string;
+  method: string;
+  pathname: string;
+  category: V3FailureCategory | "ok";
+  durationMs: number;
+}
+
+/**
+ * Sanitized, allow-listed envelope inspection produced by the read-only
+ * `inspectV3Bridge` action. It intentionally describes the SHAPE of the real
+ * bridge-services response (types, field names, safe values) so operators can
+ * understand the actual V3 schema without any mutation and without exposing
+ * tokens, secrets, cookies, credentials or patient information.
+ */
+export interface V3EnvelopeInspection {
+  /** JSON type of the bridge-services body, or null when no body existed. */
+  topLevelType: string | null;
+  /** Safe top-level field names (sensitive names are never echoed). */
+  topLevelFieldNames: string[];
+  /** Whether a `bridge` object exists and its safe field names. */
+  bridge: { exists: boolean; fieldNames: string[] };
+  /** Whether a URL/hostUrl-like field exists and its sanitized safe value. */
+  bridgeUrl: { exists: boolean; value: string | null };
+  /** Whether a `services` array exists, its length and sanitized items. */
+  services: {
+    exists: boolean;
+    length: number | null;
+    items: Record<string, unknown>[];
+  };
+  /** Top-level field names outside the recognized bridge/services envelope. */
+  unknownEnvelopeFieldNames: string[];
+}
+
+/** Safe, allow-listed result returned by the read-only `inspectV3Bridge` action. */
+export interface V3BridgeInspectResult {
+  operation: "inspectV3Bridge";
+  environment: "sandbox";
+  sessionSucceeded: boolean;
+  sessionUpstreamStatus: number | null;
+  servicesSucceeded: boolean;
+  servicesUpstreamStatus: number | null;
+  supportReference: string;
+  stage: V3Stage;
+  code: string | null;
+  message: string;
+  upstreamHostname: string;
+  method: string;
+  pathname: string;
+  category: V3FailureCategory | "ok";
+  durationMs: number;
+  /** Envelope inspection; null on session/services failure. */
+  envelope: V3EnvelopeInspection | null;
+}
+
+export interface V3SessionParseResult {
+  ok: boolean;
+  accessToken?: string;
+}
+
+export type V3ServicesParseKind =
+  | "recognized-empty"
+  | "recognized-list"
+  | "unexpected";
+
+export interface V3ServicesParseResult {
+  kind: V3ServicesParseKind;
+  services: Record<string, unknown>[];
+}
+
+/**
+ * Parses the V3 session response using the wrapper-documented `accessToken`
+ * field. The body must be a JSON object containing a non-empty string
+ * `accessToken`; any other 2xx body (missing field, wrong type, array, null or
+ * non-JSON) is a protocol failure, not a silent success.
+ */
+export function parseV3SessionResponse(data: unknown): V3SessionParseResult {
+  const record = asRecord(data);
+  const accessToken = record["accessToken"];
+  if (typeof accessToken !== "string" || accessToken.trim() === "") {
+    return { ok: false };
+  }
+  return { ok: true, accessToken: accessToken.trim() };
+}
+
+function sanitizeV3ServiceEntry(entry: unknown): Record<string, unknown> {
+  const record = asRecord(entry);
+  const out: Record<string, unknown> = {};
+  const types = normalizeServiceTypes(record);
+  if (record["id"] !== undefined) {
+    out["id"] = sanitizeDiagnosticText(record["id"]);
+  }
+  if (record["name"] !== undefined) {
+    out["name"] = sanitizeDiagnosticText(record["name"]);
+  }
+  if (record["bridgeId"] !== undefined) {
+    out["bridgeId"] = sanitizeDiagnosticText(record["bridgeId"]);
+  }
+  if (types.length > 0) out["types"] = types;
+  if (typeof record["active"] === "boolean") out["active"] = record["active"];
+  if (record["endpoints"] !== undefined && record["endpoints"] !== null) {
+    out["endpoints"] = Array.isArray(record["endpoints"])
+      ? record["endpoints"].map((endpoint) => sanitizeServiceEndpoint(endpoint))
+      : sanitizeServiceEndpoint(record["endpoints"]);
+  }
+  return out;
+}
+
+/**
+ * Parses the V3 bridge-services response. Only explicit service-list shapes
+ * are recognized: a top-level JSON array, or an object carrying a `services`
+ * array. An empty array is a recognized empty list (serviceCount 0); a
+ * non-empty array is only recognized when every entry is an object that
+ * contains at least one of the documented id/name/type/active fields. Any
+ * other shape is `unexpected` — it is never treated as "zero services".
+ */
+export function parseV3ServicesResponse(data: unknown): V3ServicesParseResult {
+  const sanitized = sanitizePayload(data);
+  let raw: unknown[] | null = null;
+  if (Array.isArray(sanitized)) {
+    raw = sanitized;
+  } else {
+    const record = asRecord(sanitized);
+    if (Array.isArray(record["services"])) {
+      raw = record["services"] as unknown[];
+    }
+  }
+  if (raw === null) return { kind: "unexpected", services: [] };
+  if (raw.length === 0) return { kind: "recognized-empty", services: [] };
+
+  const services: Record<string, unknown>[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      return { kind: "unexpected", services: [] };
+    }
+    const service = sanitizeV3ServiceEntry(entry);
+    if (Object.keys(service).length === 0) {
+      return { kind: "unexpected", services: [] };
+    }
+    services.push(service);
+  }
+  return { kind: "recognized-list", services };
+}
+
+// ----------------------------------------------------------------------------
+// V3 service entry extraction (single service, for bridge-services list items)
+// ----------------------------------------------------------------------------
+
+export interface V3ServiceEntry {
+  id: string | null;
+  name: string | null;
+  types: string[];
+  active: boolean | null;
+  bridgeId: string | null;
+  endpoints: Record<string, unknown>[] | null;
+}
+
+/**
+ * Extracts a single sanitized service entry from a bridge-services list item.
+ * `types` is canonical; legacy singular `type` is normalized defensively by
+ * `normalizeServiceTypes`. Returns null when no documented service field can
+ * be found.
+ */
+export function extractV3ServiceEntry(data: unknown): V3ServiceEntry | null {
+  const sanitized = sanitizePayload(data);
+  let record = asRecord(sanitized);
+  if (Object.keys(record).length === 0 && Array.isArray(sanitized)) {
+    const first = sanitized.find((entry) => typeof entry === "object" && entry !== null);
+    record = asRecord(first);
+  }
+  if (Object.keys(record).length === 0) return null;
+
+  for (const wrapperKey of ["service", "data", "result"]) {
+    const nested = record[wrapperKey];
+    if (typeof nested !== "object" || nested === null || Array.isArray(nested)) {
+      continue;
+    }
+    const inner = asRecord(nested);
+    if (
+      inner["id"] !== undefined ||
+      inner["name"] !== undefined ||
+      inner["types"] !== undefined ||
+      inner["type"] !== undefined ||
+      inner["active"] !== undefined
+    ) {
+      record = inner;
+      break;
+    }
+  }
+
+  const id = typeof record["id"] === "string" ? record["id"].trim() : null;
+  const name = typeof record["name"] === "string" ? record["name"].trim() : null;
+  const types = normalizeServiceTypes(record);
+  const active = typeof record["active"] === "boolean"
+    ? record["active"]
+    : null;
+  const bridgeId = typeof record["bridgeId"] === "string"
+    ? record["bridgeId"].trim()
+    : null;
+  let endpoints: Record<string, unknown>[] | null = null;
+  if (Array.isArray(record["endpoints"])) {
+    endpoints = record["endpoints"].map((endpoint) =>
+      sanitizeServiceEndpoint(endpoint)
+    );
+  } else if (record["endpoints"] !== undefined && record["endpoints"] !== null) {
+    endpoints = [sanitizeServiceEndpoint(record["endpoints"])];
+  }
+
+  if (!id && !name && types.length === 0 && active === null && !bridgeId) {
+    return null;
+  }
+  return { id, name, types, active, bridgeId, endpoints };
+}
+
+// ----------------------------------------------------------------------------
+// V3 bridge-services envelope: configured bridge id extraction
+// ----------------------------------------------------------------------------
+
+/**
+ * Extracts the sanitized `bridge.id` from the official V3 bridge-services
+ * envelope. Only the canonical envelope shape `{ bridge: { id: "..." }, ... }`
+ * is recognized. Returns null when the shape does not provide an id — callers
+ * must then STOP instead of inventing an id.
+ */
+export function extractV3BridgeId(data: unknown): string | null {
+  const sanitized = sanitizePayload(data);
+  const record = asRecord(sanitized);
+  const bridge = record["bridge"];
+  if (typeof bridge !== "object" || bridge === null || Array.isArray(bridge)) {
+    return null;
+  }
+  const bridgeRecord = asRecord(bridge);
+  const id = bridgeRecord["id"];
+  if (typeof id !== "string" || !id.trim()) return null;
+  return id.trim();
+}
+
+// ----------------------------------------------------------------------------
+// V3 bridge-service/serviceId/{service-id} entry extraction (by-id schema)
+// ----------------------------------------------------------------------------
+
+export interface V3BridgeServiceByIdEntry {
+  serviceId: string | null;
+  bridgeId: string | null;
+  name: string | null;
+  isHip: boolean | null;
+  isHiu: boolean | null;
+  active: boolean | null;
+}
+
+/**
+ * Extracts the sanitized by-id service fields from a
+ * `bridge-service/serviceId/{service-id}` response using the OFFICIAL by-id
+ * schema: bridgeId, serviceId, name, isHip, isHiu, active.
+ *
+ * This parser intentionally does NOT read `types`/`type` and does NOT derive
+ * `isHip` from the bridge-services list schema. The two endpoints are treated
+ * as independent verification signals.
+ */
+export function extractV3BridgeServiceById(
+  data: unknown,
+): V3BridgeServiceByIdEntry | null {
+  const sanitized = sanitizePayload(data);
+  let record = asRecord(sanitized);
+  if (Object.keys(record).length === 0 && Array.isArray(sanitized)) {
+    const first = sanitized.find((entry) => typeof entry === "object" && entry !== null);
+    record = asRecord(first);
+  }
+  if (Object.keys(record).length === 0) return null;
+
+  for (const wrapperKey of ["service", "data", "result"]) {
+    const nested = record[wrapperKey];
+    if (typeof nested !== "object" || nested === null || Array.isArray(nested)) {
+      continue;
+    }
+    const inner = asRecord(nested);
+    if (
+      inner["serviceId"] !== undefined ||
+      inner["bridgeId"] !== undefined ||
+      inner["isHip"] !== undefined ||
+      inner["isHiu"] !== undefined ||
+      inner["active"] !== undefined
+    ) {
+      record = inner;
+      break;
+    }
+  }
+
+  const serviceId = typeof record["serviceId"] === "string"
+    ? record["serviceId"].trim()
+    : null;
+  const bridgeId = typeof record["bridgeId"] === "string"
+    ? record["bridgeId"].trim()
+    : null;
+  const name = typeof record["name"] === "string"
+    ? record["name"].trim()
+    : null;
+  const isHip = typeof record["isHip"] === "boolean" ? record["isHip"] : null;
+  const isHiu = typeof record["isHiu"] === "boolean" ? record["isHiu"] : null;
+  const active = typeof record["active"] === "boolean" ? record["active"] : null;
+
+  if (
+    !serviceId && !bridgeId && !name && isHip === null && isHiu === null &&
+    active === null
+  ) {
+    return null;
+  }
+  return { serviceId, bridgeId, name, isHip, isHiu, active };
+}
+
+// ----------------------------------------------------------------------------
+// HFR (Health Facility Registry) software linkage — Multiple HRP API
+// ----------------------------------------------------------------------------
+
+/** Official HFR software linkage Sandbox base URL (contract section 2). */
+export const HFR_BASE_URL = "https://apihspsbx.abdm.gov.in/v4/int";
+/** Official Multiple HRP AddUpdateServices endpoint path. */
+export const HFR_SERVICES_PATH = "/v1/bridges/MutipleHRPAddUpdateServices";
+/** Per-request timeout for HFR linkage requests. */
+export const HFR_TIMEOUT_MS = 15_000;
+/** Hard cap for HFR response bodies. */
+export const HFR_MAX_BYTES = 512_000;
+
+export interface HfrFacilitySettings {
+  /** HFR facility id (used as ABDM V3 service-id). */
+  facilityId: string;
+  /** Official facility name. */
+  facilityName: string;
+  /** Short, facility-specific ABDM HIP name. */
+  hipName: string;
+}
+
+export interface HfrHrpDefinition {
+  bridgeId: string;
+  hipName: string;
+  type: "HIP";
+  active: true;
+}
+
+export interface HfrLinkagePayload {
+  facilityId: string;
+  facilityName: string;
+  HRP: HfrHrpDefinition[];
+}
+
+export interface HfrLinkageValidation {
+  ok: boolean;
+  errors: string[];
+  payload?: HfrLinkagePayload;
+}
+
+/**
+ * Official HFR facility id shape (ABDM M2): starts with `IN` followed by
+ * exactly 10 digits, total length 12. No other characters are allowed.
+ */
+export function isValidHfrFacilityId(value: string): boolean {
+  return /^IN\d{10}$/.test(value.trim());
+}
+
+/**
+ * Official HIP name restrictions (ABDM M2): required, maximum 15 characters,
+ * unique for a bridge/facility, and special characters are not allowed.
+ * Conservative production allow-list: letters, digits and spaces only.
+ * Leading/trailing whitespace is trimmed by the caller before validation;
+ * the value is never silently truncated.
+ */
+export function isValidAbdmHipName(value: string): boolean {
+  return /^[A-Za-z0-9 ]{1,15}$/.test(value.trim());
+}
+
+/** Builds the exact HFR Multiple HRP AddUpdateServices request payload. */
+export function buildHfrLinkagePayload(
+  facility: HfrFacilitySettings,
+  bridgeId: string,
+): HfrLinkagePayload {
+  return {
+    facilityId: facility.facilityId.trim(),
+    facilityName: facility.facilityName.trim(),
+    HRP: [
+      {
+        bridgeId: bridgeId.trim(),
+        hipName: facility.hipName.trim(),
+        type: "HIP",
+        active: true,
+      },
+    ],
+  };
+}
+
+/** Validates the server-side inputs before any HFR request is built. */
+export function validateHfrLinkageInput(
+  facility: HfrFacilitySettings,
+  bridgeId: string,
+): HfrLinkageValidation {
+  const errors: string[] = [];
+  const facilityId = facility.facilityId.trim();
+  const facilityName = facility.facilityName.trim();
+  const hipName = facility.hipName.trim();
+  const resolvedBridgeId = bridgeId.trim();
+
+  if (!isValidHfrFacilityId(facilityId)) {
+    errors.push(
+      "HFR facility id must be 12 characters: 'IN' followed by 10 digits",
+    );
+  }
+  if (!facilityName) {
+    errors.push("Official facility name is not configured");
+  } else if (facilityName.length > 255) {
+    errors.push("Official facility name must be at most 255 characters");
+  }
+  if (!isValidAbdmHipName(hipName)) {
+    errors.push(
+      "ABDM HIP name must be 1-15 characters using only letters, digits and spaces",
+    );
+  }
+  if (!resolvedBridgeId) {
+    errors.push("ABDM_BRIDGE_ID is not configured");
+  }
+
+  if (errors.length > 0) return { ok: false, errors };
+  return {
+    ok: true,
+    errors,
+    payload: buildHfrLinkagePayload(
+      { facilityId, facilityName, hipName },
+      resolvedBridgeId,
+    ),
+  };
+}
+
+/**
+ * POST /v1/bridges/MutipleHRPAddUpdateServices on the HFR Sandbox using the
+ * CANONICAL V3 gateway access token as the Bearer credential. The deprecated
+ * v0.5/v1 token cache is never read here.
+ *
+ * The bounded, redirect-safe V3 JSON fetch is reused so a Bearer token can
+ * never be re-sent to another host and the response body stays capped.
+ * Network/timeout GatewayErrors are re-labelled for the HFR operation.
+ */
+export async function hfrPostAddUpdateServices(
+  fetchImpl: FetchImpl,
+  token: string,
+  payload: HfrLinkagePayload,
+  config: GatewayConfig,
+  options: V3SessionRequestOptions = {},
+): Promise<GatewayHttpResponse> {
+  const url = `${config.hfrBaseUrl}${config.hfrServicesPath}`;
+  try {
+    return await v3FetchJson(
+      fetchImpl,
+      url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          // Security rule: every ABDM-family request carries a fresh UUID and
+          // current UTC timestamp for traceability.
+          "REQUEST-ID": freshV3RequestId(),
+          "TIMESTAMP": freshV3Timestamp(),
+        },
+        body: JSON.stringify(payload),
+      },
+      {
+        timeoutMs: options.timeoutMs ?? HFR_TIMEOUT_MS,
+        maxBytes: options.maxBytes ?? HFR_MAX_BYTES,
+      },
+    );
+  } catch (error) {
+    if (error instanceof GatewayError) {
+      throw new GatewayError(
+        error.status,
+        error.category === "timeout"
+          ? "ABDM HFR linkage service timed out"
+          : "ABDM HFR linkage service unreachable",
+        error.body,
+        error.category,
+        error.request,
+      );
+    }
+    throw error;
+  }
+}
+
+// ----------------------------------------------------------------------------
+// ABHA V3 audit helpers (certificate + runtime encryption algorithm)
+// ----------------------------------------------------------------------------
+
+/** Official ABHA V3 public certificate endpoint (audit reference only). */
+export const ABHA_V3_CERTIFICATE_PATH =
+  "/abha/api/v3/profile/public/certificate";
+
+/**
+ * Extracts the `encryptionAlgorithm` returned by the ABHA V3 certificate
+ * endpoint. Future M1 encryption code must prefer this runtime value over any
+ * hard-coded introductory/static value.
+ */
+export function extractAbhaEncryptionAlgorithm(data: unknown): string | null {
+  const record = asRecord(sanitizePayload(data));
+  const value = record["encryptionAlgorithm"];
+  if (typeof value === "string" && value.trim()) return value.trim();
+  return null;
+}
+
+/**
+ * Prefers the runtime `encryptionAlgorithm` from the certificate endpoint and
+ * only falls back to the provided static value when the API did not return
+ * one. This prevents a conflicting Swagger introductory value from being
+ * blindly hard-coded over the live API response.
+ */
+export function preferRuntimeEncryptionAlgorithm(
+  runtimeValue: string | null | undefined,
+  fallback?: string,
+): string | null {
+  const runtime = (runtimeValue ?? "").trim();
+  if (runtime) return runtime;
+  const staticValue = (fallback ?? "").trim();
+  return staticValue || null;
+}
+
+// ----------------------------------------------------------------------------
+// Read-only V3 bridge envelope inspection (no mutation, no token echo)
+// ----------------------------------------------------------------------------
+
+const V3_SENSITIVE_KEY_NAMES = new Set([
+  "accesstoken",
+  "token",
+  "refreshtoken",
+  "authorization",
+  "clientsecret",
+  "secret",
+  "clientid",
+  "apikey",
+  "password",
+  "credential",
+  "credentials",
+  "cookie",
+  "cookies",
+  "setcookie",
+  "jwt",
+]);
+
+const V3_BRIDGE_KEY_ALIASES = new Set(["bridge"]);
+const V3_SERVICES_KEY_ALIASES = new Set(["services"]);
+const V3_URL_KEY_ALIASES = new Set([
+  "url",
+  "hosturl",
+  "bridgeurl",
+  "callbackurl",
+  "address",
+  "endpoint",
+]);
+
+function v3NormalizeKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/** True when a field NAME is safe to echo (sensitive names are never echoed). */
+function v3SafeFieldName(key: string): boolean {
+  return !V3_SENSITIVE_KEY_NAMES.has(v3NormalizeKey(key));
+}
+
+function v3TruncateFieldNames(keys: string[]): string[] {
+  return keys
+    .slice(0, 200)
+    .map((key) => sanitizeDiagnosticText(key));
+}
+
+function v3TopLevelTypeOf(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+function v3SanitizeServiceItems(raw: unknown[]): Record<string, unknown>[] {
+  const items: Record<string, unknown>[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const item: Record<string, unknown> = {};
+    const types = normalizeServiceTypes(record);
+    if (record["id"] !== undefined) {
+      item["id"] = sanitizeDiagnosticText(record["id"]);
+    }
+    if (record["name"] !== undefined) {
+      item["name"] = sanitizeDiagnosticText(record["name"]);
+    }
+    if (record["bridgeId"] !== undefined) {
+      item["bridgeId"] = sanitizeDiagnosticText(record["bridgeId"]);
+    }
+    if (types.length > 0) item["types"] = types;
+    if (typeof record["active"] === "boolean") {
+      item["active"] = record["active"];
+    }
+    if (record["endpoints"] !== undefined && record["endpoints"] !== null) {
+      item["endpoints"] = Array.isArray(record["endpoints"])
+        ? record["endpoints"].map((endpoint) =>
+          sanitizeServiceEndpoint(endpoint)
+        )
+        : sanitizeServiceEndpoint(record["endpoints"]);
+    }
+    items.push(item);
+  }
+  return items;
+}
+
+/**
+ * Returns a sanitized bridge URL only when it is an absolute http(s) URL.
+ * Query strings and fragments are intentionally dropped, the value is
+ * token-redacted and truncated. Anything else returns null.
+ */
+export function sanitizeV3UrlValue(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 2000) return null;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch (_) {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const safe = redactSensitiveText(`${url.origin}${url.pathname}`);
+  return safe.length > 300 ? `${safe.slice(0, 300)}…` : safe;
+}
+
+function v3FindUrlField(
+  record: Record<string, unknown>,
+): { exists: boolean; value: string | null } {
+  for (const [key, value] of Object.entries(record)) {
+    if (!v3SafeFieldName(key)) continue;
+    if (V3_URL_KEY_ALIASES.has(v3NormalizeKey(key))) {
+      return { exists: true, value: sanitizeV3UrlValue(value) };
+    }
+  }
+  return { exists: false, value: null };
+}
+
+/**
+ * Builds a sanitized, shape-only description of a successful V3
+ * bridge-services response body. It never returns raw values except for the
+ * allow-listed service id/name/type/active fields and a sanitized, query-free
+ * bridge URL. Field names are filtered so sensitive names are never echoed.
+ */
+export function buildV3EnvelopeInspection(data: unknown): V3EnvelopeInspection {
+  const topLevelType = v3TopLevelTypeOf(data);
+  const topLevelFieldNames: string[] = [];
+  let bridge: V3EnvelopeInspection["bridge"] = {
+    exists: false,
+    fieldNames: [],
+  };
+  let bridgeUrl: V3EnvelopeInspection["bridgeUrl"] = {
+    exists: false,
+    value: null,
+  };
+  let services: V3EnvelopeInspection["services"] = {
+    exists: false,
+    length: null,
+    items: [],
+  };
+  const unknownEnvelopeFieldNames: string[] = [];
+
+  if (Array.isArray(data)) {
+    // A top-level array is the same shape the existing diagnoseV3Gateway
+    // parser recognizes as a service list.
+    services = {
+      exists: true,
+      length: data.length,
+      items: v3SanitizeServiceItems(data),
+    };
+  } else if (typeof data === "object" && data !== null) {
+    const record = data as Record<string, unknown>;
+    for (const key of Object.keys(record)) {
+      if (v3SafeFieldName(key)) topLevelFieldNames.push(key);
+    }
+
+    for (const [key, value] of Object.entries(record)) {
+      if (!v3SafeFieldName(key)) continue;
+      if (!V3_BRIDGE_KEY_ALIASES.has(v3NormalizeKey(key))) continue;
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        continue;
+      }
+      const bridgeRecord = value as Record<string, unknown>;
+      bridge = {
+        exists: true,
+        fieldNames: Object.keys(bridgeRecord).filter(v3SafeFieldName),
+      };
+      bridgeUrl = v3FindUrlField(bridgeRecord);
+      break;
+    }
+
+    for (const [key, value] of Object.entries(record)) {
+      if (!v3SafeFieldName(key)) continue;
+      if (!V3_SERVICES_KEY_ALIASES.has(v3NormalizeKey(key))) continue;
+      if (Array.isArray(value)) {
+        services = {
+          exists: true,
+          length: value.length,
+          items: v3SanitizeServiceItems(value),
+        };
+      } else {
+        services = { exists: true, length: null, items: [] };
+      }
+      break;
+    }
+
+    // If no dedicated bridge object carried the URL, a top-level URL/hostUrl
+    // field may still be the bridge URL.
+    if (!bridgeUrl.exists) bridgeUrl = v3FindUrlField(record);
+
+    for (const key of Object.keys(record)) {
+      if (!v3SafeFieldName(key)) continue;
+      const normalized = v3NormalizeKey(key);
+      if (
+        !V3_BRIDGE_KEY_ALIASES.has(normalized) &&
+        !V3_SERVICES_KEY_ALIASES.has(normalized)
+      ) {
+        unknownEnvelopeFieldNames.push(key);
+      }
+    }
+  }
+
+  return {
+    topLevelType,
+    topLevelFieldNames: v3TruncateFieldNames(topLevelFieldNames),
+    bridge: { ...bridge, fieldNames: v3TruncateFieldNames(bridge.fieldNames) },
+    bridgeUrl,
+    services,
+    unknownEnvelopeFieldNames: v3TruncateFieldNames(unknownEnvelopeFieldNames),
+  };
+}
+
+/** Maps a V3 stage failure to the documented ABDM_V3_* code family. */
+export function v3FailureCode(
+  stage: "session" | "services",
+  status: number,
+  category: V3FailureCategory,
+): string {
+  if (category === "timeout") {
+    return stage === "session"
+      ? "ABDM_V3_SESSION_TIMEOUT"
+      : "ABDM_V3_SERVICES_TIMEOUT";
+  }
+  if (category === "network") {
+    return stage === "session"
+      ? "ABDM_V3_SESSION_NETWORK"
+      : "ABDM_V3_SERVICES_NETWORK";
+  }
+  if (category === "protocol") return "ABDM_V3_PROTOCOL_ERROR";
+  return stage === "session"
+    ? `ABDM_V3_SESSION_${status}`
+    : `ABDM_V3_SERVICES_${status}`;
+}
+
+/** Short sanitized message for a V3 stage failure (no tokens/secrets/bodies). */
+export function v3FailureMessage(
+  stage: "session" | "services",
+  status: number,
+  category: V3FailureCategory,
+): string {
+  if (category === "timeout") {
+    return `V3 ${stage} request timed out before receiving a response.`;
+  }
+  if (category === "network") {
+    return `V3 ${stage} request failed: the ABDM gateway is unreachable.`;
+  }
+  if (category === "protocol") {
+    return `V3 ${stage} response did not match the documented schema.`;
+  }
+  if (stage === "session") {
+    return status === 401 || status === 403
+      ? `V3 session was rejected by ABDM (HTTP ${status}).`
+      : `V3 session request failed: ABDM returned HTTP ${status}.`;
+  }
+  if (status === 403) {
+    return "V3 services inspection failed: access was denied for this request.";
+  }
+  if (status === 401) {
+    return "V3 services inspection failed: the ABDM access token was not accepted (HTTP 401).";
+  }
+  return `V3 services inspection failed: ABDM returned HTTP ${status}.`;
+}
+
+/**
+ * Bounded, timed, redirect-safe JSON fetch used ONLY by the isolated V3
+ * diagnostic. Unlike `safeFetchJson`, it never follows redirects (so a Bearer
+ * token can never be re-sent to another host) and it enforces an explicit
+ * timeout plus a hard response-body size limit.
+ */
+export async function v3FetchJson(
+  fetchImpl: FetchImpl,
+  url: string,
+  init: RequestInit,
+  options: { timeoutMs?: number; maxBytes?: number } = {},
+): Promise<GatewayHttpResponse> {
+  const timeoutMs = options.timeoutMs ?? V3_DIAGNOSTIC_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? V3_DIAGNOSTIC_MAX_BYTES;
+  const requestInfo: GatewayRequestInfo = {
+    method: (init?.method ?? "GET").toUpperCase(),
+    hostname: hostnameOfUrl(url),
+    pathname: pathnameOfUrl(url),
+  };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      ...init,
+      redirect: "manual",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const rawMessage = (error as Error)?.message ?? String(error);
+    const category: GatewayErrorCategory = isTimeoutError(error, rawMessage)
+      ? "timeout"
+      : "network";
+    throw new GatewayError(
+      0,
+      category === "timeout"
+        ? "ABDM gateway timed out"
+        : "ABDM gateway unreachable",
+      undefined,
+      category,
+      requestInfo,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const declared = Number(response.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new GatewayError(
+      response.status,
+      "ABDM gateway response exceeded the size limit",
+      undefined,
+      "http",
+      requestInfo,
+    );
+  }
+
+  const text = await response.text();
+  if (text.length > maxBytes) {
+    throw new GatewayError(
+      response.status,
+      "ABDM gateway response exceeded the size limit",
+      undefined,
+      "http",
+      requestInfo,
+    );
+  }
+
+  let data: unknown = null;
+  if (text.trim()) {
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = null;
+    }
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    data,
+    contentType: response.headers.get("content-type"),
+  };
+}
+
+// ----------------------------------------------------------------------------
+// M1 (ABHA identity) contract gate + validation helpers
+// ----------------------------------------------------------------------------
+
+export const ABDM_M1_CONTRACT_UNCONFIRMED = "ABDM_M1_CONTRACT_UNCONFIRMED";
+
+export type M1Action =
+  | "m1GenerateAadhaarOtp"
+  | "m1VerifyAadhaarOtp"
+  | "m1CreateAbha"
+  | "m1GetProfile"
+  | "m1VerifyAbhaNumber"
+  | "m1SearchByMobile"
+  | "m1VerifyAbhaAddress"
+  | "m1GetAbhaCard"
+  | "m1GetAbhaQr";
+
+/**
+ * Returns the configured official endpoint path for an M1 action, or an empty
+ * string when the contract has not been confirmed/configured for it. An empty
+ * string means the handler MUST stop with ABDM_M1_CONTRACT_UNCONFIRMED.
+ */
+export function m1PathForAction(
+  config: GatewayConfig,
+  action: M1Action,
+): string {
+  switch (action) {
+    case "m1GenerateAadhaarOtp":
+      return config.m1GenerateAadhaarOtpPath;
+    case "m1VerifyAadhaarOtp":
+      return config.m1VerifyAadhaarOtpPath;
+    case "m1CreateAbha":
+      return config.m1CreateAbhaPath;
+    case "m1GetProfile":
+      return config.m1GetProfilePath;
+    case "m1VerifyAbhaNumber":
+      return config.m1VerifyAbhaNumberPath;
+    case "m1SearchByMobile":
+      return config.m1SearchByMobilePath;
+    case "m1VerifyAbhaAddress":
+      return config.m1VerifyAbhaAddressPath;
+    case "m1GetAbhaCard":
+      return config.m1GetAbhaCardPath;
+    case "m1GetAbhaQr":
+      return config.m1GetAbhaQrPath;
+  }
+}
+
+/** True when both the M1 base URL and the operation path are configured. */
+export function isM1ContractConfigured(
+  config: GatewayConfig,
+  action: M1Action,
+): boolean {
+  return config.m1BaseUrl.trim() !== "" &&
+    m1PathForAction(config, action).trim() !== "";
+}
+
+/**
+ * M1 patient-facing permission policy. Bridge/service-management actions stay
+ * admin/super_admin-only; M1 identity operations are available to the roles
+ * configured in `ABDM_M1_ALLOWED_ROLES` (default super_admin, admin,
+ * receptionist).
+ */
+export function isM1RoleAllowed(
+  role: string,
+  allowedRoles: readonly string[],
+): boolean {
+  const normalized = role.trim().toLowerCase();
+  return allowedRoles.some((allowed) =>
+    allowed.trim().toLowerCase() === normalized
+  );
+}
+
+/** Aadhaar must be exactly 12 numeric digits before any encryption/use. */
+export function isValidAadhaar(value: string): boolean {
+  return /^\d{12}$/.test(value);
+}
+
+/**
+ * OTP validation. ABDM Sandbox Aadhaar OTP is 6 digits per the official
+ * onboarding documentation — REQUIRES_OFFICIAL_CONFIRMATION if the current
+ * client contract specifies a different length.
+ */
+export function isValidM1Otp(value: string): boolean {
+  return /^\d{6}$/.test(value);
+}
+
+/** Indian mobile validation (10 digits, valid leading digit). */
+export function isValidIndianMobile(value: string): boolean {
+  return /^[6-9]\d{9}$/.test(value);
+}
+
+/** Normalizes an ABHA number (14 digits, optional `XX-XXXX-XXXX-XXXX` form). */
+export function normalizeAbhaNumber(value: string): string {
+  return value.replace(/[\s-]/g, "").toUpperCase();
+}
+
+/** True for the official 14-digit ABHA number shape (dashes optional). */
+export function isValidAbhaNumber(value: string): boolean {
+  return /^\d{14}$/.test(normalizeAbhaNumber(value));
+}
+
+/**
+ * ABHA Address validation against the configured official domains. The
+ * accepted domains are configurable (ABDM_M1_ABHA_ADDRESS_SUFFIXES, default
+ * `abdm,sbx`) so the code never hard-codes `@abdm` only.
+ */
+export function isValidAbhaAddress(
+  value: string,
+  allowedSuffixes: readonly string[],
+): boolean {
+  const address = value.trim().toLowerCase();
+  if (address.length === 0 || address.length > 80) return false;
+  const suffixes = allowedSuffixes
+    .map((s) => s.trim().toLowerCase().replace(/^\./, ""))
+    .filter(Boolean);
+  if (suffixes.length === 0) return false;
+  const suffixPattern = suffixes.map((s) =>
+    s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  ).join("|");
+  return new RegExp(`^[a-z0-9][a-z0-9._-]{0,63}@(${suffixPattern})$`).test(
+    address,
+  );
+}
+
+/** Masks a mobile number to the final four digits for safe display/audit. */
+export function maskMobileNumber(value: unknown): string {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return "";
+  // Already masked by the gateway (e.g. XXXXXX1234 / ******1234).
+  if (/^[*Xx]+\d{4}$/.test(text) || text.includes("*") || text.includes("X")) {
+    return text;
+  }
+  const digits = text.replace(/\D/g, "");
+  if (digits.length >= 4) {
+    return `XXXXXX${digits.slice(-4)}`;
+  }
+  return "[REDACTED]";
+}
+
+/** Maps an M1 upstream failure to the structured ABDM_M1_* error contract. */
+export function m1MapUpstreamError(
+  status: number,
+  category: "timeout" | "network" | "http" = "http",
+): string {
+  if (category === "timeout") return "ABDM_M1_TIMEOUT";
+  if (category === "network") return "ABDM_M1_NETWORK";
+  switch (status) {
+    case 400:
+      return "ABDM_M1_UPSTREAM_400";
+    case 401:
+      return "ABDM_M1_UPSTREAM_401";
+    case 403:
+      return "ABDM_M1_UPSTREAM_403";
+    case 404:
+      return "ABDM_M1_UPSTREAM_404";
+    case 409:
+      return "ABDM_M1_UPSTREAM_409";
+    case 429:
+      return "ABDM_M1_UPSTREAM_429";
+    default:
+      if (status >= 500) return "ABDM_M1_UPSTREAM_500";
+      return `ABDM_M1_UPSTREAM_${status}`;
+  }
+}
+
+const M1_PROFILE_ALLOWED_KEYS = new Set([
+  "healthid",
+  "healthidnumber",
+  "abhaaddress",
+  "name",
+  "firstname",
+  "lastname",
+  "gender",
+  "dateofbirth",
+  "yearofbirth",
+  "mobilenumber",
+  "email",
+  "state",
+  "district",
+  "status",
+  "isnew",
+  "txnid",
+]);
+
+function normalizeM1Key(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function sanitizeM1ProfileEntry(entry: unknown): Record<string, unknown> {
+  const sanitized = sanitizePayload(entry);
+  const record = asRecord(sanitized);
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    const normalized = normalizeM1Key(key);
+    if (!M1_PROFILE_ALLOWED_KEYS.has(normalized)) continue;
+    if (normalized === "mobilenumber") {
+      const masked = maskMobileNumber(value);
+      if (masked) out["mobileNumber"] = masked;
+      continue;
+    }
+    if (typeof value === "string" && value.length > 300) {
+      out[key] = `${value.slice(0, 300)}...[truncated]`;
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+export interface M1ProfileExtract {
+  profiles: Record<string, unknown>[];
+  multiple: boolean;
+}
+
+/**
+ * Allow-lists ABHA profile fields from an arbitrary upstream JSON response.
+ * The raw payload first passes through `sanitizePayload` (token/OTP/Aadhaar
+ * key redaction); then only the official non-sensitive profile fields are kept
+ * and mobile numbers are masked. Supports both a single profile object and an
+ * `accounts`/`profiles` array (mobile search can return multiple accounts).
+ */
+export function extractM1Profiles(data: unknown): M1ProfileExtract {
+  const sanitized = sanitizePayload(data);
+  const record = asRecord(sanitized);
+  let raw: unknown[];
+  if (Array.isArray(sanitized)) {
+    raw = sanitized;
+  } else if (Array.isArray(record["accounts"])) {
+    raw = record["accounts"] as unknown[];
+  } else if (Array.isArray(record["profiles"])) {
+    raw = record["profiles"] as unknown[];
+  } else {
+    raw = [sanitized];
+  }
+  const profiles = raw
+    .filter((entry) =>
+      typeof entry === "object" && entry !== null && !Array.isArray(entry)
+    )
+    .map((entry) => sanitizeM1ProfileEntry(entry))
+    .filter((profile) => Object.keys(profile).length > 0);
+  return { profiles, multiple: profiles.length > 1 };
+}
+
+// ----------------------------------------------------------------------------
+// Binary gateway responses (ABHA card / QR image handling)
+// ----------------------------------------------------------------------------
+
+export interface GatewayBinaryResponse {
+  ok: boolean;
+  status: number;
+  contentType: string | null;
+  bytes: Uint8Array;
+}
+
+const BINARY_CONTENT_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "application/pdf",
+]);
+
+/**
+ * Fetches a binary gateway response (card/QR) with a hard byte limit and a
+ * content-type allow-list. Never returns text parsed from the body; callers
+ * receive raw bytes only. Used by the M1 card/QR plumbing once the official
+ * contract is confirmed.
+ */
+export async function safeFetchBinary(
+  fetchImpl: FetchImpl,
+  url: string,
+  init: RequestInit,
+  maxBytes = 5_000_000,
+): Promise<GatewayBinaryResponse> {
+  const requestInfo: GatewayRequestInfo = {
+    method: (init?.method ?? "GET").toUpperCase(),
+    hostname: hostnameOfUrl(url),
+    pathname: pathnameOfUrl(url),
+  };
+
+  let response: Response;
+  try {
+    response = await fetchImpl(url, init);
+  } catch (error) {
+    const rawMessage = (error as Error)?.message ?? String(error);
+    const category: GatewayErrorCategory = isTimeoutError(error, rawMessage)
+      ? "timeout"
+      : "network";
+    throw new GatewayError(
+      0,
+      category === "timeout"
+        ? "ABDM gateway timed out"
+        : "ABDM gateway unreachable",
+      undefined,
+      category,
+      requestInfo,
+    );
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!response.ok) {
+    let data: unknown = null;
+    try {
+      data = await response.json();
+    } catch (_) {
+      data = null;
+    }
+    throw new GatewayError(
+      response.status,
+      `ABDM gateway request failed with status ${response.status}`,
+      sanitizePayload(data),
+      "http",
+      requestInfo,
+    );
+  }
+
+  if (
+    contentType &&
+    ![...BINARY_CONTENT_TYPES].some((t) =>
+      contentType.toLowerCase().startsWith(t)
+    )
+  ) {
+    throw new GatewayError(
+      response.status,
+      "ABDM gateway returned an unsupported binary content type",
+      undefined,
+      "http",
+      requestInfo,
+    );
+  }
+
+  const declared = Number(response.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new GatewayError(
+      response.status,
+      "ABDM gateway binary response exceeded the size limit",
+      undefined,
+      "http",
+      requestInfo,
+    );
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > maxBytes) {
+    throw new GatewayError(
+      response.status,
+      "ABDM gateway binary response exceeded the size limit",
+      undefined,
+      "http",
+      requestInfo,
+    );
+  }
+
+  return { ok: response.ok, status: response.status, contentType, bytes };
+}
+
+// ----------------------------------------------------------------------------
 // Routing
 // ----------------------------------------------------------------------------
 
@@ -1294,12 +3066,17 @@ export type InternalAction =
   | "bridge"
   | "services"
   | "getServices"
-  | "health";
+  | "diagnoseV3Gateway"
+  | "inspectV3Bridge"
+  | "health"
+  | M1Action;
 
 const RESERVED_SUBPATHS = new Set([
   "/session",
   "/bridge",
   "/services",
+  "/diagnosev3gateway",
+  "/inspectv3bridge",
   "/health",
 ]);
 
@@ -1339,6 +3116,8 @@ export function resolveInternalAction(
   // function URL. Inbound PATCH remains supported for backward compatibility.
   if (path === "/bridge" && m === "PATCH") return "bridge";
   if (path === "/services" && (m === "POST" || m === "GET")) return "services";
+  if (path === "/diagnosev3gateway" && m === "POST") return "diagnoseV3Gateway";
+  if (path === "/inspectv3bridge" && m === "POST") return "inspectV3Bridge";
   if (path === "/health" && m === "GET") return "health";
 
   if (!path) {
@@ -1348,11 +3127,50 @@ export function resolveInternalAction(
     // The production Flutter client uses POST {"action":"getServices"} so the
     // browser never has to preflight a non-simple GET method token.
     if (action === "getservices" && m === "POST") return "getServices";
-    if (action === "services" && (m === "POST" || m === "GET")) return "services";
+    if (action === "services" && (m === "POST" || m === "GET")) {
+      return "services";
+    }
+    // The isolated V3 diagnostic is POST {"action":"diagnoseV3Gateway"} on the
+    // bare function URL only. It is protected (JWT + admin) and never reaches
+    // the public callback branch.
+    if (action === "diagnosev3gateway" && m === "POST") {
+      return "diagnoseV3Gateway";
+    }
+    // The read-only V3 bridge inspection is POST {"action":"inspectV3Bridge"}
+    // on the bare function URL only. Protected (JWT + admin), never a callback.
+    if (action === "inspectv3bridge" && m === "POST") {
+      return "inspectV3Bridge";
+    }
     if (action === "health" && m === "GET") return "health";
+    // M1 actions are Flutter POST {"action":"<m1 action>","payload":{}} on
+    // the bare function URL only — never reachable through a callback subpath.
+    const m1Action = m1ActionFromName(action);
+    if (m === "POST" && m1Action) return m1Action;
   }
 
   return null;
+}
+
+const M1_ACTION_NAMES: Readonly<Record<string, M1Action>> = {
+  m1generateaadhaarotp: "m1GenerateAadhaarOtp",
+  m1verifyaadhaarotp: "m1VerifyAadhaarOtp",
+  m1createabha: "m1CreateAbha",
+  m1getprofile: "m1GetProfile",
+  m1verifyabhanumber: "m1VerifyAbhaNumber",
+  m1searchbymobile: "m1SearchByMobile",
+  m1verifyabhaaddress: "m1VerifyAbhaAddress",
+  m1getabhacard: "m1GetAbhaCard",
+  m1getabhaqr: "m1GetAbhaQr",
+};
+
+/** Maps a lowercased action name to the canonical M1 action, or null. */
+export function m1ActionFromName(action: string): M1Action | null {
+  return M1_ACTION_NAMES[action] ?? null;
+}
+
+/** True when the action name (any case) is one of the protected M1 actions. */
+export function isM1ActionName(action: string): action is M1Action {
+  return m1ActionFromName(action.toLowerCase()) !== null;
 }
 
 // ----------------------------------------------------------------------------
@@ -1409,7 +3227,9 @@ function validateServiceEntry(
     errors.push(`${prefix}.type is required`);
   } else if (!allowedTypes.has(type)) {
     errors.push(
-      `${prefix}.type must be one of the official service types: ${[...allowedTypes].join(", ")}`,
+      `${prefix}.type must be one of the official service types: ${
+        [...allowedTypes].join(", ")
+      }`,
     );
   }
   if (typeof active !== "boolean") {
@@ -1580,7 +3400,10 @@ export function buildCallbackRow(input: {
 }
 
 /** Reads callback request-id / timestamp style headers case-insensitively. */
-export function readHeader(headers: Headers, ...names: string[]): string | undefined {
+export function readHeader(
+  headers: Headers,
+  ...names: string[]
+): string | undefined {
   for (const name of names) {
     const value = headers.get(name);
     if (value && value.trim()) return value.trim();
@@ -1589,7 +3412,9 @@ export function readHeader(headers: Headers, ...names: string[]): string | undef
 }
 
 export interface CallbackStore {
-  insert(row: CallbackRow): Promise<{ error: { code?: string; message: string } | null }>;
+  insert(
+    row: CallbackRow,
+  ): Promise<{ error: { code?: string; message: string } | null }>;
 }
 
 export type PersistCallbackResult = "inserted" | "duplicate";

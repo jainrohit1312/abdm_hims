@@ -128,28 +128,103 @@ void main() {
     });
 
     test(
-      'real mode returns a clear typed error for M1 gateway operations not yet relayed',
+      'real mode routes M1 Aadhaar OTP generation through the Edge Function',
       () async {
+        late http.Request captured;
+        final mockHttp = MockClient((request) async {
+          captured = request;
+          expect(
+            request.url.toString(),
+            contains('/functions/v1/abdm-gateway'),
+          );
+          return http.Response(
+            jsonEncode({
+              'status': 'ok',
+              'payload': {'txnId': 'txn-123'},
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        });
+
         final client = SupabaseClient(
           'http://localhost',
           'anon-key',
-          httpClient: MockClient((request) async {
-            fail('real mode must not call the gateway directly');
-          }),
+          httpClient: mockHttp,
+          accessToken: () async => 'user-jwt',
         );
         final service = AbdmService(
           supabaseClient: client,
           mockModeOverride: false,
+          currentSessionReader: () => Session(
+            accessToken: 'user-jwt',
+            tokenType: 'bearer',
+            user: User(
+              id: 'auth-owner',
+              appMetadata: const {},
+              userMetadata: const {},
+              aud: 'authenticated',
+              createdAt: '2026-09-04T00:00:00.000Z',
+            ),
+          ),
+        );
+
+        final txn = await service.generateAadhaarOtp('123456789012');
+
+        expect(txn.txnId, 'txn-123');
+        expect(captured.method.toUpperCase(), 'POST');
+        final sentBody = jsonDecode(captured.body) as Map<String, dynamic>;
+        expect(sentBody['action'], 'm1GenerateAadhaarOtp');
+        expect(sentBody['payload'], {'aadhaarNumber': '123456789012'});
+        expect(captured.body.contains('123456789012'), isTrue);
+      },
+    );
+
+    test(
+      'real mode preserves the structured ABDM_M1_CONTRACT_UNCONFIRMED code',
+      () async {
+        final mockHttp = MockClient((request) async {
+          return http.Response(
+            jsonEncode({
+              'error':
+                  'M1 operation "m1GenerateAadhaarOtp" is blocked: the '
+                  'official ABDM Sandbox M1/ABHA contract for this client '
+                  'has not been confirmed.',
+              'code': 'ABDM_M1_CONTRACT_UNCONFIRMED',
+              'supportReference': 'req_123',
+            }),
+            501,
+            headers: {'content-type': 'application/json'},
+          );
+        });
+
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: mockHttp,
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: false,
+          currentSessionReader: () => Session(
+            accessToken: 'user-jwt',
+            tokenType: 'bearer',
+            user: User(
+              id: 'auth-owner',
+              appMetadata: const {},
+              userMetadata: const {},
+              aud: 'authenticated',
+              createdAt: '2026-09-04T00:00:00.000Z',
+            ),
+          ),
         );
 
         await expectLater(
           service.generateAadhaarOtp('123456789012'),
           throwsA(
-            isA<AbdmException>().having(
-              (e) => e.code,
-              'code',
-              'ABDM_REAL_MODE_NOT_AVAILABLE',
-            ),
+            isA<AbdmException>()
+                .having((e) => e.code, 'code', 'ABDM_M1_CONTRACT_UNCONFIRMED')
+                .having((e) => e.statusCode, 'statusCode', 501),
           ),
         );
       },
@@ -168,8 +243,8 @@ void main() {
         mockModeOverride: true,
       );
 
-      final txnId = await service.generateAadhaarOtp('123456789012');
-      expect(txnId, startsWith('mock-txn-'));
+      final txn = await service.generateAadhaarOtp('123456789012');
+      expect(txn.txnId, startsWith('mock-txn-'));
     });
   });
 
@@ -645,6 +720,473 @@ void main() {
         expect(captured.body.contains('owner-jwt-raw-token'), isFalse);
       },
     );
+  });
+
+  group('AbdmService diagnoseV3Gateway (owner session)', () {
+    Session ownerSession() => Session(
+      accessToken: 'owner-jwt-raw-token',
+      tokenType: 'bearer',
+      user: User(
+        id: 'auth-owner',
+        appMetadata: const {},
+        userMetadata: const {},
+        aud: 'authenticated',
+        createdAt: '2026-09-04T00:00:00.000Z',
+      ),
+    );
+
+    test(
+      'throws "Please log in again." when there is no current session',
+      () async {
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: MockClient((request) async {
+            fail('the Edge Function must not be called without a session');
+          }),
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: false,
+          currentSessionReader: () => null,
+        );
+
+        await expectLater(
+          service.diagnoseV3Gateway(),
+          throwsA(
+            isA<AbdmException>()
+                .having((e) => e.code, 'code', 'NO_SESSION')
+                .having((e) => e.message, 'message', 'Please log in again.'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'valid owner session sends exactly {"action":"diagnoseV3Gateway"} with POST',
+      () async {
+        late http.Request captured;
+        final session = ownerSession();
+        final mockHttp = MockClient((request) async {
+          captured = request;
+          expect(
+            request.url.toString(),
+            contains('/functions/v1/abdm-gateway'),
+          );
+          return http.Response(
+            jsonEncode({
+              'operation': 'diagnoseV3Gateway',
+              'environment': 'sandbox',
+              'sessionSucceeded': true,
+              'sessionUpstreamStatus': 200,
+              'servicesSucceeded': true,
+              'servicesUpstreamStatus': 200,
+              'serviceCount': 0,
+              'services': <dynamic>[],
+              'supportReference': 'req_123',
+              'stage': 'complete',
+              'code': 'ABDM_V3_OK',
+              'message':
+                  'V3 session and services inspection succeeded. '
+                  'Bridge URL configuration has not been changed.',
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        });
+
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: mockHttp,
+          accessToken: () async => session.accessToken,
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: false,
+          currentSessionReader: () => session,
+        );
+
+        final result = await service.diagnoseV3Gateway();
+
+        expect(result['operation'], 'diagnoseV3Gateway');
+        expect(result['sessionSucceeded'], true);
+        expect(result['servicesSucceeded'], true);
+        expect(result.containsKey('accessToken'), isFalse);
+        expect(result.containsKey('token'), isFalse);
+        expect(result.containsKey('clientSecret'), isFalse);
+        expect(jsonEncode(result).contains('owner-jwt-raw-token'), isFalse);
+
+        expect(captured.method.toUpperCase(), 'POST');
+        final sentBody = jsonDecode(captured.body) as Map<String, dynamic>;
+        expect(sentBody, {'action': 'diagnoseV3Gateway'});
+        expect(captured.headers['Authorization'], 'Bearer owner-jwt-raw-token');
+        expect(captured.body.contains('owner-jwt-raw-token'), isFalse);
+      },
+    );
+
+    test('expired/invalid JWT surfaces a 401 typed AbdmException', () async {
+      final mockHttp = MockClient((request) async {
+        return http.Response(
+          jsonEncode({'error': 'Invalid or expired user session'}),
+          401,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final client = SupabaseClient(
+        'http://localhost',
+        'anon-key',
+        httpClient: mockHttp,
+      );
+      final service = AbdmService(
+        supabaseClient: client,
+        mockModeOverride: false,
+        currentSessionReader: () => ownerSession(),
+      );
+
+      await expectLater(
+        service.diagnoseV3Gateway(),
+        throwsA(
+          isA<AbdmException>()
+              .having((e) => e.statusCode, 'statusCode', 401)
+              .having((e) => e.code, 'code', 'EDGE_401'),
+        ),
+      );
+    });
+
+    test('non-owner receives a 403 typed AbdmException', () async {
+      final mockHttp = MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'error': 'Owner / super-admin role required for this action',
+          }),
+          403,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final client = SupabaseClient(
+        'http://localhost',
+        'anon-key',
+        httpClient: mockHttp,
+      );
+      final service = AbdmService(
+        supabaseClient: client,
+        mockModeOverride: false,
+        currentSessionReader: () => ownerSession(),
+      );
+
+      await expectLater(
+        service.diagnoseV3Gateway(),
+        throwsA(
+          isA<AbdmException>()
+              .having((e) => e.statusCode, 'statusCode', 403)
+              .having((e) => e.code, 'code', 'EDGE_403'),
+        ),
+      );
+    });
+
+    test(
+      'mock mode blocks the diagnostic without calling the Edge Function',
+      () async {
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: MockClient((request) async {
+            fail('mock mode must not call the Edge Function');
+          }),
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: true,
+          currentSessionReader: () => ownerSession(),
+        );
+
+        await expectLater(
+          service.diagnoseV3Gateway(),
+          throwsA(
+            isA<AbdmException>().having(
+              (e) => e.code,
+              'code',
+              'ABDM_MOCK_MODE',
+            ),
+          ),
+        );
+      },
+    );
+  });
+
+  group('AbdmService inspectV3Bridge (owner session)', () {
+    Session ownerSession() => Session(
+      accessToken: 'owner-jwt-raw-token',
+      tokenType: 'bearer',
+      user: User(
+        id: 'auth-owner',
+        appMetadata: const {},
+        userMetadata: const {},
+        aud: 'authenticated',
+        createdAt: '2026-09-04T00:00:00.000Z',
+      ),
+    );
+
+    test(
+      'throws "Please log in again." when there is no current session',
+      () async {
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: MockClient((request) async {
+            fail('the Edge Function must not be called without a session');
+          }),
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: false,
+          currentSessionReader: () => null,
+        );
+
+        await expectLater(
+          service.inspectV3Bridge(),
+          throwsA(
+            isA<AbdmException>()
+                .having((e) => e.code, 'code', 'NO_SESSION')
+                .having((e) => e.message, 'message', 'Please log in again.'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'valid owner session sends exactly {"action":"inspectV3Bridge"} with POST',
+      () async {
+        late http.Request captured;
+        final session = ownerSession();
+        final mockHttp = MockClient((request) async {
+          captured = request;
+          expect(
+            request.url.toString(),
+            contains('/functions/v1/abdm-gateway'),
+          );
+          return http.Response(
+            jsonEncode({
+              'operation': 'inspectV3Bridge',
+              'environment': 'sandbox',
+              'sessionSucceeded': true,
+              'sessionUpstreamStatus': 200,
+              'servicesSucceeded': true,
+              'servicesUpstreamStatus': 200,
+              'supportReference': 'req_123',
+              'stage': 'complete',
+              'code': 'ABDM_V3_OK',
+              'message':
+                  'V3 Bridge inspection succeeded. '
+                  'Bridge URL configuration has not been changed.',
+              'envelope': {
+                'topLevelType': 'object',
+                'topLevelFieldNames': ['bridge', 'services'],
+                'bridge': {
+                  'exists': true,
+                  'fieldNames': ['url'],
+                },
+                'bridgeUrl': {
+                  'exists': true,
+                  'value': 'https://cb.example/abdm',
+                },
+                'services': {'exists': true, 'length': 0, 'items': <dynamic>[]},
+                'unknownEnvelopeFieldNames': <dynamic>[],
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        });
+
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: mockHttp,
+          accessToken: () async => session.accessToken,
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: false,
+          currentSessionReader: () => session,
+        );
+
+        final result = await service.inspectV3Bridge();
+
+        expect(result['operation'], 'inspectV3Bridge');
+        expect(result['sessionSucceeded'], true);
+        expect(result['servicesSucceeded'], true);
+        expect(result.containsKey('accessToken'), isFalse);
+        expect(result.containsKey('token'), isFalse);
+        expect(result.containsKey('clientSecret'), isFalse);
+        expect(jsonEncode(result).contains('owner-jwt-raw-token'), isFalse);
+
+        expect(captured.method.toUpperCase(), 'POST');
+        final sentBody = jsonDecode(captured.body) as Map<String, dynamic>;
+        expect(sentBody, {'action': 'inspectV3Bridge'});
+        expect(captured.headers['Authorization'], 'Bearer owner-jwt-raw-token');
+        expect(captured.body.contains('owner-jwt-raw-token'), isFalse);
+      },
+    );
+
+    test(
+      'mock mode blocks the inspection without calling the Edge Function',
+      () async {
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: MockClient((request) async {
+            fail('mock mode must not call the Edge Function');
+          }),
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: true,
+          currentSessionReader: () => ownerSession(),
+        );
+
+        await expectLater(
+          service.inspectV3Bridge(),
+          throwsA(
+            isA<AbdmException>().having(
+              (e) => e.code,
+              'code',
+              'ABDM_MOCK_MODE',
+            ),
+          ),
+        );
+      },
+    );
+  });
+
+  group('AbdmService linkFacilityHip (owner session)', () {
+    Session ownerSession() => Session(
+      accessToken: 'owner-jwt-raw-token',
+      tokenType: 'bearer',
+      user: User(
+        id: 'auth-owner',
+        appMetadata: const {},
+        userMetadata: const {},
+        aud: 'authenticated',
+        createdAt: '2026-09-04T00:00:00.000Z',
+      ),
+    );
+
+    test(
+      'valid owner session sends exactly {"action":"services"} with POST',
+      () async {
+        late http.Request captured;
+        final session = ownerSession();
+        final mockHttp = MockClient((request) async {
+          captured = request;
+          expect(
+            request.url.toString(),
+            contains('/functions/v1/abdm-gateway'),
+          );
+          return http.Response(
+            jsonEncode({
+              'status': 'linkage_accepted_verification_pending',
+              'code': 'HFR_LINKAGE_PENDING',
+              'facilityId': 'HFR-123',
+              'bridgeId': 'bridge-1',
+              'verification': {
+                'serviceIdMatches': false,
+                'bridgeIdMatches': null,
+                'isHip': false,
+                'active': false,
+                'serviceFoundById': false,
+                'bridgeServicesContainsFacility': false,
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        });
+
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: mockHttp,
+          accessToken: () async => session.accessToken,
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: false,
+          currentSessionReader: () => session,
+        );
+
+        final result = await service.linkFacilityHip();
+
+        expect(result['status'], 'linkage_accepted_verification_pending');
+        expect(result['facilityId'], 'HFR-123');
+        expect(result['bridgeId'], 'bridge-1');
+        expect(result.containsKey('accessToken'), isFalse);
+        expect(result.containsKey('token'), isFalse);
+        expect(result.containsKey('clientSecret'), isFalse);
+        expect(jsonEncode(result).contains('owner-jwt-raw-token'), isFalse);
+
+        expect(captured.method.toUpperCase(), 'POST');
+        final sentBody = jsonDecode(captured.body) as Map<String, dynamic>;
+        expect(sentBody, {'action': 'services'});
+        expect(sentBody.containsKey('services'), isFalse);
+        expect(sentBody.containsKey('facilityId'), isFalse);
+        expect(captured.headers['Authorization'], 'Bearer owner-jwt-raw-token');
+        expect(captured.body.contains('owner-jwt-raw-token'), isFalse);
+      },
+    );
+
+    test('throws "Please log in again." when there is no current session', () async {
+      final client = SupabaseClient(
+        'http://localhost',
+        'anon-key',
+        httpClient: MockClient((request) async {
+          fail('the Edge Function must not be called without a session');
+        }),
+      );
+      final service = AbdmService(
+        supabaseClient: client,
+        mockModeOverride: false,
+        currentSessionReader: () => null,
+      );
+
+      await expectLater(
+        service.linkFacilityHip(),
+        throwsA(
+          isA<AbdmException>()
+              .having((e) => e.code, 'code', 'NO_SESSION')
+              .having((e) => e.message, 'message', 'Please log in again.'),
+        ),
+      );
+    });
+
+    test('mock mode blocks the linkage without calling the Edge Function', () async {
+      final client = SupabaseClient(
+        'http://localhost',
+        'anon-key',
+        httpClient: MockClient((request) async {
+          fail('mock mode must not call the Edge Function');
+        }),
+      );
+      final service = AbdmService(
+        supabaseClient: client,
+        mockModeOverride: true,
+        currentSessionReader: () => ownerSession(),
+      );
+
+      await expectLater(
+        service.linkFacilityHip(),
+        throwsA(
+          isA<AbdmException>().having(
+            (e) => e.code,
+            'code',
+            'ABDM_MOCK_MODE',
+          ),
+        ),
+      );
+    });
   });
 
   group('client-side secret hygiene', () {

@@ -15,15 +15,14 @@ typedef CurrentSessionReader = Session? Function();
 ///
 /// Screens can show [message] directly and rely on [statusCode] / [code] for
 /// programmatic handling. Codes used by this service:
-///   * `NO_SESSION`                   — the owner-only connection test was
-///                                     requested without a Supabase session.
+///   * `NO_SESSION`                   — an operation was requested without a
+///                                     Supabase session.
 ///   * `ABDM_MOCK_MODE`              — an admin/backend operation was requested
 ///                                     while the app is still running in mock mode.
-///   * `ABDM_REAL_MODE_NOT_AVAILABLE` — the privileged gateway relay for that
-///                                     M1/M2/M3 operation is not implemented in
-///                                     the current backend-foundation phase.
 ///   * `EDGE_<http-status>`          — the secure Edge Function rejected the
-///                                     request or the gateway call failed.
+///                                     request without a structured code.
+///   * `ABDM_M1_*`                   — structured M1 error contract returned by
+///                                     the Edge Function (see docs).
 class AbdmException implements Exception {
   const AbdmException(this.message, {this.code, this.statusCode, this.payload});
 
@@ -36,19 +35,229 @@ class AbdmException implements Exception {
   String toString() => 'AbdmException($statusCode/$code): $message';
 }
 
+/// Distinct UI states for M1 search/verify/create results. Screens must label
+/// the result from this state and never claim success unless ABDM returned an
+/// actual successful profile/verification.
+enum AbdmM1State {
+  /// ABDM returned a profile for the searched identity.
+  found,
+
+  /// ABDM returned a successful verification result.
+  verified,
+
+  /// ABDM created a new ABHA identity.
+  created,
+
+  /// The operation requires an OTP-generation transaction first.
+  otpRequired,
+
+  /// Mobile search returned more than one ABHA account.
+  multipleAccounts,
+
+  /// ABDM has no record for the searched identity.
+  notFound,
+
+  /// ABDM provisioning is unavailable (Bridge/services not yet approved).
+  provisioningUnavailable,
+
+  /// The operation failed with a sanitized error.
+  failed,
+}
+
+/// Typed, normalized ABHA profile returned by the M1 layer.
+class AbdmM1Profile {
+  const AbdmM1Profile({
+    this.healthId,
+    this.healthIdNumber,
+    this.abhaAddress,
+    this.name,
+    this.firstName,
+    this.lastName,
+    this.gender,
+    this.dateOfBirth,
+    this.yearOfBirth,
+    this.mobileNumber,
+    this.email,
+    this.state,
+    this.district,
+    this.status,
+    this.isNew = false,
+  });
+
+  final String? healthId;
+  final String? healthIdNumber;
+  final String? abhaAddress;
+  final String? name;
+  final String? firstName;
+  final String? lastName;
+  final String? gender;
+  final String? dateOfBirth;
+  final String? yearOfBirth;
+  final String? mobileNumber;
+  final String? email;
+  final String? state;
+  final String? district;
+  final String? status;
+  final bool isNew;
+
+  String? get abhaNumber => healthIdNumber ?? healthId;
+
+  factory AbdmM1Profile.fromMap(Map<String, dynamic> map) {
+    return AbdmM1Profile(
+      healthId: map['healthId']?.toString(),
+      healthIdNumber: map['healthIdNumber']?.toString(),
+      abhaAddress: map['abhaAddress']?.toString(),
+      name: map['name']?.toString(),
+      firstName: map['firstName']?.toString(),
+      lastName: map['lastName']?.toString(),
+      gender: map['gender']?.toString(),
+      dateOfBirth: map['dateOfBirth']?.toString(),
+      yearOfBirth: map['yearOfBirth']?.toString(),
+      mobileNumber: map['mobileNumber']?.toString(),
+      email: map['email']?.toString(),
+      state: map['state']?.toString(),
+      district: map['district']?.toString(),
+      status: map['status']?.toString(),
+      isNew: map['isNew'] == true,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'healthId': healthId,
+    'healthIdNumber': healthIdNumber,
+    'abhaAddress': abhaAddress,
+    'name': name,
+    'firstName': firstName,
+    'lastName': lastName,
+    'gender': gender,
+    'dateOfBirth': dateOfBirth,
+    'yearOfBirth': yearOfBirth,
+    'mobileNumber': mobileNumber,
+    'email': email,
+    'state': state,
+    'district': district,
+    'status': status,
+    'isNew': isNew,
+  };
+
+  /// Populates patient-registration fields from this profile.
+  String get displayName {
+    final n = name?.trim() ?? '';
+    return n.isNotEmpty ? n : '${firstName ?? ''} ${lastName ?? ''}'.trim();
+  }
+}
+
+/// A server-issued M1 transaction id (continuation handle).
+class AbdmM1Txn {
+  const AbdmM1Txn(this.txnId, {this.expiresAt});
+
+  final String txnId;
+  final DateTime? expiresAt;
+}
+
+/// Normalized M1 operation result consumed by the screens.
+class AbdmM1Response {
+  const AbdmM1Response({
+    required this.state,
+    this.message,
+    this.profile,
+    this.accounts = const [],
+    this.txnId,
+    this.isMock = false,
+  });
+
+  final AbdmM1State state;
+  final String? message;
+  final AbdmM1Profile? profile;
+  final List<AbdmM1Profile> accounts;
+  final String? txnId;
+  final bool isMock;
+
+  /// Builds a response from the sanitized Edge Function payload. The Edge
+  /// Function is the only source of real ABDM data — never the raw upstream.
+  factory AbdmM1Response.fromEdgePayload(Map<String, dynamic> data) {
+    final rawPayload = data['payload'];
+    final payload = rawPayload is Map
+        ? Map<String, dynamic>.from(rawPayload)
+        : Map<String, dynamic>.from(data);
+
+    final profiles = <AbdmM1Profile>[];
+    final rawProfiles = payload['profiles'] ?? payload['accounts'];
+    if (rawProfiles is List) {
+      for (final entry in rawProfiles) {
+        if (entry is Map) {
+          profiles.add(AbdmM1Profile.fromMap(Map<String, dynamic>.from(entry)));
+        }
+      }
+    }
+    final rawProfile = payload['profile'];
+    if (profiles.isEmpty && rawProfile is Map) {
+      profiles.add(
+        AbdmM1Profile.fromMap(Map<String, dynamic>.from(rawProfile)),
+      );
+    }
+
+    final stateRaw = (payload['state'] ?? data['state'])?.toString();
+    final state =
+        _stateFromName(stateRaw) ??
+        (profiles.length > 1
+            ? AbdmM1State.multipleAccounts
+            : profiles.length == 1
+            ? AbdmM1State.found
+            : AbdmM1State.notFound);
+
+    return AbdmM1Response(
+      state: state,
+      message: payload['message']?.toString(),
+      profile: profiles.isEmpty ? null : profiles.first,
+      accounts: profiles,
+      txnId: payload['txnId']?.toString() ?? data['txnId']?.toString(),
+    );
+  }
+
+  static AbdmM1State? _stateFromName(String? name) {
+    switch (name?.toLowerCase()) {
+      case 'found':
+        return AbdmM1State.found;
+      case 'verified':
+        return AbdmM1State.verified;
+      case 'created':
+        return AbdmM1State.created;
+      case 'otp_required':
+      case 'otprequired':
+        return AbdmM1State.otpRequired;
+      case 'multiple_accounts':
+      case 'multipleaccounts':
+        return AbdmM1State.multipleAccounts;
+      case 'not_found':
+      case 'notfound':
+        return AbdmM1State.notFound;
+      case 'provisioning_unavailable':
+      case 'provisioningunavailable':
+        return AbdmM1State.provisioningUnavailable;
+      case 'failed':
+        return AbdmM1State.failed;
+      default:
+        return null;
+    }
+  }
+}
+
 /// ABDM integration service.
 ///
 /// SECURITY MODEL
 /// ---------------
 /// * The ABDM Client Secret (and Client ID) live ONLY as Supabase Edge
 ///   Function secrets. This class never reads or transmits them.
-/// * All privileged ABDM calls (session, Bridge update, service management)
-///   go through the `abdm-gateway` Supabase Edge Function. The raw ABDM
-///   access token is kept server-side and is never returned to Flutter.
+/// * All privileged ABDM calls (session, Bridge, service management and the
+///   M1 identity operations) go through the `abdm-gateway` Supabase Edge
+///   Function. The raw ABDM access token is kept server-side and is never
+///   returned to Flutter.
 /// * Mock mode (`AppConfig.abdmRealModeEnabled == false`) keeps the existing
 ///   M1/M2/M3 UI fixtures for local development without any network access.
-/// * The full M1/M2/M3 gateway relay is intentionally NOT implemented in this
-///   phase — real mode returns a clear typed error for those operations.
+/// * Real M1 calls are contract-gated in the Edge Function: until the official
+///   client-supplied Sandbox M1/ABHA contract is configured, they return
+///   `ABDM_M1_CONTRACT_UNCONFIRMED` instead of any invented call.
 class AbdmService {
   AbdmService({
     required SupabaseClient supabaseClient,
@@ -63,9 +272,6 @@ class AbdmService {
   final SupabaseClient _client;
   final bool? _mockModeOverride;
   final CurrentSessionReader _currentSessionReader;
-
-  // -- mock state ------------------------------------------------------------
-  String? _lastTxnId;
 
   bool get isMockMode => _mockModeOverride ?? AppConfig.abdmMockMode;
   bool get isConfigured => !isMockMode;
@@ -82,14 +288,6 @@ class AbdmService {
   }
 
   /// Owner/super-admin-only "Test ABDM Connection" action.
-  ///
-  /// Reads the current authenticated Supabase session first. When no session
-  /// exists it throws [AbdmException] with code `NO_SESSION` so the UI can show
-  /// "Please log in again." without making a network call.
-  ///
-  /// The Supabase Functions client attaches the session's access token as
-  /// `Authorization: Bearer <owner-jwt>` on the outgoing request internally;
-  /// this method never reads, logs, persists or returns the JWT value.
   Future<Map<String, dynamic>> testSandboxConnection() async {
     _requireBackendEnabled('ABDM connection test');
     final session = _currentSessionReader();
@@ -105,20 +303,9 @@ class AbdmService {
 
   /// Owner/super-admin-only "Configure ABDM Bridge" action.
   ///
-  /// Reads the current authenticated Supabase session first. When no session
-  /// exists it throws [AbdmException] with code `NO_SESSION` so the UI can show
-  /// "Please log in again." without making a network call.
-  ///
   /// The Flutter client sends ONLY `{"action": "bridge"}` to the secure Edge
-  /// Function using **POST** (the Supabase API gateway rejects a lowercase
-  /// `patch` before the Edge Function can attach CORS headers). The callback
-  /// URL is never supplied, logged, persisted or hard-coded by the client — the
-  /// Edge Function resolves it exclusively from the `ABDM_CALLBACK_BASE_URL`
-  /// secret and issues the ABDM call as an uppercase PATCH server-side.
-  ///
-  /// The Supabase Functions client attaches the session's access token as
-  /// `Authorization: Bearer <owner-jwt>` on the outgoing request internally;
-  /// this method never reads, logs, persists or returns the JWT value.
+  /// Function using **POST**. The callback URL is resolved exclusively from
+  /// the `ABDM_CALLBACK_BASE_URL` secret server-side.
   Future<Map<String, dynamic>> configureBridge() async {
     _requireBackendEnabled('ABDM Bridge configuration');
     final session = _currentSessionReader();
@@ -132,86 +319,33 @@ class AbdmService {
     return _invokeEdge('bridge');
   }
 
-  /// Registers / updates HIP/HIU service definitions using the exact ABDM
-  /// `addUpdateServices` array body:
+  /// Owner/super-admin-only facility/HIP registration through the official HFR
+  /// Multiple HRP API.
   ///
-  /// ```json
-  /// [{
-  ///   "id": "<service-id>",
-  ///   "name": "<service-name>",
-  ///   "type": "<official-service-type>",
-  ///   "active": true,
-  ///   "alias": ["<alias>"],
-  ///   "endpoints": [
-  ///     {"address": "<https-endpoint>", "connectionType": "https", "use": "<official-endpoint-use>"}
-  ///   ]
-  /// }]
-  /// ```
-  ///
-  /// The service type, id, aliases and endpoint use must be supplied from the
-  /// current ABDM Sandbox documentation — nothing is embedded here. Server-side
-  /// validation enforces the official service-type allow-list.
-  Future<Map<String, dynamic>> addOrUpdateAbdmServices({
-    required List<Map<String, dynamic>> services,
-  }) async {
-    _requireBackendEnabled('Service registration');
-    if (services.isEmpty) {
+  /// The Flutter client sends only `{"action": "services"}` to the secure Edge
+  /// Function. facilityId, facilityName, bridgeId and hipName are all resolved
+  /// server-side (hospitals table + ABDM_BRIDGE_ID secret) and are never
+  /// accepted from the client.
+  Future<Map<String, dynamic>> linkFacilityHip() async {
+    _requireBackendEnabled('HFR facility/HIP linkage');
+    final session = _currentSessionReader();
+    if (session == null) {
       throw const AbdmException(
-        'At least one service definition is required.',
-        code: 'INVALID_SERVICE_DEFINITION',
+        'Please log in again.',
+        code: 'NO_SESSION',
+        statusCode: 401,
       );
     }
-    for (final service in services) {
-      final id = service['id']?.toString().trim() ?? '';
-      final name = service['name']?.toString().trim() ?? '';
-      final type = service['type']?.toString().trim().toUpperCase() ?? '';
-      final active = service['active'];
-      final alias = service['alias'];
-      final endpoints = service['endpoints'];
-      if (id.isEmpty || name.isEmpty || type.isEmpty) {
-        throw const AbdmException(
-          'Each service requires id, name and type.',
-          code: 'INVALID_SERVICE_DEFINITION',
-        );
-      }
-      if (active is! bool) {
-        throw const AbdmException(
-          'Each service requires a boolean "active" field.',
-          code: 'INVALID_SERVICE_DEFINITION',
-        );
-      }
-      if (alias is! List || alias.any((entry) => entry is! String)) {
-        throw const AbdmException(
-          'Each service requires an "alias" array of strings.',
-          code: 'INVALID_SERVICE_DEFINITION',
-        );
-      }
-      if (endpoints is! List || endpoints.isEmpty) {
-        throw const AbdmException(
-          'Each service requires a non-empty "endpoints" array.',
-          code: 'INVALID_SERVICE_DEFINITION',
-        );
-      }
-      for (final endpoint in endpoints) {
-        if (endpoint is! Map) {
-          throw const AbdmException(
-            'Each endpoint must be an object.',
-            code: 'INVALID_SERVICE_DEFINITION',
-          );
-        }
-        final address = endpoint['address']?.toString().trim() ?? '';
-        final connectionType =
-            endpoint['connectionType']?.toString().trim() ?? '';
-        final use = endpoint['use']?.toString().trim() ?? '';
-        if (address.isEmpty || connectionType.isEmpty || use.isEmpty) {
-          throw const AbdmException(
-            'Each endpoint requires "address", "connectionType" and "use".',
-            code: 'INVALID_SERVICE_DEFINITION',
-          );
-        }
-      }
-    }
-    return _invokeEdge('services', body: {'services': services});
+    return _invokeEdge('services');
+  }
+
+  /// Legacy service-definition upload. Kept for backwards source compatibility
+  /// only; the production path is now [linkFacilityHip] (HFR Multiple HRP).
+  @Deprecated('Use linkFacilityHip(); legacy addUpdateServices is no longer the production path.')
+  Future<Map<String, dynamic>> addOrUpdateAbdmServices({
+    List<Map<String, dynamic>>? services,
+  }) {
+    return linkFacilityHip();
   }
 
   /// Lists services currently registered with the ABDM gateway.
@@ -221,20 +355,6 @@ class AbdmService {
   }
 
   /// Owner/super-admin-only "Inspect ABDM Services" action.
-  ///
-  /// Reads the current authenticated Supabase session first. When no session
-  /// exists it throws [AbdmException] with code `NO_SESSION` so the UI can show
-  /// "Please log in again." without making a network call.
-  ///
-  /// The Flutter client sends ONLY `{"action": "getServices"}` to the secure
-  /// Edge Function using **POST** (avoids browser method-casing/CORS preflight
-  /// issues). The Edge Function then issues the official ABDM contract as an
-  /// uppercase GET to `/gateway/v1/bridges/getServices` using the server-side
-  /// ABDM token.
-  ///
-  /// The Supabase Functions client attaches the session's access token as
-  /// `Authorization: Bearer <owner-jwt>` on the outgoing request internally;
-  /// this method never reads, logs, persists or returns the JWT value.
   Future<Map<String, dynamic>> inspectAbdmServices() async {
     _requireBackendEnabled('ABDM getServices inspection');
     final session = _currentSessionReader();
@@ -248,14 +368,57 @@ class AbdmService {
     return _invokeEdge('getServices');
   }
 
+  /// Owner/super-admin-only "Test V3 Gateway" diagnostic action.
+  ///
+  /// Posts exactly `{"action":"diagnoseV3Gateway"}` to the existing
+  /// `abdm-gateway` Edge Function. The Edge Function performs an isolated V3
+  /// session POST + bridge-services GET against the fixed Sandbox origin
+  /// `https://dev.abdm.gov.in` and returns only allow-listed diagnostic
+  /// metadata. The raw V3 token never leaves the Edge Function and is never
+  /// read, displayed, logged or persisted by this client.
+  Future<Map<String, dynamic>> diagnoseV3Gateway() async {
+    _requireBackendEnabled('V3 gateway diagnostic');
+    final session = _currentSessionReader();
+    if (session == null) {
+      throw const AbdmException(
+        'Please log in again.',
+        code: 'NO_SESSION',
+        statusCode: 401,
+      );
+    }
+    return _invokeEdge('diagnoseV3Gateway');
+  }
+
+  /// Owner/super-admin-only "Inspect V3 Bridge" read-only action.
+  ///
+  /// Posts exactly `{"action":"inspectV3Bridge"}` to the existing
+  /// `abdm-gateway` Edge Function. The Edge Function reuses the isolated V3
+  /// session + GET bridge-services flow and returns only a sanitized,
+  /// shape-level description of the real bridge-services response (top-level
+  /// type, safe field names, bridge/URL presence, sanitized services). It
+  /// never performs PATCH /bridge/url, addUpdateServices or any mutation.
+  Future<Map<String, dynamic>> inspectV3Bridge() async {
+    _requireBackendEnabled('V3 bridge inspection');
+    final session = _currentSessionReader();
+    if (session == null) {
+      throw const AbdmException(
+        'Please log in again.',
+        code: 'NO_SESSION',
+        statusCode: 401,
+      );
+    }
+    return _invokeEdge('inspectV3Bridge');
+  }
+
   // ===========================================================================
   // M1 – ABHA identity layer
   // ===========================================================================
 
   /// Validates a 12-digit Aadhaar number and requests an OTP from ABDM.
   ///
-  /// Returns the `txnId` that must be passed to [verifyAadhaarOtp].
-  Future<String> generateAadhaarOtp(String aadhaarNumber) async {
+  /// The raw Aadhaar is sent ONLY to the Edge Function over the authenticated
+  /// Supabase channel. It is never stored, logged or returned.
+  Future<AbdmM1Txn> generateAadhaarOtp(String aadhaarNumber) async {
     final aadhaar = aadhaarNumber.trim();
     if (!RegExp(r'^\d{12}$').hasMatch(aadhaar)) {
       throw const AbdmException('Enter a valid 12-digit Aadhaar number.');
@@ -264,23 +427,34 @@ class AbdmService {
     if (isMockMode) {
       await _mockDelay();
       final txnId = 'mock-txn-${DateTime.now().millisecondsSinceEpoch}';
-      _lastTxnId = txnId;
-      return txnId;
+      return AbdmM1Txn(txnId);
     }
 
-    _ensureRealGatewayAvailable('Aadhaar OTP generation');
+    final data = await _invokeM1('m1GenerateAadhaarOtp', {
+      'aadhaarNumber': aadhaar,
+    });
+    final txnId =
+        _firstString(data['payload'], 'txnId') ?? _firstString(data, 'txnId');
+    if (txnId == null || txnId.isEmpty) {
+      throw const AbdmException(
+        'ABDM did not return a transaction id.',
+        code: 'ABDM_M1_INVALID_INPUT',
+      );
+    }
+    return AbdmM1Txn(txnId);
   }
 
-  /// Verifies the Aadhaar OTP against ABDM.
-  Future<Map<String, dynamic>> verifyAadhaarOtp(
-    String otp, {
-    String? txnId,
+  /// Verifies the Aadhaar OTP against ABDM and returns the sanitized eKYC
+  /// profile. The OTP is sent only to the Edge Function and never persisted.
+  Future<AbdmM1Profile> verifyAadhaarOtp({
+    required String txnId,
+    required String otp,
   }) async {
     final otpValue = otp.trim();
-    if (!RegExp(r'^\d{4,8}$').hasMatch(otpValue)) {
-      throw const AbdmException('Enter a valid OTP.');
+    if (!RegExp(r'^\d{6}$').hasMatch(otpValue)) {
+      throw const AbdmException('Enter the 6-digit OTP.');
     }
-    final activeTxnId = (txnId ?? _lastTxnId)?.trim() ?? '';
+    final activeTxnId = txnId.trim();
     if (activeTxnId.isEmpty) {
       throw const AbdmException(
         'Transaction id missing. Please generate OTP again.',
@@ -289,66 +463,96 @@ class AbdmService {
 
     if (isMockMode) {
       await _mockDelay();
-      final result = {
-        'txnId': activeTxnId,
-        'name': 'Rahul Sharma',
-        'firstName': 'Rahul',
-        'lastName': 'Sharma',
-        'gender': 'M',
-        'dateOfBirth': '1990-05-15',
-        'yearOfBirth': '1990',
-        'mobileNumber': '9999999999',
-        'aadhaar': _maskAadhaar('123456789012'),
-      };
+      final profile = const AbdmM1Profile(
+        healthId: '91-1234-5678-9012',
+        healthIdNumber: '91-1234-5678-9012',
+        abhaAddress: 'rahul9012@abdm',
+        name: 'Rahul Sharma',
+        firstName: 'Rahul',
+        lastName: 'Sharma',
+        gender: 'M',
+        dateOfBirth: '1990-05-15',
+        yearOfBirth: '1990',
+        mobileNumber: 'XXXXXX9999',
+      );
+      // SECURITY: the OTP value is never logged, even masked.
       await _logAbhaFlow(
         requestType: 'verify_aadhaar_otp',
-        requestPayload: {'txnId': activeTxnId, 'otp': _maskOtp(otpValue)},
-        responsePayload: result,
+        requestPayload: {'txnId': activeTxnId},
+        responsePayload: {'name': profile.name, 'isMock': true},
         status: 'success',
       );
-      return result;
+      return profile;
     }
 
-    _ensureRealGatewayAvailable('Aadhaar OTP verification');
+    final data = await _invokeM1('m1VerifyAadhaarOtp', {
+      'txnId': activeTxnId,
+      'otp': otpValue,
+    });
+    final profile = _profileFromEdge(data);
+    if (profile == null) {
+      throw const AbdmException(
+        'ABDM did not return a verified profile.',
+        code: 'ABDM_M1_INVALID_INPUT',
+      );
+    }
+    return profile;
   }
 
-  /// Creates a new ABHA Health ID using the pre-verified Aadhaar flow.
-  Future<Map<String, dynamic>> createAbhaId({
+  /// Creates a new ABHA identity using the pre-verified Aadhaar flow.
+  ///
+  /// [preferredAbhaAddress] is only honoured when the official contract allows
+  /// choosing an ABHA Address. Choosing an ABHA Number is intentionally NOT
+  /// offered — the official contract must explicitly permit it first.
+  Future<AbdmM1Profile> createAbhaId({
     required String txnId,
-    String? healthId,
+    String? preferredAbhaAddress,
     String? email,
   }) async {
     if (isMockMode) {
       await _mockDelay();
-      final abhaNumber = healthId?.trim().isNotEmpty == true
-          ? healthId!.trim()
-          : '91-1234-5678-9012';
-      final result = {
-        'txnId': txnId,
-        'healthId': abhaNumber,
-        'healthIdNumber': abhaNumber,
-        'abhaAddress': 'rahul9012@abdm',
-        'name': 'Rahul Sharma',
-        'gender': 'M',
-        'dateOfBirth': '1990-05-15',
-        'mobileNumber': '9999999999',
-        'email': email,
-        'isNew': true,
-      };
+      final address = (preferredAbhaAddress?.trim().isNotEmpty ?? false)
+          ? preferredAbhaAddress!.trim().toLowerCase()
+          : 'rahul9012@abdm';
+      final profile = AbdmM1Profile(
+        healthId: '91-1234-5678-9012',
+        healthIdNumber: '91-1234-5678-9012',
+        abhaAddress: address,
+        name: 'Rahul Sharma',
+        gender: 'M',
+        dateOfBirth: '1990-05-15',
+        mobileNumber: 'XXXXXX9999',
+        email: email,
+        isNew: true,
+        status: 'ACTIVE',
+      );
       await _logAbhaFlow(
         requestType: 'create_abha_id',
-        requestPayload: {'txnId': txnId, 'email': email},
-        responsePayload: result,
+        requestPayload: {'txnId': txnId},
+        responsePayload: {'abhaAddress': address, 'isMock': true},
         status: 'success',
       );
-      return result;
+      return profile;
     }
 
-    _ensureRealGatewayAvailable('ABHA creation');
+    final data = await _invokeM1('m1CreateAbha', {
+      'txnId': txnId,
+      if (preferredAbhaAddress != null && preferredAbhaAddress.isNotEmpty)
+        'preferredAbhaAddress': preferredAbhaAddress,
+      if (email != null && email.isNotEmpty) 'email': email,
+    });
+    final profile = _profileFromEdge(data);
+    if (profile == null) {
+      throw const AbdmException(
+        'ABDM did not return the created ABHA profile.',
+        code: 'ABDM_M1_INVALID_INPUT',
+      );
+    }
+    return profile;
   }
 
-  /// Searches an ABHA Health ID on the gateway and returns its profile.
-  Future<Map<String, dynamic>> searchAbhaId(String abhaId) async {
+  /// Searches an ABHA Health ID (ABHA number) on the gateway.
+  Future<AbdmM1Response> searchAbhaId(String abhaId) async {
     final healthId = abhaId.trim().toUpperCase();
     if (healthId.isEmpty) {
       throw const AbdmException('Enter an ABHA Health ID.');
@@ -356,48 +560,55 @@ class AbdmService {
 
     if (isMockMode) {
       await _mockDelay();
-      return _mockProfile(healthId);
+      return AbdmM1Response(
+        state: AbdmM1State.found,
+        profile: _mockProfile(healthId),
+        accounts: [_mockProfile(healthId)],
+        isMock: true,
+      );
     }
 
-    _ensureRealGatewayAvailable('ABHA search');
+    final data = await _invokeM1('m1GetProfile', {'abhaNumber': healthId});
+    return AbdmM1Response.fromEdgePayload(data);
   }
 
   /// Searches ABHA profiles by mobile number on the gateway.
-  Future<Map<String, dynamic>> searchAbhaByMobile(String mobile) async {
+  ///
+  /// Mobile search may return MULTIPLE ABHA accounts; the UI must show a
+  /// selection instead of assuming a single profile.
+  Future<AbdmM1Response> searchAbhaByMobile(String mobile) async {
     final m = mobile.trim();
-    if (!RegExp(r'^\d{10}$').hasMatch(m)) {
+    if (!RegExp(r'^[6-9]\d{9}$').hasMatch(m)) {
       throw const AbdmException('Enter a valid 10-digit mobile number.');
     }
 
     if (isMockMode) {
       await _mockDelay();
-      return _mockProfile('91-1234-5678-9012');
-    }
-
-    _ensureRealGatewayAvailable('ABHA mobile search');
-  }
-
-  /// Verifies an ABHA Health ID (existence + KYC lookup on the gateway).
-  Future<Map<String, dynamic>> verifyAbhaId(
-    String abhaId, {
-    String? otp,
-  }) async {
-    final profile = await searchAbhaId(abhaId);
-    if (otp != null && otp.trim().isNotEmpty) {
-      await _logAbhaFlow(
-        requestType: 'verify_abha_id',
-        requestPayload: {'healthId': abhaId, 'otp': _maskOtp(otp)},
-        responsePayload: profile,
-        status: 'success',
+      final profile = _mockProfile('91-1234-5678-9012');
+      return AbdmM1Response(
+        state: AbdmM1State.found,
+        profile: profile,
+        accounts: [profile],
+        isMock: true,
       );
     }
-    return profile;
+
+    final data = await _invokeM1('m1SearchByMobile', {'mobile': m});
+    return AbdmM1Response.fromEdgePayload(data);
   }
 
-  /// Searches an ABHA Address (14-digit `@abdm` address).
-  Future<Map<String, dynamic>> verifyAbhaAddress(String abhaAddress) async {
+  /// Verifies an ABHA Health ID existence/profile on the gateway.
+  ///
+  /// NOTE: optional OTP has been removed — the official flow requires a
+  /// separate OTP-generation transaction, so an OTP is never accepted here.
+  Future<AbdmM1Response> verifyAbhaId(String abhaId) {
+    return searchAbhaId(abhaId);
+  }
+
+  /// Searches/verifies an ABHA Address (e.g. `rahul9012@abdm`).
+  Future<AbdmM1Response> verifyAbhaAddress(String abhaAddress) async {
     final address = abhaAddress.trim().toLowerCase();
-    if (!RegExp(r'^[a-z0-9.\-_]{1,64}@abdm$').hasMatch(address)) {
+    if (!RegExp(r'^[a-z0-9][a-z0-9._-]{0,63}@[a-z0-9.-]+$').hasMatch(address)) {
       throw const AbdmException(
         'Enter a valid ABHA address (example: rahul9012@abdm).',
       );
@@ -405,43 +616,53 @@ class AbdmService {
 
     if (isMockMode) {
       await _mockDelay();
-      return _mockProfile('91-1234-5678-9012', abhaAddress: address);
+      final profile = _mockProfile('91-1234-5678-9012', abhaAddress: address);
+      return AbdmM1Response(
+        state: AbdmM1State.verified,
+        profile: profile,
+        accounts: [profile],
+        isMock: true,
+      );
     }
 
-    _ensureRealGatewayAvailable('ABHA address verification');
+    final data = await _invokeM1('m1VerifyAbhaAddress', {
+      'abhaAddress': address,
+    });
+    return AbdmM1Response.fromEdgePayload(data);
   }
 
   /// Fetches the ABHA Card JSON for an ABHA address.
   Future<Map<String, dynamic>> getAbhaCard(String abhaAddress) async {
+    final address = abhaAddress.trim().toLowerCase();
     if (isMockMode) {
       await _mockDelay();
-      final profile = _mockProfile(
-        '91-1234-5678-9012',
-        abhaAddress: abhaAddress,
-      );
+      final profile = _mockProfile('91-1234-5678-9012', abhaAddress: address);
       final card = {
-        'abhaAddress': profile['abhaAddress'],
-        'healthId': profile['healthId'],
-        'name': profile['name'],
-        'gender': profile['gender'],
-        'dateOfBirth': profile['dateOfBirth'],
+        'abhaAddress': profile.abhaAddress,
+        'healthId': profile.healthId,
+        'name': profile.name,
+        'gender': profile.gender,
+        'dateOfBirth': profile.dateOfBirth,
         'photo': null,
         'cardUrl': null,
+        'isMock': true,
       };
       await _logAbhaFlow(
         requestType: 'get_abha_card',
-        requestPayload: {'abhaAddress': abhaAddress},
-        responsePayload: card,
+        requestPayload: {'abhaAddress': address},
+        responsePayload: {'isMock': true},
         status: 'success',
       );
       return card;
     }
 
-    _ensureRealGatewayAvailable('ABHA card fetch');
+    final data = await _invokeM1('m1GetAbhaCard', {'abhaAddress': address});
+    return _payloadMap(data);
   }
 
   /// Downloads the PNG ABHA card. Returns raw PNG bytes for preview/save.
   Future<Uint8List> downloadAbhaCardPng(String abhaAddress) async {
+    final address = abhaAddress.trim().toLowerCase();
     if (isMockMode) {
       await _mockDelay();
       // 1x1 transparent PNG so Image.memory never crashes in mock mode.
@@ -451,18 +672,23 @@ class AbdmService {
       );
       await _logAbhaFlow(
         requestType: 'download_abha_card_png',
-        requestPayload: {'abhaAddress': abhaAddress},
-        responsePayload: {'bytes': bytes.length},
+        requestPayload: {'abhaAddress': address},
+        responsePayload: {'bytes': bytes.length, 'isMock': true},
         status: 'success',
       );
       return bytes;
     }
 
-    _ensureRealGatewayAvailable('ABHA card download');
+    final data = await _invokeM1('m1GetAbhaCard', {
+      'abhaAddress': address,
+      'format': 'png',
+    });
+    return _binaryFromEdge(data, 'card');
   }
 
   /// Fetches the ABHA QR code image bytes.
   Future<Uint8List> getAbhaQrCode(String abhaAddress) async {
+    final address = abhaAddress.trim().toLowerCase();
     if (isMockMode) {
       await _mockDelay();
       final bytes = base64Decode(
@@ -471,14 +697,15 @@ class AbdmService {
       );
       await _logAbhaFlow(
         requestType: 'get_abha_qr',
-        requestPayload: {'abhaAddress': abhaAddress},
-        responsePayload: {'bytes': bytes.length},
+        requestPayload: {'abhaAddress': address},
+        responsePayload: {'bytes': bytes.length, 'isMock': true},
         status: 'success',
       );
       return bytes;
     }
 
-    _ensureRealGatewayAvailable('ABHA QR code fetch');
+    final data = await _invokeM1('m1GetAbhaQr', {'abhaAddress': address});
+    return _binaryFromEdge(data, 'qr');
   }
 
   /// Parses an ABHA/scan-and-share QR payload (local operation, works in both
@@ -586,7 +813,12 @@ class AbdmService {
       };
     }
 
-    _ensureRealGatewayAvailable('Care context linking');
+    throw const AbdmException(
+      'The secure ABDM gateway relay for "Care context linking" is not '
+      'enabled yet. This phase provides session, Bridge, service-management '
+      'and M1 routing through the Edge Function.',
+      code: 'ABDM_REAL_MODE_NOT_AVAILABLE',
+    );
   }
 
   /// Handles a scan-and-share QR payload (local extraction + audit).
@@ -822,7 +1054,12 @@ class AbdmService {
       };
     }
 
-    _ensureRealGatewayAvailable('Consent request');
+    throw const AbdmException(
+      'The secure ABDM gateway relay for "Consent request" is not enabled '
+      'yet. This phase provides session, Bridge, service-management and M1 '
+      'routing through the Edge Function.',
+      code: 'ABDM_REAL_MODE_NOT_AVAILABLE',
+    );
   }
 
   /// Polls the status of a consent request.
@@ -832,7 +1069,12 @@ class AbdmService {
       return {'consentRequestId': consentRequestId, 'status': 'GRANTED'};
     }
 
-    _ensureRealGatewayAvailable('Consent status');
+    throw const AbdmException(
+      'The secure ABDM gateway relay for "Consent status" is not enabled '
+      'yet. This phase provides session, Bridge, service-management and M1 '
+      'routing through the Edge Function.',
+      code: 'ABDM_REAL_MODE_NOT_AVAILABLE',
+    );
   }
 
   /// HIU: fetches health records for a granted consent from the HIP.
@@ -884,7 +1126,12 @@ class AbdmService {
       };
     }
 
-    _ensureRealGatewayAvailable('Health record fetch');
+    throw const AbdmException(
+      'The secure ABDM gateway relay for "Health record fetch" is not '
+      'enabled yet. This phase provides session, Bridge, service-management '
+      'and M1 routing through the Edge Function.',
+      code: 'ABDM_REAL_MODE_NOT_AVAILABLE',
+    );
   }
 
   // ===========================================================================
@@ -907,20 +1154,50 @@ class AbdmService {
     }
   }
 
-  Future<void> upsertAbhaProfile({
+  Future<String?> _currentUsersTableId() async {
+    try {
+      final authId = _client.auth.currentUser?.id;
+      if (authId == null) return null;
+      final row = await _client
+          .from('users')
+          .select('id')
+          .eq('auth_id', authId)
+          .maybeSingle();
+      return row?['id']?.toString();
+    } catch (e) {
+      AppLogger.e('Could not resolve users table id for ABDM record', e);
+      return null;
+    }
+  }
+
+  /// Atomically links an ABHA identity to a patient via the hospital-scoped
+  /// `link_abha_profile` database RPC:
+  ///
+  ///   1. upserts `abha_profiles` (hospital-scoped, patient unique),
+  ///   2. updates `patients.abha_id` / `abha_address` / `abha_linked`,
+  ///   3. writes an `abha_linking_logs` success row,
+  ///
+  /// all inside one database transaction that enforces hospital isolation.
+  Future<Map<String, dynamic>> upsertAbhaProfile({
     required String patientId,
     required String abhaId,
     String? abhaAddress,
     bool isVerified = true,
+    String verificationSource = 'abdm_m1',
+    String? transactionId,
   }) async {
-    await _client.from('abha_profiles').upsert({
-      'patient_id': patientId,
-      'hospital_id': await _currentHospitalId(),
-      'abha_id': abhaId.trim().toUpperCase(),
-      'abha_address': abhaAddress,
-      'is_verified': isVerified,
-      'created_at': DateTime.now().toUtc().toIso8601String(),
-    }, onConflict: 'patient_id');
+    final data = await _client.rpc(
+      'link_abha_profile',
+      params: {
+        'p_patient_id': patientId,
+        'p_abha_id': abhaId.trim().toUpperCase(),
+        'p_abha_address': abhaAddress,
+        'p_is_verified': isVerified,
+        'p_verification_source': verificationSource,
+        'p_transaction_id': transactionId,
+      },
+    );
+    return data is Map ? Map<String, dynamic>.from(data) : {};
   }
 
   Future<Map<String, dynamic>?> getAbhaProfile(String patientId) async {
@@ -930,6 +1207,36 @@ class AbdmService {
         .eq('patient_id', patientId)
         .maybeSingle();
     return response;
+  }
+
+  /// Records non-sensitive consent evidence for an M1 operation. Never stores
+  /// Aadhaar, OTP or any ABDM KYC payload.
+  Future<void> recordAbhaConsentEvidence({
+    required String purpose,
+    required String consentText,
+    required String consentVersion,
+    String? patientId,
+    String? abdmTransactionId,
+  }) async {
+    final hospitalId = await _currentHospitalId();
+    if (hospitalId == null || hospitalId.isEmpty) return;
+    final userId = await _currentUsersTableId();
+    if (userId == null || userId.isEmpty) return;
+
+    try {
+      await _client.from('abha_m1_consent_evidence').insert({
+        'hospital_id': hospitalId,
+        'user_id': userId,
+        'patient_id': patientId,
+        'consent_given': true,
+        'consent_purpose': purpose,
+        'consent_text': consentText,
+        'consent_version': consentVersion,
+        'abdm_transaction_id': abdmTransactionId,
+      });
+    } catch (e) {
+      AppLogger.e('Failed to write abha_m1_consent_evidence', e);
+    }
   }
 
   Future<Map<String, dynamic>> saveCareContext({
@@ -1063,7 +1370,8 @@ class AbdmService {
     return List<Map<String, dynamic>>.from(response);
   }
 
-  /// Persists an ABDM request/response to `data_flow_logs`.
+  /// Persists an ABDM request/response to `data_flow_logs` after stripping
+  /// sensitive keys (Aadhaar, OTP, tokens, secrets).
   Future<void> logDataFlow({
     required String? patientId,
     required String transactionId,
@@ -1077,8 +1385,8 @@ class AbdmService {
         'patient_id': patientId,
         'hospital_id': await _currentHospitalId(),
         'transaction_id': transactionId,
-        'request_payload': requestPayload,
-        'response_payload': responsePayload,
+        'request_payload': _sanitizeLogMap(requestPayload),
+        'response_payload': _sanitizeLogMap(responsePayload),
         'status': status,
         'error_message': errorMessage,
       });
@@ -1097,8 +1405,8 @@ class AbdmService {
       await _client.from('abha_linking_logs').insert({
         'hospital_id': await _currentHospitalId(),
         'request_type': requestType,
-        'request_payload': requestPayload,
-        'response_payload': responsePayload,
+        'request_payload': _sanitizeLogMap(requestPayload),
+        'response_payload': _sanitizeLogMap(responsePayload),
         'status': status,
         'transaction_id': _newRequestId('ABHA'),
       });
@@ -1120,23 +1428,6 @@ class AbdmService {
     }
   }
 
-  Never _ensureRealGatewayAvailable(String operation) {
-    if (isMockMode) {
-      // Should never happen (callers handle mock mode first), but keep a
-      // defensive branch so a mock UI never accidentally reaches this.
-      throw AbdmException(
-        '$operation is not available in mock mode.',
-        code: 'ABDM_MOCK_MODE',
-      );
-    }
-    throw AbdmException(
-      'The secure ABDM gateway relay for "$operation" is not enabled yet. '
-      'This backend-foundation phase only provides session, Bridge and '
-      'service-management operations through the Edge Function.',
-      code: 'ABDM_REAL_MODE_NOT_AVAILABLE',
-    );
-  }
-
   Future<Map<String, dynamic>> _invokeEdge(
     String action, {
     Map<String, dynamic>? body,
@@ -1156,7 +1447,7 @@ class AbdmService {
       final data = response.data;
       if (data is Map<String, dynamic>) {
         if (data['error'] != null) {
-          throw AbdmException(data['error'].toString(), payload: data);
+          throw _edgeError(data);
         }
         return data;
       }
@@ -1167,55 +1458,196 @@ class AbdmService {
     } on AbdmException {
       rethrow;
     } on FunctionException catch (e) {
-      String message = 'ABDM gateway function failed (HTTP ${e.status})';
-      Map<String, dynamic>? payload;
-      final details = e.details;
-      if (details is Map) {
-        payload = Map<String, dynamic>.from(details);
-        final serverMessage = payload['error']?.toString();
-        if (serverMessage != null && serverMessage.isNotEmpty) {
-          message = serverMessage;
-        }
-      } else if (details is String && details.trim().isNotEmpty) {
-        message = details.trim();
-      }
-      // Preserve structured server diagnostics (e.g. ABDM_BRIDGE_400) when the
-      // Edge Function supplies them; otherwise keep the legacy EDGE_<status>.
-      final serverCode = payload?['code']?.toString();
-      throw AbdmException(
-        message,
-        code: (serverCode != null && serverCode.isNotEmpty)
-            ? serverCode
-            : 'EDGE_${e.status}',
-        statusCode: e.status,
-        payload: payload,
-      );
+      throw _functionException(e);
     } catch (e) {
       throw AbdmException('Could not reach the ABDM gateway function: $e');
     }
   }
 
+  /// Invokes an M1 action with the Flutter contract:
+  /// `{"action": "<M1 action>", "payload": {...}}` via POST.
+  Future<Map<String, dynamic>> _invokeM1(
+    String action,
+    Map<String, dynamic> payload,
+  ) async {
+    final session = _currentSessionReader();
+    if (session == null) {
+      throw const AbdmException(
+        'Please log in again.',
+        code: 'NO_SESSION',
+        statusCode: 401,
+      );
+    }
+    try {
+      final response = await _client.functions.invoke(
+        _edgeFunction,
+        body: {'action': action, 'payload': payload},
+        method: HttpMethod.post,
+      );
+
+      final data = response.data;
+      if (data is Map<String, dynamic>) {
+        if (data['error'] != null) {
+          throw _edgeError(data);
+        }
+        return data;
+      }
+      if (data is Map) return Map<String, dynamic>.from(data);
+      throw const AbdmException(
+        'Unexpected response from the ABDM gateway function.',
+      );
+    } on AbdmException {
+      rethrow;
+    } on FunctionException catch (e) {
+      throw _functionException(e);
+    } catch (e) {
+      throw AbdmException('Could not reach the ABDM gateway function: $e');
+    }
+  }
+
+  AbdmException _edgeError(Map<String, dynamic> data) {
+    return AbdmException(
+      data['error'].toString(),
+      code: data['code']?.toString(),
+      statusCode: data['status'] is num
+          ? (data['status'] as num).toInt()
+          : null,
+      payload: data,
+    );
+  }
+
+  AbdmException _functionException(FunctionException e) {
+    String message = 'ABDM gateway function failed (HTTP ${e.status})';
+    Map<String, dynamic>? payload;
+    final details = e.details;
+    if (details is Map) {
+      payload = Map<String, dynamic>.from(details);
+      final serverMessage = payload['error']?.toString();
+      if (serverMessage != null && serverMessage.isNotEmpty) {
+        message = serverMessage;
+      }
+    } else if (details is String && details.trim().isNotEmpty) {
+      message = details.trim();
+    }
+    // Preserve structured server diagnostics (e.g. ABDM_BRIDGE_400 or the
+    // ABDM_M1_* codes) when the Edge Function supplies them.
+    final serverCode = payload?['code']?.toString();
+    return AbdmException(
+      message,
+      code: (serverCode != null && serverCode.isNotEmpty)
+          ? serverCode
+          : 'EDGE_${e.status}',
+      statusCode: e.status,
+      payload: payload,
+    );
+  }
+
+  // -- M1 response helpers ---------------------------------------------------
+
+  AbdmM1Profile? _profileFromEdge(Map<String, dynamic> data) {
+    final rawPayload = data['payload'];
+    final payload = rawPayload is Map
+        ? Map<String, dynamic>.from(rawPayload)
+        : data;
+    final rawProfile = payload['profile'];
+    if (rawProfile is Map) {
+      return AbdmM1Profile.fromMap(Map<String, dynamic>.from(rawProfile));
+    }
+    // Single-profile success payloads may be flattened.
+    final healthId =
+        _firstString(payload, 'healthId') ??
+        _firstString(payload, 'healthIdNumber');
+    if (healthId != null) {
+      return AbdmM1Profile.fromMap(payload);
+    }
+    return null;
+  }
+
+  Map<String, dynamic> _payloadMap(Map<String, dynamic> data) {
+    final rawPayload = data['payload'];
+    return rawPayload is Map
+        ? Map<String, dynamic>.from(rawPayload)
+        : Map<String, dynamic>.from(data);
+  }
+
+  Uint8List _binaryFromEdge(Map<String, dynamic> data, String kind) {
+    final payload = _payloadMap(data);
+    final base64Value =
+        payload['base64'] ??
+        payload['cardBase64'] ??
+        payload['qrBase64'] ??
+        payload['bytes'];
+    if (base64Value is String && base64Value.isNotEmpty) {
+      return base64Decode(base64Value);
+    }
+    throw AbdmException(
+      'The ABDM $kind binary response format requires official confirmation.',
+      code: 'ABDM_M1_CONTRACT_UNCONFIRMED',
+    );
+  }
+
+  static String? _firstString(Object? value, String key) {
+    if (value is Map) {
+      final entry = value[key];
+      return entry?.toString();
+    }
+    return null;
+  }
+
+  /// Strips Aadhaar / OTP / token / secret keys from any persisted map.
+  Map<String, dynamic> _sanitizeLogMap(Map<String, dynamic> input) {
+    const sensitiveKeyFragments = [
+      'aadhaar',
+      'otp',
+      'token',
+      'secret',
+      'password',
+      'authorization',
+      'credential',
+      'clientid',
+      'clientsecret',
+    ];
+    final out = <String, dynamic>{};
+    for (final entry in input.entries) {
+      final key = entry.key.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      if (sensitiveKeyFragments.any(key.contains)) continue;
+      final value = entry.value;
+      if (value is Map) {
+        out[entry.key] = _sanitizeLogMap(Map<String, dynamic>.from(value));
+      } else if (value is List) {
+        out[entry.key] = value
+            .map(
+              (v) =>
+                  v is Map ? _sanitizeLogMap(Map<String, dynamic>.from(v)) : v,
+            )
+            .toList();
+      } else {
+        out[entry.key] = value;
+      }
+    }
+    return out;
+  }
+
   // -- mock + helpers --------------------------------------------------------
 
-  Map<String, dynamic> _mockProfile(String healthId, {String? abhaAddress}) {
+  AbdmM1Profile _mockProfile(String healthId, {String? abhaAddress}) {
     final address = abhaAddress ?? 'rahul9012@abdm';
-    return {
-      'healthId': healthId,
-      'healthIdNumber': healthId,
-      'abhaAddress': address,
-      'name': 'Rahul Sharma',
-      'firstName': 'Rahul',
-      'lastName': 'Sharma',
-      'gender': 'M',
-      'dateOfBirth': '1990-05-15',
-      'yearOfBirth': '1990',
-      'mobileNumber': '9999999999',
-      'email': 'rahul.sharma@example.com',
-      'address': 'New Delhi',
-      'state': 'Delhi',
-      'isVerified': true,
-      'status': 'ACTIVE',
-    };
+    return AbdmM1Profile(
+      healthId: healthId,
+      healthIdNumber: healthId,
+      abhaAddress: address,
+      name: 'Rahul Sharma',
+      firstName: 'Rahul',
+      lastName: 'Sharma',
+      gender: 'M',
+      dateOfBirth: '1990-05-15',
+      yearOfBirth: '1990',
+      mobileNumber: 'XXXXXX9999',
+      email: 'rahul.sharma@example.com',
+      state: 'Delhi',
+      district: 'New Delhi',
+      status: 'ACTIVE',
+    );
   }
 
   Future<void> _mockDelay() async {
@@ -1223,12 +1655,6 @@ class AbdmService {
       Duration(milliseconds: 500 + Random().nextInt(500)),
     );
   }
-
-  String _maskAadhaar(String aadhaar) => aadhaar.length == 12
-      ? 'XXXXXXXX${aadhaar.substring(aadhaar.length - 4)}'
-      : 'XXXXXXXXXXXX';
-
-  String _maskOtp(String otp) => otp.length <= 2 ? '**' : '${otp[0]}****';
 
   String _redactQr(String qr) => 'QR_PAYLOAD_${qr.length}';
 

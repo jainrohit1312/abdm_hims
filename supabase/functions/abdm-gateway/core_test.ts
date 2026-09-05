@@ -18,17 +18,26 @@ import {
   buildGatewayHeaders,
   buildGetServicesGatewayDiagnostic,
   buildGetServicesHttpDiagnostic,
+  buildHfrLinkagePayload,
   defaultCmIdForBaseUrl,
+  extractAbhaEncryptionAlgorithm,
   extractSanitizedServices,
   extractSanitizedUpstreamError,
+  extractV3BridgeId,
+  extractV3BridgeServiceById,
+  extractV3ServiceEntry,
   gatewayRequest,
   getSubpath,
   isAdminRole,
   isLocalOrPrivateHost,
   isReservedSubpath,
+  isValidAbdmHipName,
   isValidCmId,
+  isValidHfrFacilityId,
+  normalizeServiceTypes,
   parsePositiveInt,
   persistCallback,
+  preferRuntimeEncryptionAlgorithm,
   readConfig,
   readJsonBody,
   redactSensitiveText,
@@ -37,6 +46,7 @@ import {
   resolveInternalAction,
   sanitizePayload,
   validateCallbackBaseUrl,
+  validateHfrLinkageInput,
   validateServicesPayload,
   GatewayError,
   type CallbackRow,
@@ -72,9 +82,23 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     bridgePath: "/gateway/v1/bridges",
     servicesPath: "/gateway/v1/bridges/addUpdateServices",
     getServicesPath: "/gateway/v1/bridges/getServices",
+    hfrBaseUrl: "https://apihspsbx.abdm.gov.in/v4/int",
+    hfrServicesPath: "/v1/bridges/MutipleHRPAddUpdateServices",
     allowedServiceTypes: ["HIP", "HIU"],
     cmId: "sbx",
     tokenSafetyMarginSeconds: 120,
+    m1BaseUrl: "",
+    m1GenerateAadhaarOtpPath: "",
+    m1VerifyAadhaarOtpPath: "",
+    m1CreateAbhaPath: "",
+    m1GetProfilePath: "",
+    m1VerifyAbhaNumberPath: "",
+    m1SearchByMobilePath: "",
+    m1VerifyAbhaAddressPath: "",
+    m1GetAbhaCardPath: "",
+    m1GetAbhaQrPath: "",
+    m1AllowedRoles: ["super_admin", "admin", "receptionist"],
+    m1AbhaAddressSuffixes: ["abdm", "sbx"],
     ...overrides,
   };
 }
@@ -410,7 +434,7 @@ Deno.test("extractSanitizedServices keeps only allowed fields and drops secrets"
   const first = services[0] as Record<string, unknown>;
   assertEquals(first["id"], "hip-1");
   assertEquals(first["name"], "Demo HIP");
-  assertEquals(first["type"], "HIP");
+  assertEquals(first["types"], ["HIP"]);
   assertEquals(first["active"], true);
   assertEquals(first["alias"], ["Demo"]);
   assertEquals(
@@ -996,4 +1020,161 @@ Deno.test("persistCallback rethrows non-duplicate database errors", async () => 
     threw = true;
   }
   assert(threw, "non-duplicate errors must propagate");
+});
+
+// ----------------------------------------------------------------------------
+// V3 `types[]` parsing + legacy `type` defensive normalization
+// ----------------------------------------------------------------------------
+
+Deno.test("normalizeServiceTypes returns canonical types[] and uppercases", () => {
+  assertEquals(normalizeServiceTypes({ types: ["hip", "HIU"] }), ["HIP", "HIU"]);
+  assertEquals(normalizeServiceTypes({ types: ["HIP", "hip"] }), ["HIP"]);
+  assertEquals(normalizeServiceTypes({ type: "HIP" }), ["HIP"]);
+  assertEquals(normalizeServiceTypes({}), []);
+  assertEquals(normalizeServiceTypes({ types: [] }), []);
+  assertEquals(normalizeServiceTypes({ types: [], type: "HIU" }), ["HIU"]);
+});
+
+Deno.test("extractV3ServiceEntry parses official types[] and legacy type", () => {
+  const official = extractV3ServiceEntry({
+    id: "HFR-123",
+    name: "Demo",
+    types: ["HIP"],
+    active: true,
+    bridgeId: "bridge-1",
+    endpoints: [{ address: "https://cb.example", connectionType: "https", use: "X" }],
+  });
+  assert(official !== null, "official entry must parse");
+  assertEquals(official!.id, "HFR-123");
+  assertEquals(official!.types, ["HIP"]);
+  assertEquals(official!.active, true);
+  assertEquals(official!.bridgeId, "bridge-1");
+  assertEquals(official!.endpoints?.length, 1);
+
+  const legacy = extractV3ServiceEntry({ id: "HFR-123", type: "hip", active: false });
+  assert(legacy !== null, "legacy entry must parse");
+  assertEquals(legacy!.types, ["HIP"]);
+  assertEquals(legacy!.active, false);
+});
+
+// ----------------------------------------------------------------------------
+// HFR Multiple HRP payload + validation
+// ----------------------------------------------------------------------------
+
+Deno.test("buildHfrLinkagePayload emits the exact HFR contract shape", () => {
+  assertEquals(
+    buildHfrLinkagePayload({
+      facilityId: "IN2810014366",
+      facilityName: "MediFlux Hospital",
+      hipName: "MediFlux",
+    }, "bridge-1"),
+    {
+      facilityId: "IN2810014366",
+      facilityName: "MediFlux Hospital",
+      HRP: [{ bridgeId: "bridge-1", hipName: "MediFlux", type: "HIP", active: true }],
+    },
+  );
+});
+
+Deno.test("validateHfrLinkageInput rejects bad facility/hip/bridge inputs", () => {
+  const badFacility = validateHfrLinkageInput({
+    facilityId: "",
+    facilityName: "MediFlux Hospital",
+    hipName: "MediFlux",
+  }, "bridge-1");
+  assertEquals(badFacility.ok, false);
+  assert(badFacility.errors.length > 0, "facility error expected");
+
+  const badHip = validateHfrLinkageInput({
+    facilityId: "IN2810014366",
+    facilityName: "MediFlux Hospital",
+    hipName: "TooLongHipName@!",
+  }, "bridge-1");
+  assertEquals(badHip.ok, false);
+  assert(badHip.errors.some((e) => e.includes("HIP name")), "hip error expected");
+
+  const missingBridge = validateHfrLinkageInput({
+    facilityId: "IN2810014366",
+    facilityName: "MediFlux Hospital",
+    hipName: "MediFlux",
+  }, "");
+  assertEquals(missingBridge.ok, false);
+});
+
+Deno.test("HFR facility id validator enforces IN + 10 digits", () => {
+  assertEquals(isValidHfrFacilityId("IN2810014366"), true);
+  assertEquals(isValidHfrFacilityId("IN0710001283"), true);
+  assertEquals(isValidHfrFacilityId("HFR-123"), false);
+  assertEquals(isValidHfrFacilityId("IN123"), false);
+  assertEquals(isValidHfrFacilityId("2810014366"), false);
+  assertEquals(isValidHfrFacilityId("INABCDEFGHIJ"), false);
+  assertEquals(isValidHfrFacilityId(""), false);
+});
+
+Deno.test("HIP name validator enforces letters/digits/spaces only, max 15", () => {
+  assertEquals(isValidAbdmHipName("Goverdhan"), true);
+  assertEquals(isValidAbdmHipName("Goverdhan Hosp"), true);
+  assertEquals(isValidAbdmHipName("Hospital 1"), true);
+  assertEquals(isValidAbdmHipName("Goverdhan-Hosp"), false);
+  assertEquals(isValidAbdmHipName("Goverdhan_Hosp"), false);
+  assertEquals(isValidAbdmHipName("Goverdhan.Hosp"), false);
+  assertEquals(isValidAbdmHipName("Goverdhan@Hosp"), false);
+  assertEquals(isValidAbdmHipName("16CharName123456"), false);
+  assertEquals(isValidAbdmHipName("  Goverdhan  "), true); // caller trims before validation
+});
+
+Deno.test("extractV3BridgeId reads only the official bridge.id envelope", () => {
+  assertEquals(
+    extractV3BridgeId({ bridge: { id: "bridge-1", url: "https://cb.example" }, services: [] }),
+    "bridge-1",
+  );
+  assertEquals(extractV3BridgeId({ services: [] }), null);
+  assertEquals(extractV3BridgeId({ bridge: { name: "no-id" }, services: [] }), null);
+});
+
+Deno.test("extractV3BridgeServiceById reads the official by-id schema, never types[]", () => {
+  const entry = extractV3BridgeServiceById({
+    serviceId: "IN2810014366",
+    bridgeId: "bridge-1",
+    name: "MediFlux",
+    isHip: true,
+    isHiu: false,
+    active: true,
+    types: ["HIP"],
+  });
+  assert(entry !== null, "by-id entry must parse");
+  assertEquals(entry!.serviceId, "IN2810014366");
+  assertEquals(entry!.bridgeId, "bridge-1");
+  assertEquals(entry!.isHip, true);
+  assertEquals(entry!.isHiu, false);
+  assertEquals(entry!.active, true);
+
+  const missingHip = extractV3BridgeServiceById({
+    serviceId: "IN2810014366",
+    bridgeId: "bridge-1",
+    types: ["HIP"],
+  });
+  assert(missingHip !== null, "by-id entry still parses");
+  assertEquals(missingHip!.isHip, null);
+});
+
+// ----------------------------------------------------------------------------
+// ABHA V3 audit helpers (certificate + runtime encryption algorithm)
+// ----------------------------------------------------------------------------
+
+Deno.test("extractAbhaEncryptionAlgorithm reads the runtime value", () => {
+  assertEquals(
+    extractAbhaEncryptionAlgorithm({ encryptionAlgorithm: "RSA_PKCS1_V1_5" }),
+    "RSA_PKCS1_V1_5",
+  );
+  assertEquals(extractAbhaEncryptionAlgorithm({}), null);
+});
+
+Deno.test("preferRuntimeEncryptionAlgorithm never lets a static value override the API", () => {
+  assertEquals(
+    preferRuntimeEncryptionAlgorithm("RSA_PKCS1_V1_5", "RSA_OAEP"),
+    "RSA_PKCS1_V1_5",
+  );
+  assertEquals(preferRuntimeEncryptionAlgorithm("", "RSA_OAEP"), "RSA_OAEP");
+  assertEquals(preferRuntimeEncryptionAlgorithm(null, ""), null);
 });

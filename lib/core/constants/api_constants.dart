@@ -125,32 +125,34 @@ class ApiConstants {
   // SECURITY NOTE: real ABDM calls are proxied through the `abdm-gateway`
   // Supabase Edge Function. The constants below are legacy/mock references for
   // the Flutter module and are NOT used for real gateway traffic anymore.
-  // Endpoint paths are configured centrally in the Edge Function
-  // (ABDM_SESSION_PATH / ABDM_BRIDGE_PATH / ABDM_SERVICES_PATH) and the
-  // defaults REQUIRE CONFIRMATION against current official ABDM Sandbox
-  // documentation.
+  //
+  // ABHA V3 POLICY: M1 ABHA operations must target ABHA V3 only. The Edge
+  // Function is the source of truth for the client-supplied M1/ABHA V3
+  // contract; any legacy v1 fallback paths below must never be used for real
+  // traffic.
   static const String abdmBaseUrl = 'https://sandbox.abdm.gov.in';
 
   // -- Gateway session / auth (server-side only; legacy mock reference) ------
   static const String abdmSessions = '/v1/sessions';
 
   // -- M1: ABHA creation (Aadhaar OTP flow) ----------------------------------
-  // ABDM exposes the same resource under v1 and v3; the service tries the
-  // paths in order so a sandbox that has migrated API versions keeps working.
+  // ABHA V3 is the only supported version for real M1 traffic. The v1
+  // fallbacks have been removed so mock/legacy code can never drift back to a
+  // deprecated ABHA version.
   static const List<String> abdmAadhaarGenerateOtpPaths = [
     '/v3/registration/aadhaar/generateOtp',
-    '/v1/registration/aadhaar/generateOtp',
   ];
   static const List<String> abdmAadhaarVerifyOtpPaths = [
     '/v3/registration/aadhaar/verifyOTP',
-    '/v1/registration/aadhaar/verifyOTP',
   ];
   static const List<String> abdmCreateHealthIdPaths = [
     '/v3/registration/aadhaar/createHealthIdWithPreVerified',
-    '/v1/registration/aadhaar/createHealthIdWithPreVerified',
   ];
 
-  // -- M1: ABHA search / verify / address ------------------------------------
+  // -- M1: ABHA search / verify / address (legacy v1 mock references) --------
+  // These singular v1 constants are retained for source compatibility only.
+  // Real M1 traffic must use the contract-gated ABHA V3 paths configured in
+  // the `abdm-gateway` Edge Function.
   static const String abdmSearchByHealthId = '/v1/search/searchByHealthId';
   static const String abdmSearchByMobile = '/v1/search/searchByMobile';
   static const String abdmSearchByAbhaAddress =
