@@ -12,6 +12,8 @@ import '../../widgets/smart_navigation.dart';
 import 'abdm_bridge_configure_button.dart';
 import 'abdm_connection_test_button.dart';
 import 'abdm_services_inspect_button.dart';
+import 'abdm_v3_bridge_inspect_button.dart';
+import 'abdm_v3_gateway_test_button.dart';
 
 /// ABHA module hub covering M1 (verify/search/address/card/QR), M2 (care
 /// context + consent as HIP) and M3 (consent request + record fetch as HIU).
@@ -34,7 +36,6 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
   final _abhaIdController = TextEditingController();
   final _mobileController = TextEditingController();
   final _abhaAddressController = TextEditingController();
-  final _otpController = TextEditingController();
 
   final _patientIdController = TextEditingController();
   final _recordIdController = TextEditingController();
@@ -48,7 +49,8 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
   DateTime? _toDate;
 
   bool _isBusy = false;
-  Map<String, dynamic>? _verifyResult;
+  AbdmM1Response? _verifyResult;
+  AbdmM1Profile? _selectedAccount;
   String? _scanResult;
 
   String? get _patientId {
@@ -77,7 +79,6 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
     _abhaIdController.dispose();
     _mobileController.dispose();
     _abhaAddressController.dispose();
-    _otpController.dispose();
     _patientIdController.dispose();
     _recordIdController.dispose();
     _purposeController.dispose();
@@ -92,16 +93,16 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
     setState(() {
       _isBusy = true;
       _verifyResult = null;
+      _selectedAccount = null;
     });
 
     try {
-      Map<String, dynamic> result;
+      AbdmM1Response result;
       switch (_searchMode) {
         case _SearchMode.abhaId:
-          result = await _abdm.verifyAbhaId(
-            _abhaIdController.text,
-            otp: _otpController.text,
-          );
+          // No optional OTP here — the official flow requires a separate
+          // OTP-generation transaction before any OTP can be accepted.
+          result = await _abdm.verifyAbhaId(_abhaIdController.text);
           break;
         case _SearchMode.mobile:
           result = await _abdm.searchAbhaByMobile(_mobileController.text);
@@ -115,17 +116,50 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
       setState(() {
         _isBusy = false;
         _verifyResult = result;
+        _selectedAccount = result.accounts.length == 1
+            ? result.accounts.first
+            : result.profile;
       });
-      _showSnack('ABHA verified successfully');
+      _showSnack(_stateMessage(result), isError: _isErrorState(result.state));
     } catch (e) {
       _handleError(e, 'Verification failed');
     }
   }
 
+  bool _isErrorState(AbdmM1State state) =>
+      state == AbdmM1State.notFound ||
+      state == AbdmM1State.provisioningUnavailable ||
+      state == AbdmM1State.failed;
+
+  String _stateMessage(AbdmM1Response result) {
+    switch (result.state) {
+      case AbdmM1State.found:
+        return 'ABHA found';
+      case AbdmM1State.verified:
+        return 'ABHA verified';
+      case AbdmM1State.created:
+        return 'ABHA created';
+      case AbdmM1State.otpRequired:
+        return 'OTP required to complete this step';
+      case AbdmM1State.multipleAccounts:
+        return 'Multiple ABHA accounts found. Please select one.';
+      case AbdmM1State.notFound:
+        return 'ABHA not found';
+      case AbdmM1State.provisioningUnavailable:
+        return 'ABDM provisioning unavailable';
+      case AbdmM1State.failed:
+        return result.message ?? 'ABHA verification failed';
+    }
+  }
+
+  void _selectAccount(AbdmM1Profile account) {
+    setState(() => _selectedAccount = account);
+  }
+
   Future<void> _downloadCard() async {
-    final address = _verifyResult?['abhaAddress'] as String?;
+    final address = _selectedAccount?.abhaAddress;
     if (address == null || address.isEmpty) {
-      _showSnack('Verify an ABHA address first', isError: true);
+      _showSnack('Select an ABHA address first', isError: true);
       return;
     }
     try {
@@ -154,9 +188,9 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
   }
 
   Future<void> _showQrCode() async {
-    final address = _verifyResult?['abhaAddress'] as String?;
+    final address = _selectedAccount?.abhaAddress;
     if (address == null || address.isEmpty) {
-      _showSnack('Verify an ABHA address first', isError: true);
+      _showSnack('Select an ABHA address first', isError: true);
       return;
     }
     try {
@@ -284,7 +318,7 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
         purpose: _purposeController.text.trim(),
         dataFrom: from,
         dataTo: to,
-        abhaAddress: _verifyResult?['abhaAddress'] as String?,
+        abhaAddress: _selectedAccount?.abhaAddress,
       );
       if (!mounted) return;
       ref.invalidate(patientConsentsProvider(patientId));
@@ -363,6 +397,8 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
           const AbdmConnectionTestButton(),
           const AbdmBridgeConfigureButton(),
           const AbdmServicesInspectButton(),
+          const AbdmV3GatewayTestButton(),
+          const AbdmV3BridgeInspectButton(),
           TextButton.icon(
             onPressed: () => context.push('/abha/create'),
             icon: const Icon(Icons.add),
@@ -389,6 +425,33 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (_abdm.isMockMode)
+            Card(
+              color: theme.colorScheme.tertiaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.science,
+                      color: theme.colorScheme.onTertiaryContainer,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Mock/demo mode — ABHA results are simulated and are '
+                        'not a live ABDM verification.',
+                        style: TextStyle(
+                          color: theme.colorScheme.onTertiaryContainer,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 12),
           Card(
             color: theme.colorScheme.tertiaryContainer,
             child: Padding(
@@ -446,18 +509,6 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
                 labelText: 'ABHA Health ID',
                 hintText: 'e.g. 91-1234-5678-9012',
                 prefixIcon: Icon(Icons.credit_card),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _otpController,
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              decoration: const InputDecoration(
-                labelText: 'OTP (optional)',
-                hintText: 'OTP if ABHA app asked for verification',
-                counterText: '',
-                prefixIcon: Icon(Icons.security),
               ),
             ),
           ] else if (_searchMode == _SearchMode.mobile) ...[
@@ -547,42 +598,93 @@ class _ABHAVerifyScreenState extends ConsumerState<ABHAVerifyScreen>
   Widget _buildVerifyResultCard() {
     final result = _verifyResult!;
     final theme = Theme.of(context);
-    final healthId = result['healthId'] ?? result['healthIdNumber'] ?? '-';
-    final address = result['abhaAddress'] ?? '-';
-    final name = result['name'] ?? '-';
-    final gender = result['gender'] ?? '-';
+
+    final (icon, color, label) = switch (result.state) {
+      AbdmM1State.verified => (
+        Icons.verified_user,
+        Colors.green,
+        'ABHA Verified',
+      ),
+      AbdmM1State.created => (Icons.add_circle, Colors.green, 'ABHA Created'),
+      AbdmM1State.found => (Icons.person_search, Colors.blue, 'ABHA Found'),
+      AbdmM1State.multipleAccounts => (
+        Icons.list_alt,
+        Colors.orange,
+        'Multiple ABHA Accounts Found',
+      ),
+      AbdmM1State.otpRequired => (
+        Icons.security,
+        Colors.orange,
+        'OTP Required',
+      ),
+      AbdmM1State.notFound => (Icons.person_off, Colors.red, 'ABHA Not Found'),
+      AbdmM1State.provisioningUnavailable => (
+        Icons.cloud_off,
+        Colors.red,
+        'ABDM Provisioning Unavailable',
+      ),
+      AbdmM1State.failed => (Icons.error, Colors.red, 'Verification Failed'),
+    };
+
+    final selected = _selectedAccount;
 
     return Card(
-      color: Colors.green.shade50,
+      color: color.withValues(alpha: 0.08),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.green),
-                SizedBox(width: 8),
+                Icon(icon, color: color),
+                const SizedBox(width: 8),
                 Text(
-                  'ABHA Verified!',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green,
-                  ),
+                  label,
+                  style: TextStyle(fontWeight: FontWeight.bold, color: color),
                 ),
               ],
             ),
             const Divider(),
-            _resultRow('Name', name),
-            _resultRow('ABHA ID', healthId),
-            _resultRow('ABHA Address', address),
-            _resultRow('Gender', gender),
-            if (result['dateOfBirth'] != null)
-              _resultRow('DOB', result['dateOfBirth'].toString()),
-            if (result['mobileNumber'] != null)
-              _resultRow('Mobile', result['mobileNumber'].toString()),
-            if (result['isMock'] == true)
-              Text('Mock sandbox profile', style: theme.textTheme.bodySmall),
+            if (result.state == AbdmM1State.multipleAccounts) ...[
+              Text(
+                'Select the ABHA account to use:',
+                style: theme.textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              for (final account in result.accounts)
+                Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: Icon(
+                      selected == account
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_off,
+                    ),
+                    title: Text(account.name ?? account.abhaAddress ?? '-'),
+                    subtitle: Text(
+                      '${account.abhaNumber ?? ''}\n${account.abhaAddress ?? ''}',
+                    ),
+                    onTap: () => _selectAccount(account),
+                  ),
+                ),
+            ] else if (selected != null) ...[
+              _resultRow('Name', selected.displayName),
+              _resultRow('ABHA ID', selected.abhaNumber ?? '-'),
+              _resultRow('ABHA Address', selected.abhaAddress ?? '-'),
+              _resultRow('Gender', selected.gender ?? '-'),
+              if (selected.dateOfBirth != null)
+                _resultRow('DOB', selected.dateOfBirth!),
+              if (selected.mobileNumber != null)
+                _resultRow('Mobile', selected.mobileNumber!),
+            ],
+            if (result.isMock)
+              Text(
+                'Mock/demo result — not a live ABDM verification.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
           ],
         ),
       ),

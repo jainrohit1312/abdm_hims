@@ -389,13 +389,25 @@ class _PatientRegistrationScreenState
 
     try {
       // Real gateway call (mock mode returns a sandbox fixture automatically).
-      final profile = await ref.read(abdmServiceProvider).verifyAbhaId(abhaId);
+      final result = await ref.read(abdmServiceProvider).verifyAbhaId(abhaId);
+      final profile = result.profile;
 
       if (!mounted) return;
+      if (profile == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.message ?? 'ABHA not found. Please check the ABHA ID.',
+            ),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+        return;
+      }
 
-      final name = (profile['name'] as String?) ?? '';
+      final name = profile.displayName;
       final nameParts = name.trim().split(' ');
-      final gender = (profile['gender'] as String?)?.toUpperCase();
+      final gender = profile.gender?.toUpperCase();
 
       if (name.isNotEmpty) {
         _firstNameController.text = nameParts.first;
@@ -403,24 +415,24 @@ class _PatientRegistrationScreenState
             ? nameParts.sublist(1).join(' ')
             : '';
       }
-      if ((profile['dateOfBirth'] as String?)?.isNotEmpty == true) {
-        _dobController.text = profile['dateOfBirth'] as String;
+      if ((profile.dateOfBirth)?.isNotEmpty == true) {
+        _dobController.text = profile.dateOfBirth!;
       }
       _selectedGender = switch (gender) {
         'F' => 'Female',
         'O' => 'Other',
         _ => _selectedGender,
       };
-      if ((profile['mobileNumber'] as String?)?.isNotEmpty == true &&
+      if ((profile.mobileNumber)?.isNotEmpty == true &&
           _mobileController.text.isEmpty) {
-        _mobileController.text = profile['mobileNumber'] as String;
+        _mobileController.text = profile.mobileNumber!;
       }
-      _abhaAddressController.text = (profile['abhaAddress'] as String?) ?? '';
+      _abhaAddressController.text = profile.abhaAddress ?? '';
       _isAbhaVerified = true;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('ABHA verified! Details auto-filled.'),
+          content: Text('ABHA found! Details auto-filled.'),
           backgroundColor: Color(0xFF66BB6A),
         ),
       );

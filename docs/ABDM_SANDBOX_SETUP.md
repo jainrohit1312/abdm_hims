@@ -352,3 +352,150 @@ Repeat with two different hospital users to confirm isolation across
 > client-supplied hospital id is untrusted. A deterministic server-side mapping
 > (e.g. ABDM HIP/HIU id → hospital) can be added when the official docs specify
 > one.
+
+---
+
+## 13. M1 (ABHA identity) integration architecture
+
+```
+Flutter authenticated user
+  → Supabase Edge Function `abdm-gateway`  (manual JWT validation)
+  → ABDM Sandbox M1/ABHA API               (NOT IMPLEMENTED until contract confirmed)
+```
+
+The Flutter client sends only:
+
+```json
+{ "action": "<M1 action>", "payload": { } }
+```
+
+and never calls ABDM directly. ABDM Client Secret, ABDM access token, private
+keys and any encryption material stay exclusively inside the Edge Function.
+
+### 13.1 M1 actions
+
+| Action | Purpose | Continuation txn required |
+|---|---|---|
+| `m1GenerateAadhaarOtp` | Aadhaar OTP generation | no |
+| `m1VerifyAadhaarOtp` | Aadhaar OTP verification / eKYC | yes |
+| `m1CreateAbha` | ABHA creation (pre-verified flow) | yes |
+| `m1GetProfile` | ABHA profile retrieval | no |
+| `m1VerifyAbhaNumber` | ABHA number verification | no |
+| `m1SearchByMobile` | ABHA search by mobile | no |
+| `m1VerifyAbhaAddress` | ABHA Address verification | no |
+| `m1GetAbhaCard` | ABHA card retrieval | no |
+| `m1GetAbhaQr` | ABHA QR retrieval (only if an official API exists) | no |
+
+Every M1 action validates the Supabase JWT, resolves the HIMS user and
+hospital, applies the M1 permission policy, validates/normalizes input, binds
+continuation steps to a server-side transaction, applies per-user rate limits
+(OTP endpoints are throttled harder), sanitizes every response, and maps
+failures to the structured `ABDM_M1_*` error contract.
+
+### 13.2 M1 permission policy
+
+* Patient-facing M1 operations: `super_admin`, `admin`, `receptionist`
+  (configurable via `ABDM_M1_ALLOWED_ROLES`; the default targets authorized
+  registration/front-desk staff).
+* Bridge / `session` / `services` / `getServices`: unchanged, admin /
+  super_admin only.
+* M1 operations additionally require a non-null hospital context.
+
+### 13.3 CONTRACT GATE — do not skip
+
+This repository contains **no official client-supplied M1/ABHA contract**, so
+every real M1 operation is deliberately **stopped with
+`ABDM_M1_CONTRACT_UNCONFIRMED` (HTTP 501)** before any outbound request is
+built. No M1 endpoint path, method, request body, header set, encryption format
+or response shape is invented by this project.
+
+When the client supplies the current official Sandbox M1/ABHA contract, the
+operator must configure the exact values from that contract and implement the
+outbound request builder from it:
+
+| Secret/config name | Required | Meaning |
+|---|---|---|
+| `ABDM_M1_BASE_URL` | yes for M1 | Official M1/ABHA API base URL from the client contract |
+| `ABDM_M1_GENERATE_AADHAAR_OTP_PATH` | yes for that op | Official generate-OTP endpoint path |
+| `ABDM_M1_VERIFY_AADHAAR_OTP_PATH` | yes for that op | Official verify-OTP/eKYC endpoint path |
+| `ABDM_M1_CREATE_ABHA_PATH` | yes for that op | Official create-ABHA endpoint path |
+| `ABDM_M1_GET_PROFILE_PATH` | yes for that op | Official profile retrieval endpoint path |
+| `ABDM_M1_VERIFY_ABHA_NUMBER_PATH` | yes for that op | Official ABHA number verification path |
+| `ABDM_M1_SEARCH_BY_MOBILE_PATH` | yes for that op | Official mobile search path |
+| `ABDM_M1_VERIFY_ABHA_ADDRESS_PATH` | yes for that op | Official ABHA Address verification path |
+| `ABDM_M1_GET_ABHA_CARD_PATH` | yes for that op | Official card retrieval path |
+| `ABDM_M1_GET_ABHA_QR_PATH` | no (blocked by default) | Official QR path, if any |
+| `ABDM_M1_ALLOWED_ROLES` | no | Comma-separated M1 roles; default `super_admin,admin,receptionist` |
+| `ABDM_M1_ABHA_ADDRESS_SUFFIXES` | no | Allowed ABHA address domains; default `abdm,sbx` |
+
+All `ABDM_M1_*_PATH` values must be copied from the official contract — they
+are **not** defaulted and **not** guessed. Until then M1 real-mode requests
+fail closed with `ABDM_M1_CONTRACT_UNCONFIRMED`.
+
+### 13.4 Sensitive-data rules implemented
+
+* Raw Aadhaar is never stored, logged or returned; the Edge Function validates
+  the 12 digits and discards the value.
+* OTP is never stored or logged (including masked OTP); Flutter clears OTP
+  state after submission.
+* ABHA number: 14 digits (dashes optional); mobile: valid Indian mobile;
+  ABHA Address: validated against the configured official domains.
+* Transaction ids are bound server-side to user + hospital + operation with an
+  expiry (`abdm_m1_transactions`, service-role only) — never trusted blindly.
+* No unsafe retries: OTP generation and ABHA creation are never replayed on
+  401/403 (the generic Bridge retry is disabled for those operations).
+* Mobile numbers returned to Flutter are masked to the final four digits.
+
+### 13.5 Patient linking and consent evidence
+
+* `link_abha_profile` RPC atomically upserts `abha_profiles`, updates
+  `patients.abha_id / abha_address / abha_linked`, and writes a
+  `abha_linking_logs` success row under hospital isolation.
+* The partial unique index `uq_abha_profiles_hospital_abha` prevents the same
+  ABHA number from being linked to two patients in the same hospital.
+* `abha_m1_consent_evidence` stores non-sensitive consent evidence (purpose,
+  text/version, timestamp, operator, hospital, patient where known, safe
+  transaction correlation id). No Aadhaar / OTP is stored with it.
+* The create flow records consent evidence and the UI wording is limited to
+  ABHA creation/verification — it does not claim health-record-sharing consent.
+
+### 13.6 Manual live verification sequence (DO NOT execute until contract supplied)
+
+1. Confirm the official client-supplied M1/ABHA Sandbox contract (endpoints,
+   methods, request/response bodies, headers, encryption, token acceptance).
+2. Configure the exact `ABDM_M1_*` values listed in 13.3 as Edge Function
+   secrets.
+3. Implement the outbound request builder in `handler.ts` from that contract
+   (replace the contract gate with the confirmed call for each action).
+4. Deploy `supabase functions deploy abdm-gateway`.
+5. `supabase db push` (applies `20260904000002_abdm_m1_secure_linking.sql`).
+6. Log in as a receptionist/admin, create/verify an ABHA in real mode
+   (`ABDM_REAL_MODE=true`) and confirm each M1 state renders correctly.
+7. Verify `abdm_m1_transactions` / `abha_m1_consent_evidence` /
+   `abha_linking_logs` rows contain no Aadhaar, OTP, token or KYC payload.
+
+### 13.7 Safe troubleshooting codes (sanitized, returned to Flutter)
+
+| Code | Meaning |
+|---|---|
+| `ABDM_M1_INVALID_INPUT` | Client input failed validation |
+| `ABDM_M1_NO_SESSION` | Server-side ABDM session could not be established |
+| `ABDM_M1_FORBIDDEN` | Role/hospital policy rejected the operation |
+| `ABDM_M1_CONTRACT_UNCONFIRMED` | Official M1 contract not configured — blocked by design |
+| `ABDM_M1_PROVISIONING_REQUIRED` | ABDM portal/client provisioning pending |
+| `ABDM_M1_OTP_REQUEST_FAILED` / `ABDM_M1_OTP_INVALID` | OTP generation/verification failures |
+| `ABDM_M1_TRANSACTION_EXPIRED` | Continuation txn missing, expired, consumed or foreign |
+| `ABDM_M1_PROFILE_NOT_FOUND` | No ABHA record for the search input |
+| `ABDM_M1_ALREADY_EXISTS` | ABHA already exists where creation was requested |
+| `ABDM_M1_UPSTREAM_400/401/403/404/409/429/500` | Mapped upstream status |
+| `ABDM_M1_TIMEOUT` / `ABDM_M1_NETWORK` | Transport failures |
+
+### 13.8 Remaining blocked by ABDM approval
+
+* Every live M1 outbound call (contract-gated, see 13.3).
+* Aadhaar/OTP encryption format (implemented only from the official contract).
+* ABHA card / QR binary response shapes.
+* Mobile search and ABHA Address verification official availability for this
+  registered client.
+* Bridge `getServices` provisioning (returns HTTP 403 `Resource forbidden`;
+  this is a portal provisioning issue, not an M1 code failure).
