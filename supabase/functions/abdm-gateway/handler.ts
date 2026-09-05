@@ -25,8 +25,10 @@ import {
   hfrPostAddUpdateServices,
   type HfrGatewayHttpResponse,
   type HfrUpstreamSummary,
+  type HfrUpstreamShape,
   hostnameOfUrl,
   interpretHfrUpstreamResponse,
+  summarizeHfrUpstreamShape,
   type InternalAction,
   isAdminRole,
   isM1ActionName,
@@ -1606,6 +1608,26 @@ function hfrUpstreamJson(summary: HfrUpstreamSummary): Record<string, unknown> {
 }
 
 /**
+ * Single server-side log line for the HFR upstream response SHAPE. Key names
+ * are safe to log; no primitive values, tokens or secrets are included.
+ */
+function logHfrUpstreamShape(
+  requestId: string,
+  shape: HfrUpstreamShape,
+): void {
+  const entry: Record<string, unknown> = {
+    operation: "hfr_upstream_shape",
+    supportReference: requestId,
+    rootType: shape.rootType,
+    topLevelKeys: shape.topLevelKeys,
+    firstItemKeys: shape.firstItemKeys,
+    dataKeys: shape.dataKeys,
+    resultKeys: shape.resultKeys,
+  };
+  console.log(`abdm-gateway hfr_upstream_shape ${JSON.stringify(entry)}`);
+}
+
+/**
  * Single server-side log line for the HFR upstream response. Only whitelisted
  * safe fields are logged — never tokens, secrets, headers, Aadhaar, OTP or
  * patient data.
@@ -1635,6 +1657,7 @@ function hfrFailureResponse(
   upstreamStatus: number | null,
   category: "timeout" | "network" | "http" = "http",
   hfrUpstream?: Record<string, unknown>,
+  hfrUpstreamShape?: Record<string, unknown>,
 ): Response {
   logHfrLinkage(requestId, {
     method: "POST",
@@ -1649,6 +1672,7 @@ function hfrFailureResponse(
       code,
       ...(upstreamStatus !== null ? { upstreamStatus } : {}),
       ...(hfrUpstream ? { hfrUpstream } : {}),
+      ...(hfrUpstreamShape ? { hfrUpstreamShape } : {}),
       supportReference: requestId,
     },
     502,
@@ -2028,12 +2052,15 @@ async function handlePostServices(
   // Sanitized diagnostic summary of the actual HFR upstream response.
   const interpretation = interpretHfrUpstreamResponse(response);
   const hfrUpstream = hfrUpstreamJson(interpretation.summary);
+  const hfrShape = summarizeHfrUpstreamShape(response);
+  const hfrUpstreamShape = hfrShape as unknown as Record<string, unknown>;
   logHfrUpstreamResponse(
     requestId,
     interpretation.summary,
     payload.facilityId,
     payload.HRP[0].bridgeId,
   );
+  logHfrUpstreamShape(requestId, hfrShape);
 
   if (!response.ok) {
     const status = response.status || 0;
@@ -2047,6 +2074,7 @@ async function handlePostServices(
         status,
         "http",
         hfrUpstream,
+        hfrUpstreamShape,
       );
     }
     return hfrFailureResponse(
@@ -2056,6 +2084,7 @@ async function handlePostServices(
       status === 0 ? null : status,
       "http",
       hfrUpstream,
+      hfrUpstreamShape,
     );
   }
 
@@ -2071,6 +2100,7 @@ async function handlePostServices(
       response.status,
       "http",
       hfrUpstream,
+      hfrUpstreamShape,
     );
   }
   if (interpretation.disposition === "unknown") {
@@ -2081,6 +2111,7 @@ async function handlePostServices(
       response.status,
       "http",
       hfrUpstream,
+      hfrUpstreamShape,
     );
   }
 
@@ -2113,6 +2144,7 @@ async function handlePostServices(
     facilityId: payload.facilityId,
     bridgeId: payload.HRP[0].bridgeId,
     hfrUpstream,
+    hfrUpstreamShape,
     verification: {
       byId: {
         serviceIdMatches: verification.byId.serviceIdMatches,

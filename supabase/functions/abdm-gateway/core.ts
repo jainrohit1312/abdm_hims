@@ -2624,6 +2624,95 @@ export function interpretHfrUpstreamResponse(
 }
 
 // ----------------------------------------------------------------------------
+// HFR upstream response SHAPE (structure-only, no unrestricted raw values)
+// ----------------------------------------------------------------------------
+
+/** Structure-only shape of the parsed HFR response. Key names are exposed; primitive values are not. */
+export interface HfrUpstreamShape {
+  rootType: "object" | "array" | "null" | "primitive";
+  topLevelKeys: string[];
+  arrayLength: number | null;
+  firstItemType: "object" | "array" | "null" | "primitive" | null;
+  firstItemKeys: string[];
+  dataType: "object" | "array" | "null" | "primitive" | null;
+  dataKeys: string[];
+  resultType: "object" | "array" | "null" | "primitive" | null;
+  resultKeys: string[];
+}
+
+const HFR_SHAPE_MAX_KEYS = 50;
+
+function hfrShapeValueType(
+  value: unknown,
+): "object" | "array" | "null" | "primitive" {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "object") return "object";
+  return "primitive";
+}
+
+function hfrShapeKeyNames(value: unknown): string[] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return [];
+  }
+  return Object.keys(value as Record<string, unknown>).slice(
+    0,
+    HFR_SHAPE_MAX_KEYS,
+  );
+}
+
+/**
+ * Builds a structure-only description of the parsed HFR JSON response. It
+ * never returns raw unrestricted JSON and never exposes primitive values:
+ * only root type, key names and known nested container shapes are returned.
+ */
+export function summarizeHfrUpstreamShape(
+  response: HfrGatewayHttpResponse,
+): HfrUpstreamShape {
+  const data = sanitizePayload(response.data);
+
+  const rootType = hfrShapeValueType(data);
+  let topLevelKeys: string[] = [];
+  let arrayLength: number | null = null;
+  let firstItemType: HfrUpstreamShape["firstItemType"] = null;
+  let firstItemKeys: string[] = [];
+  let dataType: HfrUpstreamShape["dataType"] = null;
+  let dataKeys: string[] = [];
+  let resultType: HfrUpstreamShape["resultType"] = null;
+  let resultKeys: string[] = [];
+
+  if (Array.isArray(data)) {
+    arrayLength = data.length;
+    const first = data[0];
+    firstItemType = hfrShapeValueType(first);
+    firstItemKeys = hfrShapeKeyNames(first);
+  } else if (typeof data === "object" && data !== null) {
+    const record = data as Record<string, unknown>;
+    topLevelKeys = hfrShapeKeyNames(record);
+
+    const dataContainer = record["data"];
+    dataType = hfrShapeValueType(dataContainer);
+    dataKeys = hfrShapeKeyNames(dataContainer);
+
+    const resultContainer = record["result"];
+    resultType = hfrShapeValueType(resultContainer);
+    resultKeys = hfrShapeKeyNames(resultContainer);
+  }
+
+  return {
+    rootType,
+    topLevelKeys,
+    arrayLength,
+    firstItemType,
+    firstItemKeys,
+    dataType,
+    dataKeys,
+    resultType,
+    resultKeys,
+  };
+}
+
+// ----------------------------------------------------------------------------
 // ABHA V3 audit helpers (certificate + runtime encryption algorithm)
 // ----------------------------------------------------------------------------
 

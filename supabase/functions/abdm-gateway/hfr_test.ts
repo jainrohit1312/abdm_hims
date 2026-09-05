@@ -913,3 +913,175 @@ Deno.test("hfr: diagnostics never leak tokens, secrets, Aadhaar or OTP", async (
   assert(!text.includes("123456"), "OTP leaked");
   assert(!text.includes("Rahul"), "patient data leaked");
 });
+
+// ----------------------------------------------------------------------------
+// 10. HFR upstream response SHAPE diagnostics
+// ----------------------------------------------------------------------------
+
+Deno.test("hfr shape: root object exposes top-level and nested data keys", async () => {
+  const { res } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse({
+        status: "accepted",
+        data: { facilityId: "IN2810014366", status: "success" },
+      });
+    }
+    if (url.includes("/bridge-service/serviceId/IN2810014366")) {
+      return serviceByIdOkResponse();
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  assertEquals(body["status"], "linkage_verified");
+  const shape = body["hfrUpstreamShape"] as Record<string, unknown>;
+  assert(shape, "hfrUpstreamShape must be present");
+  assertEquals(shape["rootType"], "object");
+  assertEquals(shape["topLevelKeys"], ["status", "data"]);
+  assertEquals(shape["arrayLength"], null);
+  assertEquals(shape["firstItemType"], null);
+  assertEquals(shape["firstItemKeys"], []);
+  assertEquals(shape["dataType"], "object");
+  assertEquals(shape["dataKeys"], ["facilityId", "status"]);
+  assertEquals(shape["resultType"], "null");
+  assertEquals(shape["resultKeys"], []);
+});
+
+Deno.test("hfr shape: root array exposes length and first item keys", async () => {
+  const { res } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse([{ id: "1", name: "one" }, { id: "2", name: "two" }]);
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  assertEquals(body["code"], "HFR_LINKAGE_UNRECOGNIZED");
+  const shape = body["hfrUpstreamShape"] as Record<string, unknown>;
+  assert(shape, "hfrUpstreamShape must be present");
+  assertEquals(shape["rootType"], "array");
+  assertEquals(shape["arrayLength"], 2);
+  assertEquals(shape["firstItemType"], "object");
+  assertEquals(shape["firstItemKeys"], ["id", "name"]);
+  assertEquals(shape["topLevelKeys"], []);
+});
+
+Deno.test("hfr shape: nested result object exposes result keys", async () => {
+  const { res } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse({
+        status: "accepted",
+        result: { id: "IN2810014366", bridgeId: "bridge-1" },
+      });
+    }
+    if (url.includes("/bridge-service/serviceId/IN2810014366")) {
+      return serviceByIdOkResponse();
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  const shape = body["hfrUpstreamShape"] as Record<string, unknown>;
+  assert(shape, "hfrUpstreamShape must be present");
+  assertEquals(shape["rootType"], "object");
+  assertEquals(shape["resultType"], "object");
+  assertEquals(shape["resultKeys"], ["id", "bridgeId"]);
+  assertEquals(shape["dataType"], "null");
+  assertEquals(shape["dataKeys"], []);
+});
+
+Deno.test("hfr shape: empty object", async () => {
+  const { res } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse({});
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  assertEquals(body["code"], "HFR_LINKAGE_UNRECOGNIZED");
+  const shape = body["hfrUpstreamShape"] as Record<string, unknown>;
+  assert(shape, "hfrUpstreamShape must be present");
+  assertEquals(shape["rootType"], "object");
+  assertEquals(shape["topLevelKeys"], []);
+});
+
+Deno.test("hfr shape: empty array", async () => {
+  const { res } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse([]);
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  assertEquals(body["code"], "HFR_LINKAGE_UNRECOGNIZED");
+  const shape = body["hfrUpstreamShape"] as Record<string, unknown>;
+  assert(shape, "hfrUpstreamShape must be present");
+  assertEquals(shape["rootType"], "array");
+  assertEquals(shape["arrayLength"], 0);
+  assertEquals(shape["firstItemType"], "null");
+  assertEquals(shape["firstItemKeys"], []);
+});
+
+Deno.test("hfr shape: never leaks primitive sensitive values", async () => {
+  const { res } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse({
+        status: "accepted",
+        accessToken: "hfr-access-token",
+        clientSecret: "hfr-client-secret",
+        aadhaar: "123456789012",
+        otp: "123456",
+        patient: { name: "Rahul" },
+      });
+    }
+    if (url.includes("/bridge-service/serviceId/IN2810014366")) {
+      return serviceByIdOkResponse();
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const text = await res.text();
+  assert(!text.includes("hfr-access-token"), "token value leaked");
+  assert(!text.includes("hfr-client-secret"), "client secret value leaked");
+  assert(!text.includes("123456789012"), "Aadhaar value leaked");
+  assert(!text.includes("123456"), "OTP value leaked");
+  assert(!text.includes("Rahul"), "patient data leaked");
+});
