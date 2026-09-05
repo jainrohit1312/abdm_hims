@@ -1085,3 +1085,146 @@ Deno.test("hfr shape: never leaks primitive sensitive values", async () => {
   assert(!text.includes("123456"), "OTP value leaked");
   assert(!text.includes("Rahul"), "patient data leaked");
 });
+
+// ----------------------------------------------------------------------------
+// 11. HFR HTTP-200 error-array response parsing
+// ----------------------------------------------------------------------------
+
+Deno.test("hfr error-array: HTTP 200 + [{error: string}] returns HFR_LINKAGE_REJECTED and skips verification", async () => {
+  const { res, calls } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse([{ error: "some validation error" }]);
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  assertEquals(res.status, 502);
+  assertEquals(body["code"], "HFR_LINKAGE_REJECTED");
+
+  const hfrUpstream = body["hfrUpstream"] as Record<string, unknown>;
+  assert(hfrUpstream, "hfrUpstream must be present");
+  assertEquals(hfrUpstream["status"], 200);
+  assertEquals(hfrUpstream["bodyType"], "json");
+  assertEquals(hfrUpstream["errorMessage"], "some validation error");
+  assertEquals(hfrUpstream["errorCode"], undefined);
+  assertEquals(hfrUpstream["errorKeys"], undefined);
+
+  // Verification APIs must not be called after the error-array response.
+  assertEquals(
+    calls.filter((c) => c.url.includes("/bridge-service/serviceId/")).length,
+    0,
+  );
+  assertEquals(
+    calls.filter((c) => c.url.endsWith("/api/hiecm/gateway/v3/bridge-services")).length,
+    1, // only the preflight bridge-id check
+  );
+});
+
+Deno.test("hfr error-array: HTTP 200 + [{error: object}] extracts safe error fields", async () => {
+  const { res, calls } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse([
+        { error: { message: "facility invalid", code: "VALIDATION_ERR" } },
+      ]);
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  assertEquals(res.status, 502);
+  assertEquals(body["code"], "HFR_LINKAGE_REJECTED");
+
+  const hfrUpstream = body["hfrUpstream"] as Record<string, unknown>;
+  assert(hfrUpstream, "hfrUpstream must be present");
+  assertEquals(hfrUpstream["errorMessage"], "facility invalid");
+  assertEquals(hfrUpstream["errorCode"], "VALIDATION_ERR");
+  assertEquals(hfrUpstream["errorKeys"], ["message", "code"]);
+
+  assertEquals(
+    calls.filter((c) => c.url.includes("/bridge-service/serviceId/")).length,
+    0,
+  );
+});
+
+Deno.test("hfr error-array: sensitive values inside error text are redacted", async () => {
+  const { res } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse([
+        {
+          error:
+            "failed with Bearer abcdefghijklmnopqrstuvwxyz and aadhaar 123456789012 otp 123456",
+        },
+      ]);
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const text = await res.text();
+  assert(!text.includes("abcdefghijklmnopqrstuvwxyz"), "bearer token leaked");
+  assert(!text.includes("123456789012"), "Aadhaar leaked");
+  assert(!text.includes("123456"), "OTP leaked");
+});
+
+Deno.test("hfr error-array: long error text is truncated to 500 characters", async () => {
+  const longError = "x".repeat(1200);
+  const { res } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse([{ error: longError }]);
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  assertEquals(body["code"], "HFR_LINKAGE_REJECTED");
+  const hfrUpstream = body["hfrUpstream"] as Record<string, unknown>;
+  const errorMessage = hfrUpstream["errorMessage"] as string;
+  assert(errorMessage.length <= 501, "error message must be truncated");
+  assert(errorMessage.endsWith("…"), "truncated message must end with ellipsis");
+});
+
+Deno.test("hfr error-array: normal explicit success body still verifies as before", async () => {
+  const { res } = await runHfr((url) => {
+    if (url.endsWith("/api/hiecm/gateway/v3/sessions")) {
+      return sessionOkResponse("fresh-v3-token");
+    }
+    if (url.endsWith("/api/hiecm/gateway/v3/bridge-services")) {
+      return bridgeServicesOkResponse("bridge-1");
+    }
+    if (url.endsWith("/v1/bridges/MutipleHRPAddUpdateServices")) {
+      return jsonResponse({ status: "accepted" });
+    }
+    if (url.includes("/bridge-service/serviceId/IN2810014366")) {
+      return serviceByIdOkResponse();
+    }
+    throw new Error(`unexpected call: ${url}`);
+  });
+
+  const body = await res.json() as Record<string, unknown>;
+  assertEquals(res.status, 200);
+  assertEquals(body["status"], "linkage_verified");
+});

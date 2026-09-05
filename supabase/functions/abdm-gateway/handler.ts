@@ -1604,7 +1604,32 @@ function hfrUpstreamJson(summary: HfrUpstreamSummary): Record<string, unknown> {
     message: summary.message,
     facilityId: summary.facilityId,
     bridgeId: summary.bridgeId,
+    ...(summary.errorMessage !== null ? { errorMessage: summary.errorMessage } : {}),
+    ...(summary.errorCode !== null ? { errorCode: summary.errorCode } : {}),
+    ...(summary.errorKeys.length > 0 ? { errorKeys: summary.errorKeys } : {}),
   };
+}
+
+/**
+ * Single sanitized log line for the live HFR array-error shape. Never includes
+ * tokens, secrets, headers, Aadhaar, OTP or patient data.
+ */
+function logHfrUpstreamError(
+  requestId: string,
+  summary: HfrUpstreamSummary,
+  facilityId: string,
+  bridgeId: string,
+): void {
+  const entry: Record<string, unknown> = {
+    operation: "hfr_upstream_error",
+    supportReference: requestId,
+    upstreamStatus: summary.status,
+    facilityId,
+    bridgeId,
+    errorCode: summary.errorCode,
+    errorMessage: summary.errorMessage,
+  };
+  console.log(`abdm-gateway hfr_upstream_error ${JSON.stringify(entry)}`);
 }
 
 /**
@@ -2061,6 +2086,18 @@ async function handlePostServices(
     payload.HRP[0].bridgeId,
   );
   logHfrUpstreamShape(requestId, hfrShape);
+  if (
+    interpretation.summary.errorMessage !== null ||
+    interpretation.summary.errorCode !== null ||
+    interpretation.summary.errorKeys.length > 0
+  ) {
+    logHfrUpstreamError(
+      requestId,
+      interpretation.summary,
+      payload.facilityId,
+      payload.HRP[0].bridgeId,
+    );
+  }
 
   if (!response.ok) {
     const status = response.status || 0;

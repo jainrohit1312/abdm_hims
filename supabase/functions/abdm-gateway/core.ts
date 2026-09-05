@@ -2413,6 +2413,12 @@ export interface HfrUpstreamSummary {
   bridgeId: string | null;
   error: string | null;
   validation: string | null;
+  /** Array-error diagnostics: first item "error" field (string form). */
+  errorMessage: string | null;
+  /** Array-error diagnostics: code from an object-form "error" field. */
+  errorCode: string | null;
+  /** Array-error diagnostics: safe key names of an object-form "error" field. */
+  errorKeys: string[];
 }
 
 export type HfrBodyDisposition = "success" | "failure" | "unknown";
@@ -2470,6 +2476,71 @@ function hfrErrorLike(value: unknown): string | null {
   return null;
 }
 
+const HFR_ERROR_TEXT_LIMIT = 500;
+
+/** Redacts token-like, Aadhaar-like and OTP-like values from HFR error text. */
+function hfrRedactErrorText(value: string): string {
+  return redactSensitiveText(value)
+    .replace(/\b\d{12}\b/g, "[REDACTED]")
+    .replace(/\b\d{6}\b/g, "[REDACTED]");
+}
+
+/**
+ * Extracts only the sanitized "error" field from the first item of an array
+ * HFR response. String errors are redacted and truncated to 500 characters.
+ * Object errors expose only safe known fields and their key names.
+ */
+function hfrArrayErrorDiagnostics(
+  data: unknown[],
+): { errorMessage: string | null; errorCode: string | null; errorKeys: string[] } {
+  if (data.length === 0) return { errorMessage: null, errorCode: null, errorKeys: [] };
+
+  const first = data[0];
+  if (typeof first !== "object" || first === null || Array.isArray(first)) {
+    return { errorMessage: null, errorCode: null, errorKeys: [] };
+  }
+
+  const record = first as Record<string, unknown>;
+  if (!("error" in record)) return { errorMessage: null, errorCode: null, errorKeys: [] };
+
+  const errorValue = record["error"];
+  if (typeof errorValue === "string") {
+    const cleaned = hfrRedactErrorText(errorValue.replace(/\s+/g, " ").trim());
+    return {
+      errorMessage: cleaned.length > HFR_ERROR_TEXT_LIMIT
+        ? `${cleaned.slice(0, HFR_ERROR_TEXT_LIMIT)}…`
+        : cleaned,
+      errorCode: null,
+      errorKeys: [],
+    };
+  }
+
+  if (typeof errorValue === "object" && errorValue !== null) {
+    const errorRecord = asRecord(errorValue);
+    const rawMessage = hfrFirstDefinedString(errorRecord, [
+      "message",
+      "errorMessage",
+      "error_message",
+      "description",
+      "detail",
+      "error",
+    ]);
+    return {
+      errorMessage: rawMessage ? hfrRedactErrorText(rawMessage) : null,
+      errorCode: hfrFirstDefinedString(errorRecord, [
+        "code",
+        "statusCode",
+        "status_code",
+        "errorCode",
+        "error_code",
+      ]),
+      errorKeys: Object.keys(errorRecord).slice(0, HFR_SHAPE_MAX_KEYS),
+    };
+  }
+
+  return { errorMessage: null, errorCode: null, errorKeys: [] };
+}
+
 /**
  * Builds a sanitized summary of the HFR upstream response. Only whitelisted
  * safe fields are read: status, content-type, body type, code/status/message,
@@ -2488,15 +2559,22 @@ export function summarizeHfrUpstreamResponse(
   let bridgeId: string | null = null;
   let error: string | null = null;
   let validation: string | null = null;
+  let errorMessage: string | null = null;
+  let errorCode: string | null = null;
+  let errorKeys: string[] = [];
 
   if (typeof data === "string") {
     bodyType = "text";
     message = hfrSafeText(redactSensitiveText(data));
   } else if (Array.isArray(data)) {
     bodyType = "json";
-    // HFR success bodies are objects; an array is summarized defensively with
-    // no whitelisted fields extracted.
-    message = null;
+    const arrayError = hfrArrayErrorDiagnostics(data);
+    errorMessage = arrayError.errorMessage;
+    errorCode = arrayError.errorCode;
+    errorKeys = arrayError.errorKeys;
+    if (errorMessage || errorCode || errorKeys.length > 0) {
+      error = errorMessage ?? errorCode ?? "array-error";
+    }
   } else if (typeof data === "object" && data !== null) {
     bodyType = "json";
     const record = data as Record<string, unknown>;
@@ -2549,6 +2627,9 @@ export function summarizeHfrUpstreamResponse(
     bridgeId,
     error,
     validation,
+    errorMessage,
+    errorCode,
+    errorKeys,
   };
 }
 
