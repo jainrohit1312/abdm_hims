@@ -163,6 +163,12 @@ export interface M2RequestStore {
   findLinkInitByLinkRef(
     linkRefNumber: string,
   ): Promise<M2LinkInitRecord | null>;
+  /** Number of link-init attempts for an ABHA address in a hospital window. */
+  countRecentLinkInit(
+    abhaAddress: string,
+    hospitalId: string,
+    sinceIso: string,
+  ): Promise<number>;
   markProcessed(
     requestId: string,
     requestType: string,
@@ -216,6 +222,7 @@ export interface M2ConsentArtefactRow {
   granted_at: string | null;
   expires_at: string | null;
   care_context_references: string[];
+  hi_types: string[];
 }
 
 export interface M2ConsentStore {
@@ -223,22 +230,56 @@ export interface M2ConsentStore {
   findByConsentId(consentId: string): Promise<M2ConsentArtefactRow | null>;
 }
 
+/** Persisted health-information data-transfer job lifecycle. */
+export const M2_JOB_STATUS = {
+  QUEUED: "queued",
+  PREPARING: "preparing",
+  ENCRYPTED: "encrypted",
+  PUSHING: "pushing",
+  PUSHED: "pushed",
+  NOTIFYING: "notifying",
+  COMPLETED: "completed",
+  BLOCKED_SAFE: "blocked_safe",
+  FAILED_SAFE: "failed_safe",
+} as const;
+
+export type M2JobStatus = typeof M2_JOB_STATUS[keyof typeof M2_JOB_STATUS];
+
 export interface M2DataTransferJobRow {
   hospital_id: string | null;
   consent_id: string;
   transaction_id: string;
   status: string;
   care_context_references: string[];
+  care_context_hi_types: string[];
   fhir_bundle: Record<string, unknown> | null;
   key_material: Record<string, unknown>;
   data_push_url: string | null;
   attempts: number;
   error_code: string | null;
   error_message: string | null;
+  lease_owner?: string | null;
+  lease_expires_at?: string | null;
+  last_attempt_at?: string | null;
+  next_retry_at?: string | null;
+  notification_status?: string | null;
+  encrypted_entries?: Record<string, unknown>[] | null;
 }
 
 export interface M2DataTransferJobStore {
   upsert(row: M2DataTransferJobRow): Promise<{ error: { code?: string; message: string } | null }>;
+  /**
+   * Atomically claims the oldest due job (status in a retryable state and
+   * next_retry_at <= now, or no lease) and marks it preparing with the given
+   * lease owner. Returns null when no job is claimable so two workers can
+   * never execute the same job simultaneously.
+   */
+  claimDue(
+    now: string,
+    leaseOwner: string,
+    leaseSeconds: number,
+    hospitalId: string,
+  ): Promise<M2DataTransferJobRow | null>;
 }
 
 export interface M2LinkNotifier {
@@ -248,7 +289,7 @@ export interface M2LinkNotifier {
     linkRefNumber: string;
     token: string;
     expiresAt: string;
-  }): Promise<{ ok: boolean; error?: string }>;
+  }): Promise<{ ok: boolean; code?: string; error?: string }>;
 }
 
 // ----------------------------------------------------------------------------
@@ -839,6 +880,28 @@ function fhirResourceTypeForRecordType(recordType: string): string {
   }
 }
 
+/** Maps a Mediflux record type to the ABDM V3 HI type. */
+export function hiTypeForRecordType(recordType: string): string {
+  switch (recordType.toLowerCase()) {
+    case "opd_visit":
+    case "consultation":
+      return "OPConsultation";
+    case "prescription":
+      return "Prescription";
+    case "lab_report":
+    case "diagnostic_report":
+      return "DiagnosticReport";
+    case "discharge_summary":
+      return "DischargeSummary";
+    case "immunization":
+      return "ImmunizationRecord";
+    case "wellness_record":
+      return "WellnessRecord";
+    default:
+      return "HealthDocumentRecord";
+  }
+}
+
 /**
  * Builds an ABDM-supported FHIR R4 Bundle from real Mediflux source rows.
  * Fails safely (ok:false) when mandatory source data is absent.
@@ -956,6 +1019,8 @@ export interface M2EncryptionResult {
 }
 
 export interface M2Encryptor {
+  /** False while the official V3 encryption contract is not available. */
+  readonly available: boolean;
   encrypt(
     bundle: Record<string, unknown>,
     keyMaterial: M2HealthInformationRequest["keyMaterial"],
@@ -968,6 +1033,7 @@ export function buildDataTransferJob(input: {
   consentId: string;
   transactionId: string;
   careContextRefs: string[];
+  careContextHiTypes: string[];
   fhirBundle: Record<string, unknown> | null;
   keyMaterial: Record<string, unknown>;
   dataPushUrl: string | null;
@@ -981,6 +1047,7 @@ export function buildDataTransferJob(input: {
     transaction_id: input.transactionId,
     status: input.status,
     care_context_references: input.careContextRefs,
+    care_context_hi_types: input.careContextHiTypes,
     fhir_bundle: input.fhirBundle,
     key_material: input.keyMaterial,
     data_push_url: input.dataPushUrl,
@@ -1071,6 +1138,8 @@ export interface M2ProcessResult {
   errorMessage: string | null;
   /** Persist link-init record (only for linkInit callbacks). */
   linkInitRecord?: M2LinkInitPersistRecord;
+  /** Queued transfer job (only when live execution is ready to start). */
+  transferJob?: M2DataTransferJobRow;
 }
 
 function processError(
@@ -1110,6 +1179,82 @@ function consentIsUsable(consent: M2ConsentArtefactRow | null): {
     };
   }
   return { usable: true };
+}
+
+/** Fail-closed consent validation for a health-information transfer. */
+export function validateConsentForTransfer(input: {
+  consent: M2ConsentArtefactRow;
+  careContextRefs: string[];
+  careContextHiTypes: string[];
+  now: Date;
+}): { ok: boolean; code?: string; error?: string } {
+  const { consent, careContextRefs, careContextHiTypes, now } = input;
+
+  // 1. Consent status + expiry (same rules as consentIsUsable).
+  const usable = consentIsUsable(consent);
+  if (!usable.usable) return { ok: false, code: usable.code, error: usable.error };
+
+  // 2. Care-context references must be non-empty and fully owned by the
+  //    consent artefact for this hospital.
+  if (careContextRefs.length === 0) {
+    return {
+      ok: false,
+      code: M2_ERROR_CODES.CONSENT_INVALID,
+      error: "Consent has no care-context references",
+    };
+  }
+  const allowed = new Set(consent.care_context_references);
+  for (const ref of careContextRefs) {
+    if (!allowed.has(ref)) {
+      return {
+        ok: false,
+        code: M2_ERROR_CODES.CONSENT_INVALID,
+        error: `Care-context reference ${ref} is not covered by the consent`,
+      };
+    }
+  }
+
+  // 3. Consent time window (permission dateRange).
+  const from = consent.data_from ? Date.parse(consent.data_from) : NaN;
+  const to = consent.data_to ? Date.parse(consent.data_to) : NaN;
+  if (Number.isFinite(from) && now.getTime() < from) {
+    return {
+      ok: false,
+      code: M2_ERROR_CODES.CONSENT_INVALID,
+      error: "Consent permission window has not started",
+    };
+  }
+  if (Number.isFinite(to) && now.getTime() > to) {
+    return {
+      ok: false,
+      code: M2_ERROR_CODES.CONSENT_EXPIRED,
+      error: "Consent permission window has ended",
+    };
+  }
+
+  // 4. HI types: when the consent lists HI types, every transferred care
+  //    context must map to an allowed HI type. Empty consent hi_types means
+  //    "not recorded" and does NOT authorize everything — transfers are then
+  //    blocked until the consent artefact records its HI types.
+  if (!Array.isArray(consent.hi_types) || consent.hi_types.length === 0) {
+    return {
+      ok: false,
+      code: M2_ERROR_CODES.CONSENT_INVALID,
+      error: "Consent artefact does not record HI types",
+    };
+  }
+  const allowedHiTypes = new Set(consent.hi_types.map((t) => t.toUpperCase()));
+  for (const hiType of careContextHiTypes) {
+    if (!allowedHiTypes.has(hiType.toUpperCase())) {
+      return {
+        ok: false,
+        code: M2_ERROR_CODES.CONSENT_INVALID,
+        error: `HI type ${hiType} is not covered by the consent`,
+      };
+    }
+  }
+
+  return { ok: true };
 }
 
 /** Resolves an inbound M2 callback into a validated outbound gateway request. */
@@ -1238,6 +1383,33 @@ async function processM2LinkInit(
     };
   }
 
+  // Attempt limit: a patient (ABHA address) may only receive a bounded number
+  // of link OTPs per hospital per window. The count is tenant-scoped and
+  // derived from persisted link-init events, so it survives worker restarts.
+  const attemptWindowMs = 10 * 60 * 1000;
+  const recentAttempts = await runtime.linkInitStore.countRecentLinkInit(
+    init.abhaAddress,
+    runtime.hospital.hospitalId,
+    new Date(Date.now() - attemptWindowMs).toISOString(),
+  );
+  if (recentAttempts >= 5) {
+    return {
+      ackStatus: 200,
+      status: "link_init_attempt_limit",
+      errorCode: M2_ERROR_CODES.OTP_SEND_FAILED,
+      errorMessage: "Too many link OTP attempts for this patient",
+      outbound: {
+        path: V3_M2_ON_INIT_PATH,
+        body: buildOnInitErrorBody({
+          transactionId: init.transactionId,
+          requestId,
+          code: M2_ERROR_CODES.OTP_SEND_FAILED,
+          message: "Too many link OTP attempts for this patient",
+        }),
+      },
+    };
+  }
+
   const linkReferenceNumber = generateLinkRefNumber();
   const token = generateLinkToken();
   const tokenHash = await sha256Hex(token);
@@ -1252,6 +1424,8 @@ async function processM2LinkInit(
   };
 
   const notifier = runtime.linkNotifier;
+  let notifierErrorCode: string | null = M2_ERROR_CODES.OTP_SEND_FAILED;
+  let notifierErrorMessage = "Link OTP could not be delivered to the patient";
   let notifierOk = false;
   if (notifier) {
     const result = await notifier.sendOtp({
@@ -1262,22 +1436,28 @@ async function processM2LinkInit(
       expiresAt,
     });
     notifierOk = result.ok;
+    if (!result.ok && result.code) notifierErrorCode = result.code;
+    if (!result.ok && result.error) notifierErrorMessage = result.error;
+  } else {
+    notifierErrorCode = "ABDM_M2_OTP_PROVIDER_NOT_CONFIGURED";
+    notifierErrorMessage =
+      "No link OTP provider is configured for this hospital";
   }
 
   if (!notifierOk) {
     return {
       ackStatus: 200,
       status: "link_init_otp_failed",
-      errorCode: M2_ERROR_CODES.OTP_SEND_FAILED,
-      errorMessage: "Link OTP could not be delivered to the patient",
+      errorCode: notifierErrorCode,
+      errorMessage: notifierErrorMessage,
       linkInitRecord: persistRecord,
       outbound: {
         path: V3_M2_ON_INIT_PATH,
         body: buildOnInitErrorBody({
           transactionId: init.transactionId,
           requestId,
-          code: M2_ERROR_CODES.OTP_SEND_FAILED,
-          message: "Link OTP could not be delivered to the patient",
+          code: notifierErrorCode ?? M2_ERROR_CODES.OTP_SEND_FAILED,
+          message: notifierErrorMessage,
         }),
       },
     };
@@ -1431,6 +1611,7 @@ async function processM2ConsentNotify(
       : notification.timestamp || null,
     expires_at: notification.dataEraseAt,
     care_context_references: notification.careContextRefs,
+    hi_types: notification.hiTypes,
   });
 
   if (upsertResult.error) {
@@ -1503,28 +1684,47 @@ async function processM2HealthInformationRequest(
     runtime.hospital.hospitalId,
   );
 
+  // Fail-closed consent validation: refs, time window and HI types must all
+  // be satisfied before any FHIR bundle is accepted for transfer.
+  const careContextHiTypes = fhirSource?.careContexts.map((c) =>
+    c.recordType ? hiTypeForRecordType(c.recordType) : "HealthDocumentRecord"
+  ) ?? [];
+  const transferConsentCheck = validateConsentForTransfer({
+    consent: consent!,
+    careContextRefs,
+    careContextHiTypes,
+    now: new Date(),
+  });
+
   let fhirBundle: Record<string, unknown> | null = null;
-  let jobStatus = "ready_for_encryption";
+  let jobStatus: string = M2_JOB_STATUS.BLOCKED_SAFE;
   let jobErrorCode: string | null = null;
   let jobErrorMessage: string | null = null;
 
-  if (!fhirSource) {
-    jobStatus = "failed_safe";
+  if (!transferConsentCheck.ok) {
+    jobErrorCode = transferConsentCheck.code ?? M2_ERROR_CODES.CONSENT_INVALID;
+    jobErrorMessage = transferConsentCheck.error ?? "Consent is not valid";
+  } else if (!fhirSource) {
+    jobStatus = M2_JOB_STATUS.FAILED_SAFE;
     jobErrorCode = M2_ERROR_CODES.SOURCE_DATA_ABSENT;
     jobErrorMessage = "Mandatory source data is absent for the consent care contexts";
   } else {
     const bundleResult = buildFhirBundleFromSource(fhirSource);
     if (!bundleResult.ok || !bundleResult.bundle) {
-      jobStatus = "failed_safe";
+      jobStatus = M2_JOB_STATUS.FAILED_SAFE;
       jobErrorCode = M2_ERROR_CODES.SOURCE_DATA_ABSENT;
       jobErrorMessage = bundleResult.error ?? "Mandatory source data is absent";
     } else {
       fhirBundle = bundleResult.bundle;
-      if (!runtime.dataTransferEnabled || !runtime.encryptor) {
-        jobStatus = "blocked_safe";
+      if (
+        !runtime.dataTransferEnabled || runtime.encryptor?.available !== true
+      ) {
+        jobStatus = M2_JOB_STATUS.BLOCKED_SAFE;
         jobErrorCode = M2_ERROR_CODES.TRANSFER_GATED;
         jobErrorMessage =
           "Live health-information transfer is gated until HIP linkage, valid consent and encryption prerequisites are satisfied";
+      } else {
+        jobStatus = M2_JOB_STATUS.QUEUED;
       }
     }
   }
@@ -1534,6 +1734,7 @@ async function processM2HealthInformationRequest(
     consentId: request.consentId,
     transactionId: request.transactionId,
     careContextRefs,
+    careContextHiTypes,
     fhirBundle,
     keyMaterial: {
       cryptoAlg: request.keyMaterial.cryptoAlg,
@@ -1577,5 +1778,7 @@ async function processM2HealthInformationRequest(
         sessionStatus: "ACKNOWLEDGED",
       }),
     },
+    // Live execution starts only for genuinely queued jobs.
+    ...(jobStatus === M2_JOB_STATUS.QUEUED ? { transferJob: job } : {}),
   };
 }

@@ -94,6 +94,7 @@ import {
   m2GatewayPost,
   V3_M2_HIP_ID_HEADER,
 } from "./m2.ts";
+import { executeDueM2DataTransferJobs } from "./m2_transfer.ts";
 
 // Supabase Edge Runtime exposes `waitUntil` so async callback persistence can
 // finish after the response is sent. Plain Deno (local tests) does not have it.
@@ -2614,6 +2615,46 @@ async function handleM2Callback(
       EdgeRuntime.waitUntil(outboundPromise);
     } else {
       await outboundPromise;
+    }
+  }
+
+  // Live data-transfer execution starts only for genuinely queued jobs. The
+  // executor claims jobs atomically (lease) so duplicate callbacks or parallel
+  // workers can never execute the same job twice.
+  if (result.transferJob) {
+    const transferPromise = (async () => {
+      try {
+        const resolveDns = typeof Deno !== "undefined" && Deno.resolveDns
+          ? async (hostname: string) => {
+            const records: string[] = [];
+            try {
+              records.push(...await Deno.resolveDns(hostname, "A"));
+            } catch (_) {
+              // AAAA-only hosts are handled below.
+            }
+            try {
+              records.push(...await Deno.resolveDns(hostname, "AAAA"));
+            } catch (_) {
+              // IPv4-only hosts are handled above.
+            }
+            return records;
+          }
+          : undefined;
+        await executeDueM2DataTransferJobs(runtime, {
+          limit: 3,
+          resolveDns,
+        });
+      } catch (error) {
+        const message = redactSensitiveText(
+          error instanceof Error ? error.message : String(error),
+        );
+        console.error(`abdm-gateway m2 transfer executor error: ${message}`);
+      }
+    })();
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+      EdgeRuntime.waitUntil(transferPromise);
+    } else {
+      await transferPromise;
     }
   }
 

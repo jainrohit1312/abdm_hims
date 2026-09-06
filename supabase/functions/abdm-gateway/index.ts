@@ -58,17 +58,21 @@ import {
 import { HttpError, persistCallback, type CallbackRow } from "./core.ts";
 import {
   extractCareContextRefs,
+  hiTypeForRecordType,
   type M2CareContextStore,
   type M2ConsentArtefactRow,
   type M2ConsentStore,
   type M2DataTransferJobStore,
   type M2DataTransferJobRow,
+  type M2Encryptor,
   type M2FhirBundleSource,
   type M2Hospital,
   type M2LinkInitPersistRecord,
+  type M2LinkNotifier,
   type M2RequestStore,
   type M2RequestRow,
 } from "./m2.ts";
+import { unavailableM2Encryptor } from "./m2_transfer.ts";
 
 // ----------------------------------------------------------------------------
 // Real Supabase/ABDM wiring (used when running inside Supabase Edge Runtime)
@@ -256,27 +260,6 @@ function hospitalAbdmSettingsStoreFor(
 // M2 HIP production stores (service-role only)
 // ----------------------------------------------------------------------------
 
-function m2HiTypeForRecordType(recordType: string): string {
-  switch (recordType.toLowerCase()) {
-    case "opd_visit":
-    case "consultation":
-      return "OPConsultation";
-    case "prescription":
-      return "Prescription";
-    case "lab_report":
-    case "diagnostic_report":
-      return "DiagnosticReport";
-    case "discharge_summary":
-      return "DischargeSummary";
-    case "immunization":
-      return "ImmunizationRecord";
-    case "wellness_record":
-      return "WellnessRecord";
-    default:
-      return "HealthDocumentRecord";
-  }
-}
-
 function m2PatientByName(row: Record<string, unknown>): string {
   const first = row["first_name"] ? String(row["first_name"]) : "";
   const last = row["last_name"] ? String(row["last_name"]) : "";
@@ -422,6 +405,20 @@ function m2RequestStoreFor(
         care_context_refs: parsed.careContextRefs,
       };
     },
+    async countRecentLinkInit(abhaAddress, hospitalId, sinceIso) {
+      const adminClient = createServiceRoleClient(env);
+      const { count, error } = await adminClient
+        .from("abdm_m2_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("request_type", "linkInit")
+        .eq("hospital_id", hospitalId)
+        .eq("payload->>abhaAddress", abhaAddress)
+        .gte("received_at", sinceIso);
+      if (error) {
+        throw new Error(`M2 link-init count failed: ${error.message}`);
+      }
+      return count ?? 0;
+    },
     async markProcessed(requestId, requestType, status, responsePayload, errorCode, errorMessage) {
       const adminClient = createServiceRoleClient(env);
       const { error } = await adminClient
@@ -450,7 +447,7 @@ function m2CareContextStoreFor(
     return {
       referenceNumber: row["care_context_id"] ? String(row["care_context_id"]) : "",
       display: recordType,
-      hiType: m2HiTypeForRecordType(recordType),
+      hiType: hiTypeForRecordType(recordType),
     };
   }
 
@@ -526,6 +523,9 @@ function m2ConsentStoreFor(
     const refs = Array.isArray(data["care_context_references"])
       ? (data["care_context_references"] as unknown[]).map((v) => String(v))
       : [];
+    const hiTypes = Array.isArray(data["hi_types"])
+      ? (data["hi_types"] as unknown[]).map((v) => String(v))
+      : [];
     return {
       hospital_id: data["hospital_id"] ? String(data["hospital_id"]) : "",
       patient_id: data["patient_id"] ? String(data["patient_id"]) : null,
@@ -540,6 +540,7 @@ function m2ConsentStoreFor(
       granted_at: data["granted_at"] ? String(data["granted_at"]) : null,
       expires_at: data["expires_at"] ? String(data["expires_at"]) : null,
       care_context_references: refs,
+      hi_types: hiTypes,
     };
   }
 
@@ -579,6 +580,7 @@ function m2ConsentStoreFor(
           granted_at: row.granted_at,
           expires_at: row.expires_at,
           care_context_references: row.care_context_references,
+          hi_types: row.hi_types,
           updated_at: new Date().toISOString(),
         }, { onConflict: "consent_id" });
       return { error: error ? { code: error.code, message: error.message } : null };
@@ -587,7 +589,7 @@ function m2ConsentStoreFor(
       const adminClient = createServiceRoleClient(env);
       const { data, error } = await adminClient
         .from("consent_artefacts")
-        .select("hospital_id, patient_id, abha_id, consent_id, hip_id, hiu_id, purpose, data_from, data_to, status, granted_at, expires_at, care_context_references")
+        .select("hospital_id, patient_id, abha_id, consent_id, hip_id, hiu_id, purpose, data_from, data_to, status, granted_at, expires_at, care_context_references, hi_types")
         .eq("consent_id", consentId)
         .maybeSingle();
       if (error) {
@@ -602,6 +604,39 @@ function m2ConsentStoreFor(
 function m2DataTransferJobStoreFor(
   env: Record<string, string | undefined>,
 ): M2DataTransferJobStore {
+  function mapJobRow(data: Record<string, unknown>): M2DataTransferJobRow {
+    return {
+      hospital_id: data["hospital_id"] ? String(data["hospital_id"]) : null,
+      consent_id: data["consent_id"] ? String(data["consent_id"]) : "",
+      transaction_id: data["transaction_id"] ? String(data["transaction_id"]) : "",
+      status: data["status"] ? String(data["status"]) : "queued",
+      care_context_references: Array.isArray(data["care_context_references"])
+        ? (data["care_context_references"] as unknown[]).map((v) => String(v))
+        : [],
+      care_context_hi_types: Array.isArray(data["care_context_hi_types"])
+        ? (data["care_context_hi_types"] as unknown[]).map((v) => String(v))
+        : [],
+      fhir_bundle: typeof data["fhir_bundle"] === "object" && data["fhir_bundle"] !== null
+        ? data["fhir_bundle"] as Record<string, unknown>
+        : null,
+      key_material: typeof data["key_material"] === "object" && data["key_material"] !== null
+        ? data["key_material"] as Record<string, unknown>
+        : {},
+      data_push_url: data["data_push_url"] ? String(data["data_push_url"]) : null,
+      attempts: typeof data["attempts"] === "number" ? data["attempts"] : 0,
+      error_code: data["error_code"] ? String(data["error_code"]) : null,
+      error_message: data["error_message"] ? String(data["error_message"]) : null,
+      lease_owner: data["lease_owner"] ? String(data["lease_owner"]) : null,
+      lease_expires_at: data["lease_expires_at"] ? String(data["lease_expires_at"]) : null,
+      last_attempt_at: data["last_attempt_at"] ? String(data["last_attempt_at"]) : null,
+      next_retry_at: data["next_retry_at"] ? String(data["next_retry_at"]) : null,
+      notification_status: data["notification_status"] ? String(data["notification_status"]) : null,
+      encrypted_entries: Array.isArray(data["encrypted_entries"])
+        ? data["encrypted_entries"] as Record<string, unknown>[]
+        : null,
+    };
+  }
+
   return {
     async upsert(row: M2DataTransferJobRow) {
       const adminClient = createServiceRoleClient(env);
@@ -613,15 +648,37 @@ function m2DataTransferJobStoreFor(
           transaction_id: row.transaction_id,
           status: row.status,
           care_context_references: row.care_context_references,
+          care_context_hi_types: row.care_context_hi_types,
           fhir_bundle: row.fhir_bundle,
           key_material: row.key_material,
           data_push_url: row.data_push_url,
           attempts: row.attempts,
           error_code: row.error_code,
           error_message: row.error_message,
+          lease_owner: row.lease_owner ?? null,
+          lease_expires_at: row.lease_expires_at ?? null,
+          last_attempt_at: row.last_attempt_at ?? null,
+          next_retry_at: row.next_retry_at ?? null,
+          notification_status: row.notification_status ?? null,
+          encrypted_entries: row.encrypted_entries ?? null,
           updated_at: new Date().toISOString(),
         }, { onConflict: "transaction_id" });
       return { error: error ? { code: error.code, message: error.message } : null };
+    },
+    async claimDue(now, leaseOwner, leaseSeconds, hospitalId) {
+      const adminClient = createServiceRoleClient(env);
+      const { data, error } = await adminClient
+        .rpc("claim_abdm_data_transfer_job", {
+          p_hospital_id: hospitalId,
+          p_lease_owner: leaseOwner,
+          p_lease_seconds: leaseSeconds,
+          p_now: now,
+        });
+      if (error) {
+        throw new Error(`M2 data-transfer claim failed: ${error.message}`);
+      }
+      if (!data) return null;
+      return mapJobRow(data as Record<string, unknown>);
     },
   };
 }
@@ -667,6 +724,48 @@ function m2FhirSourceStoreFor(
   };
 }
 
+/**
+ * Production link-OTP notifier. No SMS/WhatsApp/Firebase patient-OTP provider
+ * is configured in this repository, so the runtime stays DISABLED with a
+ * specific configuration error instead of ever faking delivery.
+ */
+function m2LinkNotifierFor(
+  env: Record<string, string | undefined>,
+): M2LinkNotifier {
+  const provider = (env["ABDM_M2_OTP_PROVIDER"] ?? "").trim().toLowerCase();
+  return {
+    async sendOtp() {
+      if (!provider) {
+        return {
+          ok: false,
+          code: "ABDM_M2_OTP_PROVIDER_NOT_CONFIGURED",
+          error:
+            "No link OTP provider is configured. Set ABDM_M2_OTP_PROVIDER to an approved provider.",
+        };
+      }
+      return {
+        ok: false,
+        code: "ABDM_M2_OTP_PROVIDER_UNSUPPORTED",
+        error: `Link OTP provider "${provider}" is not supported by this deployment.`,
+      };
+    },
+  };
+}
+
+/**
+ * Production health-information encryptor. Live encryption stays STOPPED:
+ * the official NHA wrapper/fidelius reference uses BouncyCastle `ECDH` on
+ * `curve25519` with semantics that do not match RFC 7748 X25519 (verified
+ * against a BouncyCastle 1.66 deterministic vector), so no JavaScript
+ * implementation can be safely substituted without an official ABDM
+ * interoperability test vector.
+ */
+function m2EncryptorFor(
+  _env: Record<string, string | undefined>,
+): M2Encryptor {
+  return unavailableM2Encryptor();
+}
+
 // Only start the server when this file is the actual entrypoint (not when it
 // is imported by `deno test`).
 if (import.meta.main) {
@@ -687,6 +786,8 @@ if (import.meta.main) {
       m2ConsentStore: m2ConsentStoreFor(Deno.env.toObject()),
       m2DataTransferJobStore: m2DataTransferJobStoreFor(Deno.env.toObject()),
       m2FhirSourceStore: m2FhirSourceStoreFor(Deno.env.toObject()),
+      m2LinkNotifier: m2LinkNotifierFor(Deno.env.toObject()),
+      m2Encryptor: m2EncryptorFor(Deno.env.toObject()),
       // Live health-information transfer stays gated until HIP linkage,
       // consent and encryption prerequisites are all satisfied. Operators may
       // set ABDM_M2_DATA_TRANSFER_ENABLED=true only after those exist.

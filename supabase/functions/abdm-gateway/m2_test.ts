@@ -186,6 +186,17 @@ class InMemoryM2RequestStore implements M2RequestStore {
     };
   }
 
+  async countRecentLinkInit(abhaAddress: string, hospitalId: string, sinceIso: string) {
+    const since = Date.parse(sinceIso);
+    return this.rows.filter((r) =>
+      r.request_type === "linkInit" &&
+      r.hospital_id === hospitalId &&
+      r.payload &&
+      (r.payload as Record<string, unknown>)["abhaAddress"] === abhaAddress &&
+      Date.parse(r.received_at) >= since
+    ).length;
+  }
+
   async markProcessed(
     requestId: string,
     requestType: string,
@@ -289,9 +300,27 @@ class InMemoryM2DataTransferJobStore implements M2DataTransferJobStore {
 
   async upsert(row: M2DataTransferJobRow) {
     const existing = this.jobs.findIndex((j) => j.transaction_id === row.transaction_id);
-    if (existing >= 0) this.jobs[existing] = row;
-    else this.jobs.push(row);
+    if (existing >= 0) this.jobs[existing] = { ...row };
+    else this.jobs.push({ ...row });
     return { error: null };
+  }
+
+  async claimDue(now: string, leaseOwner: string, leaseSeconds: number, hospitalId: string) {
+    const nowMs = Date.parse(now);
+    const retryable = ["queued", "preparing", "encrypted", "pushing", "pushed", "notifying"];
+    const candidate = this.jobs.find((j) => {
+      if (j.hospital_id !== hospitalId) return false;
+      if (!retryable.includes(j.status)) return false;
+      const leaseExpired = !j.lease_expires_at || Date.parse(j.lease_expires_at) < nowMs;
+      const due = !j.next_retry_at || Date.parse(j.next_retry_at) <= nowMs;
+      return leaseExpired && due;
+    });
+    if (!candidate) return null;
+    candidate.status = "preparing";
+    candidate.lease_owner = leaseOwner;
+    candidate.lease_expires_at = new Date(nowMs + leaseSeconds * 1000).toISOString();
+    candidate.last_attempt_at = now;
+    return { ...candidate };
   }
 }
 
@@ -638,6 +667,7 @@ function baseConsentStore(): InMemoryM2ConsentStore {
     granted_at: "2026-09-06T00:00:00.000Z",
     expires_at: "2027-01-01T00:00:00.000Z",
     care_context_references: ["CC-OPD-1"],
+    hi_types: ["OPConsultation"],
   });
   return store;
 }
@@ -820,7 +850,7 @@ Deno.test("m2: link init without notifier sends on-init error", async () => {
   const outbound = m2OutboundCalls(calls);
   assertEquals(outbound.length, 1);
   const body = outbound[0].body as Record<string, unknown>;
-  assertEquals((body["error"] as Record<string, unknown>)["code"], M2_ERROR_CODES.OTP_SEND_FAILED);
+  assertEquals((body["error"] as Record<string, unknown>)["code"], "ABDM_M2_OTP_PROVIDER_NOT_CONFIGURED");
 });
 
 Deno.test("m2: link confirm with valid token links care contexts and sends on-confirm", async () => {
