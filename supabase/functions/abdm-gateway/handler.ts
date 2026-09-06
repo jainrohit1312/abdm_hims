@@ -75,6 +75,25 @@ import {
   validateServicesPayload,
 } from "./core.ts";
 import { GatewayError, HttpError } from "./core.ts";
+import {
+  type M2CallbackType,
+  m2CallbackTypeForSubpath,
+  M2_ERROR_CODES,
+  type M2Hospital,
+  type M2RequestStore,
+  type M2RequestRow,
+  type M2CareContextStore,
+  type M2ConsentStore,
+  type M2DataTransferJobStore,
+  type M2Encryptor,
+  type M2LinkNotifier,
+  type M2FhirBundleSource,
+  type M2ProcessRuntime,
+  M2ProcessingError,
+  processM2Callback,
+  m2GatewayPost,
+  V3_M2_HIP_ID_HEADER,
+} from "./m2.ts";
 
 // Supabase Edge Runtime exposes `waitUntil` so async callback persistence can
 // finish after the response is sent. Plain Deno (local tests) does not have it.
@@ -153,6 +172,24 @@ export interface HospitalAbdmSettingsStore {
   getByHospitalId(hospitalId: string): Promise<HospitalAbdmSettings | null>;
 }
 
+/**
+ * Server-side resolver that maps the inbound ABDM `X-HIP-ID` callback header
+ * (the HFR facility id / V3 service-id) to a hospital row. The header value is
+ * never trusted as a hospital id directly — it is only a lookup key.
+ */
+export interface M2HospitalStore {
+  findByHipId(hipId: string): Promise<M2Hospital | null>;
+}
+
+/** Source data for the M2 FHIR mapping layer (implemented by index.ts). */
+export interface M2FhirSourceStore {
+  fetchForConsent(
+    abhaId: string,
+    careContextRefs: string[],
+    hospitalId: string,
+  ): Promise<M2FhirBundleSource | null>;
+}
+
 export interface RequestDeps {
   env: Record<string, string | undefined>;
   fetchImpl: FetchImpl;
@@ -179,6 +216,24 @@ export interface RequestDeps {
   hospitalAbdmSettingsStore?: HospitalAbdmSettingsStore;
   /** Injectable throttling for the isolated V3 diagnostic (per user). */
   v3DiagnosticRateLimiter?: SlidingWindowRateLimiter;
+  /** M2 HIP: maps the inbound X-HIP-ID header to a hospital row. */
+  m2HospitalStore?: M2HospitalStore;
+  /** M2 HIP: request/event persistence (idempotent on request_id + type). */
+  m2RequestStore?: M2RequestStore;
+  /** M2 HIP: care-context lookups and link status updates. */
+  m2CareContextStore?: M2CareContextStore;
+  /** M2 HIP: consent artefact persistence + lookup. */
+  m2ConsentStore?: M2ConsentStore;
+  /** M2 HIP: data-transfer job persistence. */
+  m2DataTransferJobStore?: M2DataTransferJobStore;
+  /** M2 HIP: link OTP delivery (production may be unavailable). */
+  m2LinkNotifier?: M2LinkNotifier;
+  /** M2 HIP: injectable encryption (production returns UNAVAILABLE). */
+  m2Encryptor?: M2Encryptor;
+  /** M2 HIP: source data for the FHIR mapping layer. */
+  m2FhirSourceStore?: M2FhirSourceStore;
+  /** M2 HIP: true only when live health-information transfer may run. */
+  m2DataTransferEnabled?: boolean;
 }
 
 // Default worker-scoped ABDM token cache (memory only, never returned).
@@ -2274,6 +2329,13 @@ async function handleCallback(
     return jsonResponse({ error: "Too many callback requests" }, 429);
   }
 
+  // Official V3 M2 HIP callbacks are dispatched to typed handlers that
+  // validate, persist, optionally answer the gateway, and remain idempotent.
+  const m2Type = m2CallbackTypeForSubpath(subpath);
+  if (m2Type) {
+    return handleM2Callback(req, body, subpath, m2Type, deps);
+  }
+
   const requestId = readHeader(
     req.headers,
     "request-id",
@@ -2311,6 +2373,251 @@ async function handleCallback(
   }
 
   return jsonResponse({ status: "ACK" }, 200);
+}
+
+// ----------------------------------------------------------------------------
+// M2 HIP callback dispatch (official V3 inbound paths)
+// ----------------------------------------------------------------------------
+
+function m2ErrorResponse(
+  status: number,
+  code: string,
+  message: string,
+): Response {
+  return jsonResponse({ error: { code, message } }, status);
+}
+
+function m2SafeCorrelationId(value: string): string {
+  if (!value) return "";
+  if (value.length > 128) return "";
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)) return "";
+  return value;
+}
+
+function m2RequestId(
+  req: Request,
+  body: Record<string, unknown>,
+): string {
+  const headerValue = readHeader(
+    req.headers,
+    "request-id",
+    "x-request-id",
+    "x-request_id",
+  );
+  if (headerValue) return m2SafeCorrelationId(headerValue);
+  const bodyValue = body["requestId"] ?? body["request_id"];
+  return typeof bodyValue === "string"
+    ? m2SafeCorrelationId(bodyValue.trim())
+    : "";
+}
+
+function m2TransactionId(
+  req: Request,
+  body: Record<string, unknown>,
+): string {
+  const bodyValue = body["transactionId"] ?? body["transaction_id"];
+  if (typeof bodyValue === "string" && bodyValue.trim()) {
+    return m2SafeCorrelationId(bodyValue.trim());
+  }
+  const headerValue = readHeader(req.headers, "transaction-id", "x-transaction-id");
+  return headerValue ? m2SafeCorrelationId(headerValue) : "";
+}
+
+async function handleM2Callback(
+  req: Request,
+  body: Record<string, unknown>,
+  subpath: string,
+  type: M2CallbackType,
+  deps: RequestDeps,
+): Promise<Response> {
+  const requestId = m2RequestId(req, body);
+  const transactionId = m2TransactionId(req, body);
+  const hipId = readHeader(
+    req.headers,
+    V3_M2_HIP_ID_HEADER.toLowerCase(),
+    V3_M2_HIP_ID_HEADER,
+  ) ?? "";
+
+  // Resolve the X-HIP-ID header to a hospital row server-side. The header is a
+  // lookup key (HFR facility id), never a trusted hospital id by itself.
+  let hospital: M2Hospital | null = null;
+  if (deps.m2HospitalStore && hipId) {
+    hospital = await deps.m2HospitalStore.findByHipId(hipId);
+  }
+
+  const store = deps.m2RequestStore;
+  const row: M2RequestRow = {
+    hospital_id: hospital?.hospitalId ?? null,
+    request_id: requestId || null,
+    transaction_id: transactionId || null,
+    request_type: type,
+    callback_path: subpath,
+    status: "received",
+    payload: sanitizePayload(body) as Record<string, unknown>,
+    received_at: new Date().toISOString(),
+  };
+
+  if (store) {
+    try {
+      const insertResult = await store.insert(row);
+      // ABDM callbacks are retried; a duplicate (request_id + request_type)
+      // is an idempotent replay and must never be processed twice.
+      if (insertResult === "duplicate") {
+        return jsonResponse({}, 200);
+      }
+    } catch (error) {
+      const message = redactSensitiveText(
+        error instanceof Error ? error.message : String(error),
+      );
+      console.error(`abdm-gateway m2 persistence error: ${message}`);
+      return m2ErrorResponse(
+        500,
+        M2_ERROR_CODES.INVALID_REQUEST,
+        "M2 callback could not be persisted",
+      );
+    }
+  }
+
+  if (!hospital) {
+    if (store) {
+      await store.markProcessed(
+        requestId,
+        type,
+        "failed",
+        null,
+        M2_ERROR_CODES.HIP_NOT_FOUND,
+        "X-HIP-ID did not resolve to a hospital",
+      );
+    }
+    return m2ErrorResponse(
+      404,
+      M2_ERROR_CODES.HIP_NOT_FOUND,
+      "X-HIP-ID did not resolve to a hospital",
+    );
+  }
+
+  const careContextStore = deps.m2CareContextStore;
+  const consentStore = deps.m2ConsentStore;
+  const dataTransferJobStore = deps.m2DataTransferJobStore;
+  if (!store || !careContextStore || !consentStore || !dataTransferJobStore) {
+    if (store) {
+      await store.markProcessed(
+        requestId,
+        type,
+        "failed",
+        null,
+        M2_ERROR_CODES.INVALID_REQUEST,
+        "M2 HIP stores are not configured",
+      );
+    }
+    return m2ErrorResponse(
+      500,
+      M2_ERROR_CODES.INVALID_REQUEST,
+      "M2 HIP stores are not configured",
+    );
+  }
+
+  const config = requireConfig(deps.env);
+  const v3Cache = deps.v3TokenCache ?? defaultV3TokenCache;
+  const fhirSourceStore = deps.m2FhirSourceStore;
+
+  const runtime: M2ProcessRuntime = {
+    fetchImpl: deps.fetchImpl,
+    config,
+    v3TokenCache: v3Cache,
+    hospital,
+    careContextStore,
+    consentStore,
+    dataTransferJobStore,
+    linkInitStore: store,
+    encryptor: deps.m2Encryptor ?? null,
+    dataTransferEnabled: deps.m2DataTransferEnabled === true,
+    linkNotifier: deps.m2LinkNotifier ?? null,
+    fetchFhirSource: fhirSourceStore
+      ? (abhaId, refs, hospitalId) =>
+        fhirSourceStore.fetchForConsent(abhaId, refs, hospitalId)
+      : async () => null,
+  };
+
+  let result;
+  try {
+    result = await processM2Callback(type, body, requestId, runtime);
+  } catch (error) {
+    if (error instanceof M2ProcessingError) {
+      await store.markProcessed(
+        requestId,
+        type,
+        "failed",
+        null,
+        error.code,
+        error.message,
+      );
+      return m2ErrorResponse(error.status, error.code, error.message);
+    }
+    const message = redactSensitiveText(
+      error instanceof Error ? error.message : String(error),
+    );
+    console.error(`abdm-gateway m2 ${type} error: ${message}`);
+    await store.markProcessed(
+      requestId,
+      type,
+      "failed",
+      null,
+      "ABDM_M2_INTERNAL",
+      "Internal M2 processing error",
+    );
+    return m2ErrorResponse(500, "ABDM_M2_INTERNAL", "Internal M2 processing error");
+  }
+
+  // Persist link-init token metadata (hash only, never the raw token).
+  if (result.linkInitRecord) {
+    await store.updateLinkInit(requestId, result.linkInitRecord);
+  }
+
+  await store.markProcessed(
+    requestId,
+    type,
+    result.status,
+    result.outbound?.body ?? null,
+    result.errorCode,
+    result.errorMessage,
+  );
+
+  if (result.outbound) {
+    const outbound = result.outbound;
+    const outboundPromise = (async () => {
+      try {
+        const response = await m2GatewayPost(
+          deps.fetchImpl,
+          config,
+          v3Cache,
+          hospital.facilityId,
+          outbound.path,
+          outbound.body,
+        );
+        if (!response.ok) {
+          console.log(
+            `abdm-gateway m2 outbound ${outbound.path} status=${response.status}`,
+          );
+        }
+      } catch (error) {
+        // SECURITY: never log tokens, secrets, headers or patient data.
+        const message = redactSensitiveText(
+          error instanceof Error ? error.message : String(error),
+        );
+        console.error(
+          `abdm-gateway m2 outbound ${outbound.path} error: ${message}`,
+        );
+      }
+    })();
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+      EdgeRuntime.waitUntil(outboundPromise);
+    } else {
+      await outboundPromise;
+    }
+  }
+
+  return jsonResponse({}, result.ackStatus);
 }
 
 // Re-exported for the production wiring in index.ts.
