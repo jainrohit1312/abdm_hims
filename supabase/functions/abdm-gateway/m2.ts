@@ -32,6 +32,7 @@ import {
   type V3SessionRequestOptions,
   V3_GATEWAY_BASE_URL,
   v3FetchJson,
+  v3GatewayPost,
   type V3TokenCacheRef,
 } from "./core.ts";
 
@@ -771,18 +772,14 @@ export async function m2GatewayPost(
   body: unknown,
   options: V3SessionRequestOptions = {},
 ): Promise<GatewayHttpResponse> {
-  const token = await acquireV3AccessToken(fetchImpl, config, cache, options);
-  const headers = buildV3AuthenticatedHeaders(token.accessToken);
-  headers["Content-Type"] = "application/json";
-  if (hipId.trim()) headers[V3_M2_HIP_ID_HEADER] = hipId.trim();
-  return v3FetchJson(
+  return v3GatewayPost(
     fetchImpl,
-    `${V3_GATEWAY_BASE_URL}${path}`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    },
+    config,
+    cache,
+    V3_M2_HIP_ID_HEADER,
+    hipId,
+    path,
+    body,
     options,
   );
 }

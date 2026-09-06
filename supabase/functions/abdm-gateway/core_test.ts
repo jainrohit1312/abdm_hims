@@ -99,6 +99,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     m1GetAbhaQrPath: "",
     m1AllowedRoles: ["super_admin", "admin", "receptionist"],
     m1AbhaAddressSuffixes: ["abdm", "sbx"],
+    m3AllowedRoles: ["super_admin", "admin", "doctor"],
     ...overrides,
   };
 }

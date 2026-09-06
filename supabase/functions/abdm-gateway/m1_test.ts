@@ -638,6 +638,7 @@ Deno.test("gatewayRequest never retries 401/403 when retryOnAuthFailure is false
     m1GetAbhaQrPath: "",
     m1AllowedRoles: ["super_admin", "admin", "receptionist"],
     m1AbhaAddressSuffixes: ["abdm", "sbx"],
+    m3AllowedRoles: ["super_admin", "admin", "doctor"],
   };
 
   let operationCalls = 0;

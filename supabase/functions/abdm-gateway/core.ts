@@ -147,6 +147,13 @@ export interface GatewayConfig {
    * single domain because the official contract may permit other domains.
    */
   m1AbhaAddressSuffixes: string[];
+  /**
+   * Roles allowed to perform staff-facing M3 (HIU) operations
+   * (comma-separated, case-insensitive). Default
+   * `super_admin,admin,doctor`. Session / Bridge / Services remain
+   * admin/super_admin-only.
+   */
+  m3AllowedRoles: string[];
 }
 
 export interface ConfigResult {
@@ -283,6 +290,9 @@ export function readConfig(
     ),
     m1AbhaAddressSuffixes: csv(
       env["ABDM_M1_ABHA_ADDRESS_SUFFIXES"] ?? "abdm,sbx",
+    ),
+    m3AllowedRoles: csv(
+      env["ABDM_M3_ALLOWED_ROLES"] ?? "super_admin,admin,doctor",
     ),
   };
 
@@ -1727,6 +1737,40 @@ export async function v3GatewayRequest(
     retryStatus: null,
     cmContextApplied: true,
   };
+}
+
+/**
+ * Shared authenticated V3 POST used by the M2 (HIP) and M3 (HIU) pipelines.
+ * It reuses the canonical V3 session/token cache and appends the caller's
+ * service-id header (X-HIP-ID for HIP, X-HIU-ID for HIU) only when the id is
+ * non-empty. No parallel session/token logic exists anywhere else.
+ */
+export async function v3GatewayPost(
+  fetchImpl: FetchImpl,
+  config: GatewayConfig,
+  cache: V3TokenCacheRef,
+  serviceIdHeader: string,
+  serviceId: string,
+  path: string,
+  body: unknown,
+  options: V3SessionRequestOptions = {},
+): Promise<GatewayHttpResponse> {
+  const token = await acquireV3AccessToken(fetchImpl, config, cache, options);
+  const headers = buildV3AuthenticatedHeaders(token.accessToken);
+  headers["Content-Type"] = "application/json";
+  if (serviceIdHeader.trim() && serviceId.trim()) {
+    headers[serviceIdHeader.trim()] = serviceId.trim();
+  }
+  return v3FetchJson(
+    fetchImpl,
+    `${V3_GATEWAY_BASE_URL}${path}`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    },
+    options,
+  );
 }
 
 /**
@@ -3550,6 +3594,11 @@ export function getSubpath(url: string, functionName = FUNCTION_NAME): string {
   return remainder ? `/${remainder}` : "";
 }
 
+export type M3Action =
+  | "m3ConsentRequest"
+  | "m3ConsentStatus"
+  | "m3HealthInformationRequest";
+
 export type InternalAction =
   | "session"
   | "bridge"
@@ -3558,7 +3607,8 @@ export type InternalAction =
   | "diagnoseV3Gateway"
   | "inspectV3Bridge"
   | "health"
-  | M1Action;
+  | M1Action
+  | M3Action;
 
 const RESERVED_SUBPATHS = new Set([
   "/session",
@@ -3635,9 +3685,30 @@ export function resolveInternalAction(
     // the bare function URL only — never reachable through a callback subpath.
     const m1Action = m1ActionFromName(action);
     if (m === "POST" && m1Action) return m1Action;
+    // M3 (HIU) actions are Flutter POST {"action":"<m3 action>","payload":{}}
+    // on the bare function URL only — never reachable through a callback
+    // subpath.
+    const m3Action = m3ActionFromName(action);
+    if (m === "POST" && m3Action) return m3Action;
   }
 
   return null;
+}
+
+const M3_ACTION_NAMES: Readonly<Record<string, M3Action>> = {
+  m3consentrequest: "m3ConsentRequest",
+  m3consentstatus: "m3ConsentStatus",
+  m3healthinformationrequest: "m3HealthInformationRequest",
+};
+
+/** Maps a lowercased action name to the canonical M3 action, or null. */
+export function m3ActionFromName(action: string): M3Action | null {
+  return M3_ACTION_NAMES[action] ?? null;
+}
+
+/** True when the action name (any case) is one of the protected M3 actions. */
+export function isM3ActionName(action: string): action is M3Action {
+  return m3ActionFromName(action.toLowerCase()) !== null;
 }
 
 const M1_ACTION_NAMES: Readonly<Record<string, M1Action>> = {

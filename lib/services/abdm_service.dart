@@ -1054,11 +1054,27 @@ class AbdmService {
       };
     }
 
-    throw const AbdmException(
-      'The secure ABDM gateway relay for "Consent request" is not enabled '
-      'yet. This phase provides session, Bridge, service-management and M1 '
-      'routing through the Edge Function.',
-      code: 'ABDM_REAL_MODE_NOT_AVAILABLE',
+    final session = _currentSessionReader();
+    if (session == null) {
+      throw const AbdmException(
+        'Please log in again.',
+        code: 'NO_SESSION',
+        statusCode: 401,
+      );
+    }
+    return _invokeEdge(
+      'm3ConsentRequest',
+      body: {
+        'payload': {
+          'patientId': patientId,
+          'abhaId': abhaId.trim().toUpperCase(),
+          'abhaAddress': abhaAddress,
+          'purpose': purpose,
+          'dataFrom': dataFrom.toUtc().toIso8601String(),
+          'dataTo': dataTo.toUtc().toIso8601String(),
+          'hiTypes': ?hiTypes,
+        },
+      },
     );
   }
 
@@ -1069,11 +1085,17 @@ class AbdmService {
       return {'consentRequestId': consentRequestId, 'status': 'GRANTED'};
     }
 
-    throw const AbdmException(
-      'The secure ABDM gateway relay for "Consent status" is not enabled '
-      'yet. This phase provides session, Bridge, service-management and M1 '
-      'routing through the Edge Function.',
-      code: 'ABDM_REAL_MODE_NOT_AVAILABLE',
+    final session = _currentSessionReader();
+    if (session == null) {
+      throw const AbdmException(
+        'Please log in again.',
+        code: 'NO_SESSION',
+        statusCode: 401,
+      );
+    }
+    return _invokeEdge(
+      'm3ConsentStatus',
+      body: {'payload': {'requestId': consentRequestId}},
     );
   }
 
@@ -1126,11 +1148,17 @@ class AbdmService {
       };
     }
 
-    throw const AbdmException(
-      'The secure ABDM gateway relay for "Health record fetch" is not '
-      'enabled yet. This phase provides session, Bridge, service-management '
-      'and M1 routing through the Edge Function.',
-      code: 'ABDM_REAL_MODE_NOT_AVAILABLE',
+    final session = _currentSessionReader();
+    if (session == null) {
+      throw const AbdmException(
+        'Please log in again.',
+        code: 'NO_SESSION',
+        statusCode: 401,
+      );
+    }
+    return _invokeEdge(
+      'm3HealthInformationRequest',
+      body: {'payload': {'consentId': consentId}},
     );
   }
 

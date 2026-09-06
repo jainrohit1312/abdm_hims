@@ -73,6 +73,22 @@ import {
   type M2RequestRow,
 } from "./m2.ts";
 import { unavailableM2Encryptor } from "./m2_transfer.ts";
+import {
+  type M3ConsentArtefactRow,
+  type M3ConsentRequestRow,
+  type M3ConsentRequestStore,
+  type M3ConsentStore,
+  type M3DataPageRow,
+  type M3DataPageStore,
+  type M3FhirRecordStore,
+  type M3HiRequestRow,
+  type M3HiRequestStore,
+  type M3ImportedFhirRecord,
+  M3_PAGE_STATUS,
+  unavailableM3Decryptor,
+  unavailableM3KeypairProvider,
+  unavailableM3PrivateKeyStore,
+} from "./m3.ts";
 
 // ----------------------------------------------------------------------------
 // Real Supabase/ABDM wiring (used when running inside Supabase Edge Runtime)
@@ -516,7 +532,7 @@ function m2CareContextStoreFor(
   };
 }
 
-function m2ConsentStoreFor(
+function consentArtefactStoreFor(
   env: Record<string, string | undefined>,
 ): M2ConsentStore {
   function mapConsentRow(data: Record<string, unknown>): M2ConsentArtefactRow {
@@ -593,12 +609,24 @@ function m2ConsentStoreFor(
         .eq("consent_id", consentId)
         .maybeSingle();
       if (error) {
-        throw new Error(`M2 consent lookup failed: ${error.message}`);
+        throw new Error(`Consent lookup failed: ${error.message}`);
       }
       if (!data) return null;
       return mapConsentRow(data as Record<string, unknown>);
     },
   };
+}
+
+function m2ConsentStoreFor(
+  env: Record<string, string | undefined>,
+): M2ConsentStore {
+  return consentArtefactStoreFor(env);
+}
+
+function m3ConsentStoreFor(
+  env: Record<string, string | undefined>,
+): M3ConsentStore {
+  return consentArtefactStoreFor(env) as unknown as M3ConsentStore;
 }
 
 function m2DataTransferJobStoreFor(
@@ -752,6 +780,384 @@ function m2LinkNotifierFor(
   };
 }
 
+// ----------------------------------------------------------------------------
+// M3 HIU production stores (service-role only)
+// ----------------------------------------------------------------------------
+
+function m3ConsentRequestStoreFor(
+  env: Record<string, string | undefined>,
+): M3ConsentRequestStore {
+  function mapRow(data: Record<string, unknown>): M3ConsentRequestRow {
+    return {
+      hospital_id: data["hospital_id"] ? String(data["hospital_id"]) : null,
+      patient_id: data["patient_id"] ? String(data["patient_id"]) : null,
+      request_id: data["request_id"] ? String(data["request_id"]) : "",
+      consent_request_id: data["consent_request_id"]
+        ? String(data["consent_request_id"])
+        : null,
+      abha_address: data["abha_address"] ? String(data["abha_address"]) : "",
+      status: (data["status"] ? String(data["status"]) : "created") as M3ConsentRequestRow["status"],
+      purpose_text: data["purpose_text"] ? String(data["purpose_text"]) : null,
+      purpose_code: data["purpose_code"] ? String(data["purpose_code"]) : null,
+      hi_types: Array.isArray(data["hi_types"])
+        ? (data["hi_types"] as unknown[]).map((v) => String(v))
+        : [],
+      date_from: data["date_from"] ? String(data["date_from"]) : null,
+      date_to: data["date_to"] ? String(data["date_to"]) : null,
+      data_erase_at: data["data_erase_at"] ? String(data["data_erase_at"]) : null,
+      frequency: typeof data["frequency"] === "object" && data["frequency"] !== null
+        ? data["frequency"] as Record<string, unknown>
+        : {},
+      hip_id: data["hip_id"] ? String(data["hip_id"]) : null,
+      hiu_id: data["hiu_id"] ? String(data["hiu_id"]) : null,
+      error_code: data["error_code"] ? String(data["error_code"]) : null,
+      error_message: data["error_message"] ? String(data["error_message"]) : null,
+      submitted_at: data["submitted_at"] ? String(data["submitted_at"]) : null,
+      responded_at: data["responded_at"] ? String(data["responded_at"]) : null,
+    };
+  }
+
+  return {
+    async insert(row) {
+      const adminClient = createServiceRoleClient(env);
+      const { error } = await adminClient
+        .from("abdm_m3_consent_requests")
+        .insert({
+          hospital_id: row.hospital_id,
+          patient_id: row.patient_id,
+          request_id: row.request_id,
+          consent_request_id: row.consent_request_id,
+          abha_address: row.abha_address,
+          status: row.status,
+          purpose_text: row.purpose_text,
+          purpose_code: row.purpose_code,
+          hi_types: row.hi_types,
+          date_from: row.date_from,
+          date_to: row.date_to,
+          data_erase_at: row.data_erase_at,
+          frequency: row.frequency,
+          hip_id: row.hip_id,
+          hiu_id: row.hiu_id,
+          error_code: row.error_code,
+          error_message: row.error_message,
+          submitted_at: row.submitted_at,
+          responded_at: row.responded_at,
+        });
+      if (!error) return "inserted";
+      if (error.code === "23505") return "duplicate";
+      throw new Error(`M3 consent request insert failed: ${error.message}`);
+    },
+    async updateByRequestId(requestId, patch) {
+      const adminClient = createServiceRoleClient(env);
+      const { error } = await adminClient
+        .from("abdm_m3_consent_requests")
+        .update({
+          ...patch,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("request_id", requestId);
+      if (error) {
+        throw new Error(`M3 consent request update failed: ${error.message}`);
+      }
+    },
+    async findByRequestId(requestId) {
+      const adminClient = createServiceRoleClient(env);
+      const { data, error } = await adminClient
+        .from("abdm_m3_consent_requests")
+        .select("*")
+        .eq("request_id", requestId)
+        .maybeSingle();
+      if (error) {
+        throw new Error(`M3 consent request lookup failed: ${error.message}`);
+      }
+      return data ? mapRow(data as Record<string, unknown>) : null;
+    },
+    async findByConsentRequestId(consentRequestId) {
+      const adminClient = createServiceRoleClient(env);
+      const { data, error } = await adminClient
+        .from("abdm_m3_consent_requests")
+        .select("*")
+        .eq("consent_request_id", consentRequestId)
+        .maybeSingle();
+      if (error) {
+        throw new Error(`M3 consent request lookup failed: ${error.message}`);
+      }
+      return data ? mapRow(data as Record<string, unknown>) : null;
+    },
+  };
+}
+
+function m3HiRequestStoreFor(
+  env: Record<string, string | undefined>,
+): M3HiRequestStore {
+  function mapRow(data: Record<string, unknown>): M3HiRequestRow {
+    return {
+      hospital_id: data["hospital_id"] ? String(data["hospital_id"]) : null,
+      patient_id: data["patient_id"] ? String(data["patient_id"]) : null,
+      consent_id: data["consent_id"] ? String(data["consent_id"]) : "",
+      request_id: data["request_id"] ? String(data["request_id"]) : "",
+      transaction_id: data["transaction_id"]
+        ? String(data["transaction_id"])
+        : null,
+      hip_id: data["hip_id"] ? String(data["hip_id"]) : null,
+      hiu_id: data["hiu_id"] ? String(data["hiu_id"]) : null,
+      status: (data["status"] ? String(data["status"]) : "request_created") as M3HiRequestRow["status"],
+      requested_from: data["requested_from"] ? String(data["requested_from"]) : null,
+      requested_to: data["requested_to"] ? String(data["requested_to"]) : null,
+      hi_types: Array.isArray(data["hi_types"])
+        ? (data["hi_types"] as unknown[]).map((v) => String(v))
+        : [],
+      care_context_references: Array.isArray(data["care_context_references"])
+        ? (data["care_context_references"] as unknown[]).map((v) => String(v))
+        : [],
+      key_material: typeof data["key_material"] === "object" && data["key_material"] !== null
+        ? data["key_material"] as Record<string, unknown>
+        : {},
+      expected_pages: typeof data["expected_pages"] === "number"
+        ? data["expected_pages"]
+        : null,
+      received_pages: typeof data["received_pages"] === "number"
+        ? data["received_pages"]
+        : 0,
+      error_code: data["error_code"] ? String(data["error_code"]) : null,
+      error_message: data["error_message"] ? String(data["error_message"]) : null,
+      submitted_at: data["submitted_at"] ? String(data["submitted_at"]) : null,
+      completed_at: data["completed_at"] ? String(data["completed_at"]) : null,
+    };
+  }
+
+  return {
+    async insert(row) {
+      const adminClient = createServiceRoleClient(env);
+      const { error } = await adminClient
+        .from("abdm_m3_hi_requests")
+        .insert({
+          hospital_id: row.hospital_id,
+          patient_id: row.patient_id,
+          consent_id: row.consent_id,
+          request_id: row.request_id,
+          transaction_id: row.transaction_id,
+          hip_id: row.hip_id,
+          hiu_id: row.hiu_id,
+          status: row.status,
+          requested_from: row.requested_from,
+          requested_to: row.requested_to,
+          hi_types: row.hi_types,
+          care_context_references: row.care_context_references,
+          key_material: row.key_material,
+          expected_pages: row.expected_pages,
+          received_pages: row.received_pages,
+          error_code: row.error_code,
+          error_message: row.error_message,
+          submitted_at: row.submitted_at,
+          completed_at: row.completed_at,
+        });
+      if (!error) return "inserted";
+      if (error.code === "23505") return "duplicate";
+      throw new Error(`M3 HI request insert failed: ${error.message}`);
+    },
+    async updateByRequestId(requestId, patch) {
+      const adminClient = createServiceRoleClient(env);
+      const { error } = await adminClient
+        .from("abdm_m3_hi_requests")
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq("request_id", requestId);
+      if (error) {
+        throw new Error(`M3 HI request update failed: ${error.message}`);
+      }
+    },
+    async updateByTransactionId(transactionId, patch) {
+      const adminClient = createServiceRoleClient(env);
+      const { error } = await adminClient
+        .from("abdm_m3_hi_requests")
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq("transaction_id", transactionId);
+      if (error) {
+        throw new Error(`M3 HI request update failed: ${error.message}`);
+      }
+    },
+    async findByRequestId(requestId) {
+      const adminClient = createServiceRoleClient(env);
+      const { data, error } = await adminClient
+        .from("abdm_m3_hi_requests")
+        .select("*")
+        .eq("request_id", requestId)
+        .maybeSingle();
+      if (error) {
+        throw new Error(`M3 HI request lookup failed: ${error.message}`);
+      }
+      return data ? mapRow(data as Record<string, unknown>) : null;
+    },
+    async findByTransactionId(transactionId) {
+      const adminClient = createServiceRoleClient(env);
+      const { data, error } = await adminClient
+        .from("abdm_m3_hi_requests")
+        .select("*")
+        .eq("transaction_id", transactionId)
+        .maybeSingle();
+      if (error) {
+        throw new Error(`M3 HI request lookup failed: ${error.message}`);
+      }
+      return data ? mapRow(data as Record<string, unknown>) : null;
+    },
+  };
+}
+
+function m3DataPageStoreFor(
+  env: Record<string, string | undefined>,
+): M3DataPageStore {
+  function mapRow(data: Record<string, unknown>): M3DataPageRow {
+    return {
+      hospital_id: data["hospital_id"] ? String(data["hospital_id"]) : null,
+      transaction_id: data["transaction_id"] ? String(data["transaction_id"]) : "",
+      page_number: typeof data["page_number"] === "number" ? data["page_number"] : 0,
+      page_count: typeof data["page_count"] === "number" ? data["page_count"] : 1,
+      status: (data["status"] ? String(data["status"]) : M3_PAGE_STATUS.RECEIVED) as M3DataPageRow["status"],
+      entry_count: typeof data["entry_count"] === "number" ? data["entry_count"] : 0,
+      entries: Array.isArray(data["entries"])
+        ? data["entries"] as M3DataPageRow["entries"]
+        : [],
+      key_material: typeof data["key_material"] === "object" && data["key_material"] !== null
+        ? data["key_material"] as Record<string, unknown>
+        : {},
+      checksum_metadata: Array.isArray(data["checksum_metadata"])
+        ? (data["checksum_metadata"] as Record<string, unknown>[])
+        : [],
+      received_at: data["received_at"] ? String(data["received_at"]) : "",
+      processing_status: data["processing_status"]
+        ? String(data["processing_status"])
+        : null,
+      error_code: data["error_code"] ? String(data["error_code"]) : null,
+      error_message: data["error_message"] ? String(data["error_message"]) : null,
+    };
+  }
+
+  return {
+    async insertPage(row) {
+      const adminClient = createServiceRoleClient(env);
+      const { error } = await adminClient
+        .from("abdm_m3_data_pages")
+        .insert({
+          hospital_id: row.hospital_id,
+          transaction_id: row.transaction_id,
+          page_number: row.page_number,
+          page_count: row.page_count,
+          status: row.status,
+          entry_count: row.entry_count,
+          entries: row.entries,
+          key_material: row.key_material,
+          checksum_metadata: row.checksum_metadata,
+          received_at: row.received_at,
+          processing_status: row.processing_status,
+          error_code: row.error_code,
+          error_message: row.error_message,
+        });
+      if (!error) return "inserted";
+      if (error.code === "23505") return "duplicate";
+      throw new Error(`M3 data page insert failed: ${error.message}`);
+    },
+    async listByTransactionId(transactionId) {
+      const adminClient = createServiceRoleClient(env);
+      const { data, error } = await adminClient
+        .from("abdm_m3_data_pages")
+        .select("*")
+        .eq("transaction_id", transactionId)
+        .order("page_number", { ascending: true });
+      if (error) {
+        throw new Error(`M3 data page lookup failed: ${error.message}`);
+      }
+      return (data ?? []).map((row) => mapRow(row as Record<string, unknown>));
+    },
+    async markProcessing(transactionId, pageNumber) {
+      const adminClient = createServiceRoleClient(env);
+      const { error } = await adminClient
+        .from("abdm_m3_data_pages")
+        .update({ status: M3_PAGE_STATUS.PROCESSING, processing_status: "processing" })
+        .eq("transaction_id", transactionId)
+        .eq("page_number", pageNumber);
+      if (error) {
+        throw new Error(`M3 data page markProcessing failed: ${error.message}`);
+      }
+    },
+    async markProcessed(transactionId, pageNumber, status, errorCode, errorMessage) {
+      const adminClient = createServiceRoleClient(env);
+      const { error } = await adminClient
+        .from("abdm_m3_data_pages")
+        .update({
+          status,
+          processing_status: status === M3_PAGE_STATUS.PROCESSED
+            ? "processed"
+            : "failed_safe",
+          error_code: errorCode ?? null,
+          error_message: errorMessage ?? null,
+        })
+        .eq("transaction_id", transactionId)
+        .eq("page_number", pageNumber);
+      if (error) {
+        throw new Error(`M3 data page markProcessed failed: ${error.message}`);
+      }
+    },
+  };
+}
+
+function m3FhirRecordStoreFor(
+  env: Record<string, string | undefined>,
+): M3FhirRecordStore {
+  return {
+    async insertImported(record: M3ImportedFhirRecord) {
+      const adminClient = createServiceRoleClient(env);
+      const { error } = await adminClient
+        .from("abdm_m3_imported_records")
+        .upsert({
+          hospital_id: record.hospital_id,
+          patient_id: record.patient_id,
+          abha_id: record.abha_id,
+          consent_id: record.consent_id,
+          transaction_id: record.transaction_id,
+          care_context_reference: record.care_context_reference,
+          hi_type: record.hi_type,
+          resource_type: record.resource_type,
+          record_id: record.record_id,
+          source_hip_id: record.source_hip_id,
+          fhir_resource: record.fhir_resource,
+          received_at: record.received_at,
+          checksum: record.checksum,
+          verification_status: record.verification_status,
+        }, {
+          onConflict:
+            "transaction_id,care_context_reference,record_id",
+        });
+      if (!error) return "inserted";
+      if (error.code === "23505") return "duplicate";
+      throw new Error(`M3 imported FHIR record insert failed: ${error.message}`);
+    },
+  };
+}
+
+/** Production M3 decryptor stays STOPPED (no official JS vector exists). */
+function m3DecryptorFor(
+  _env: Record<string, string | undefined>,
+) {
+  return unavailableM3Decryptor();
+}
+
+/** Production M3 keypair provider stays STOPPED (same crypto blocker). */
+function m3KeypairProviderFor(
+  _env: Record<string, string | undefined>,
+) {
+  return unavailableM3KeypairProvider();
+}
+
+/**
+ * Production M3 private-key store REFUSES to persist plaintext private keys.
+ * No server-side protected mechanism is configured in this repository.
+ */
+function m3PrivateKeyStoreFor(
+  _env: Record<string, string | undefined>,
+) {
+  return unavailableM3PrivateKeyStore();
+}
+
 /**
  * Production health-information encryptor. Live encryption stays STOPPED:
  * the official NHA wrapper/fidelius reference uses BouncyCastle `ECDH` on
@@ -793,5 +1199,17 @@ if (import.meta.main) {
       // set ABDM_M2_DATA_TRANSFER_ENABLED=true only after those exist.
       m2DataTransferEnabled:
         (Deno.env.get("ABDM_M2_DATA_TRANSFER_ENABLED") ?? "false") === "true",
+      m3ConsentRequestStore: m3ConsentRequestStoreFor(Deno.env.toObject()),
+      m3ConsentStore: m3ConsentStoreFor(Deno.env.toObject()),
+      m3HiRequestStore: m3HiRequestStoreFor(Deno.env.toObject()),
+      m3DataPageStore: m3DataPageStoreFor(Deno.env.toObject()),
+      m3FhirRecordStore: m3FhirRecordStoreFor(Deno.env.toObject()),
+      m3KeypairProvider: m3KeypairProviderFor(Deno.env.toObject()),
+      m3PrivateKeyStore: m3PrivateKeyStoreFor(Deno.env.toObject()),
+      m3Decryptor: m3DecryptorFor(Deno.env.toObject()),
+      // Live M3 data import stays gated until HIU linkage and verified
+      // decryption are both available. Default FALSE.
+      m3DataImportEnabled:
+        (Deno.env.get("ABDM_M3_DATA_IMPORT_ENABLED") ?? "false") === "true",
     }));
 }

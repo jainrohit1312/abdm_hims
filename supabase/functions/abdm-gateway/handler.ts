@@ -17,6 +17,7 @@ import {
   extractV3BridgeId,
   extractV3BridgeServiceById,
   type FetchImpl,
+  freshV3RequestId,
   FUNCTION_NAME,
   type GatewayConfig,
   type GatewayHttpResponse,
@@ -34,6 +35,7 @@ import {
   isM1ActionName,
   isM1ContractConfigured,
   isM1RoleAllowed,
+  isM3ActionName,
   isReservedSubpath,
   isValidAadhaar,
   isValidAbhaAddress,
@@ -41,6 +43,7 @@ import {
   isValidIndianMobile,
   isValidM1Otp,
   type M1Action,
+  type M3Action,
   maskClientId,
   MAX_BODY_BYTES,
   normalizeAbhaNumber,
@@ -65,6 +68,7 @@ import {
   v3FailureCode,
   v3FailureMessage,
   v3GatewayRequest,
+  v3GatewayPost,
   v3GetBridgeServiceById,
   v3GetBridgeServices,
   type V3Stage,
@@ -95,6 +99,36 @@ import {
   V3_M2_HIP_ID_HEADER,
 } from "./m2.ts";
 import { executeDueM2DataTransferJobs } from "./m2_transfer.ts";
+import {
+  type M3CallbackType,
+  m3CallbackTypeForSubpath,
+  isM3DataPushSubpath,
+  M3_ERROR_CODES,
+  M3ProcessingError,
+  processM3Callback,
+  processM3DataPush,
+  submitM3ConsentRequest,
+  fetchM3ConsentStatus,
+  requestM3HealthInformation,
+  validateM3ConsentRequestInput,
+  type M3ConsentRequestInput,
+  type M3ConsentRequestRow,
+  type M3ConsentRequestStore,
+  type M3ConsentStore,
+  type M3HiRequestStore,
+  type M3DataPageStore,
+  type M3FhirRecordStore,
+  type M3KeypairProvider,
+  type M3PrivateKeyStore,
+  type M3Decryptor,
+  type M3ProcessRuntime,
+  type M3SubmitResult,
+  type M3ConsentStatusResult,
+  type M3HiRequestResult,
+  type M3ProcessResult,
+  type M3OutboundCall,
+  V3_M3_HIU_ID_HEADER,
+} from "./m3.ts";
 
 // Supabase Edge Runtime exposes `waitUntil` so async callback persistence can
 // finish after the response is sent. Plain Deno (local tests) does not have it.
@@ -235,6 +269,26 @@ export interface RequestDeps {
   m2FhirSourceStore?: M2FhirSourceStore;
   /** M2 HIP: true only when live health-information transfer may run. */
   m2DataTransferEnabled?: boolean;
+  /** M3 HIU: outgoing consent-request persistence. */
+  m3ConsentRequestStore?: M3ConsentRequestStore;
+  /** M3 HIU: consent artefact persistence (reuses consent_artefacts). */
+  m3ConsentStore?: M3ConsentStore;
+  /** M3 HIU: health-information request persistence. */
+  m3HiRequestStore?: M3HiRequestStore;
+  /** M3 HIU: encrypted data-page persistence. */
+  m3DataPageStore?: M3DataPageStore;
+  /** M3 HIU: imported FHIR record persistence. */
+  m3FhirRecordStore?: M3FhirRecordStore;
+  /** M3 HIU: ephemeral HIU keypair generation (production unavailable). */
+  m3KeypairProvider?: M3KeypairProvider | null;
+  /** M3 HIU: secure transaction-bound private-key store (production refuses). */
+  m3PrivateKeyStore?: M3PrivateKeyStore | null;
+  /** M3 HIU: injectable decryption (production returns UNAVAILABLE). */
+  m3Decryptor?: M3Decryptor | null;
+  /** M3 HIU: true only when live data import may run (default false). */
+  m3DataImportEnabled?: boolean;
+  /** M3 HIU: per-user rate limiter for staff actions. */
+  m3RateLimiter?: SlidingWindowRateLimiter;
 }
 
 // Default worker-scoped ABDM token cache (memory only, never returned).
@@ -262,11 +316,35 @@ const defaultM1RateLimiter = new SlidingWindowRateLimiter(60_000, 20);
 // still enforced inside the handler itself.
 const defaultV3DiagnosticRateLimiter = new SlidingWindowRateLimiter(60_000, 5);
 
+// M3 staff actions (consent request, status, health-information request) are
+// throttled per user so repeated clicks cannot mint unlimited ABDM requests.
+const defaultM3RateLimiter = new SlidingWindowRateLimiter(60_000, 10);
+
 /**
  * Structured sanitized error returned by M1 handlers. The `code` is preserved
  * in the JSON response so Flutter can map it to the ABDM_M1_* error contract.
  */
 class M1StructuredError extends HttpError {
+  readonly code: string;
+  readonly supportReference?: string;
+
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    supportReference?: string,
+  ) {
+    super(status, message);
+    this.code = code;
+    this.supportReference = supportReference;
+  }
+}
+
+/**
+ * Structured sanitized error returned by M3 handlers. The `code` is preserved
+ * in the JSON response so Flutter can map it to the ABDM_M3_* error contract.
+ */
+class M3StructuredError extends HttpError {
   readonly code: string;
   readonly supportReference?: string;
 
@@ -355,7 +433,7 @@ export async function handleRequest(
     const message = redactSensitiveText(rawMessage);
     const status = error instanceof HttpError ? error.status : 500;
     console.error(`abdm-gateway error (status ${status}): ${message}`);
-    if (error instanceof M1StructuredError) {
+    if (error instanceof M1StructuredError || error instanceof M3StructuredError) {
       return jsonResponse(
         {
           error: message,
@@ -393,6 +471,12 @@ async function handleInternalAction(
   // require a hospital context. Session / Bridge / Services stay owner-only.
   if (isM1ActionName(action)) {
     return handleM1Action(action, user, body, deps, req, config);
+  }
+
+  // M3 (HIU) staff operations use their own role policy and a hospital
+  // context. They must never fall through to the owner-only admin gate.
+  if (isM3ActionName(action)) {
+    return handleM3Action(action, user, body, deps, config);
   }
 
   // Session / Bridge / Services are owner-only (hospital admin / super_admin).
@@ -780,6 +864,235 @@ async function handleM1Action(
     501,
     "M1 outbound call is not implemented: the official request method, body and headers for this operation must be built from the client-supplied contract.",
   );
+}
+
+// ----------------------------------------------------------------------------
+// M3 (HIU) protected actions — consent request, status and health-information
+// ----------------------------------------------------------------------------
+
+function requireM3Access(user: AuthenticatedUser, config: GatewayConfig): void {
+  if (!user.hospitalId) {
+    throw new M3StructuredError(
+      403,
+      "ABDM_M3_FORBIDDEN",
+      "No hospital is assigned to your account. M3 HIU operations require a hospital context.",
+    );
+  }
+  if (!isM1RoleAllowed(user.role, config.m3AllowedRoles)) {
+    throw new M3StructuredError(
+      403,
+      "ABDM_M3_FORBIDDEN",
+      "Your role is not allowed to perform M3 HIU operations.",
+    );
+  }
+}
+
+function m3InputError(message: string, supportReference?: string): M3StructuredError {
+  return new M3StructuredError(
+    400,
+    M3_ERROR_CODES.INVALID_REQUEST,
+    message,
+    supportReference,
+  );
+}
+
+function m3ResultResponse(result: M3SubmitResult | M3ConsentStatusResult | M3HiRequestResult): Response {
+  if (!result.ok) {
+    return jsonResponse(
+      { error: result.error ?? "M3 operation failed", code: result.code },
+      result.status,
+    );
+  }
+  return jsonResponse({
+    requestId: result.requestId,
+    status: result.requestStatus,
+    ...("consentRequestId" in result && result.consentRequestId !== undefined
+      ? { consentRequestId: result.consentRequestId }
+      : {}),
+    ...("transactionId" in result && result.transactionId !== undefined
+      ? { transactionId: result.transactionId }
+      : {}),
+  });
+}
+
+/** Builds the M3 runtime from the injected stores (service-role backed). */
+function m3RuntimeFor(
+  deps: RequestDeps,
+  config: GatewayConfig,
+  hospital: M2Hospital,
+): M3ProcessRuntime {
+  const stores = {
+    m3ConsentRequestStore: deps.m3ConsentRequestStore,
+    m3ConsentStore: deps.m3ConsentStore,
+    m3HiRequestStore: deps.m3HiRequestStore,
+    m3DataPageStore: deps.m3DataPageStore,
+    m3FhirRecordStore: deps.m3FhirRecordStore,
+  };
+  if (
+    !stores.m3ConsentRequestStore || !stores.m3ConsentStore ||
+    !stores.m3HiRequestStore || !stores.m3DataPageStore || !stores.m3FhirRecordStore
+  ) {
+    throw new M3StructuredError(
+      500,
+      M3_ERROR_CODES.INTERNAL,
+      "M3 HIU stores are not configured",
+    );
+  }
+  return {
+    fetchImpl: deps.fetchImpl,
+    config,
+    v3TokenCache: deps.v3TokenCache ?? defaultV3TokenCache,
+    hospital,
+    consentRequestStore: stores.m3ConsentRequestStore,
+    consentStore: stores.m3ConsentStore,
+    hiRequestStore: stores.m3HiRequestStore,
+    dataPageStore: stores.m3DataPageStore,
+    fhirRecordStore: stores.m3FhirRecordStore,
+    keypairProvider: deps.m3KeypairProvider ?? null,
+    privateKeyStore: deps.m3PrivateKeyStore ?? null,
+    decryptor: deps.m3Decryptor ?? null,
+    dataImportEnabled: deps.m3DataImportEnabled === true,
+  };
+}
+
+async function m3HospitalFor(
+  deps: RequestDeps,
+  hospitalId: string,
+): Promise<M2Hospital> {
+  const store = deps.hospitalAbdmSettingsStore;
+  if (!store) {
+    throw new M3StructuredError(
+      500,
+      M3_ERROR_CODES.INTERNAL,
+      "Hospital ABDM settings store is not configured",
+    );
+  }
+  const settings = await store.getByHospitalId(hospitalId);
+  if (!settings || !settings.facilityId) {
+    throw new M3StructuredError(
+      501,
+      M3_ERROR_CODES.HIU_LINKAGE_MISSING,
+      "No linked HIU facility/service is configured for this hospital yet.",
+    );
+  }
+  return {
+    hospitalId,
+    facilityId: settings.facilityId,
+    facilityName: settings.facilityName || settings.facilityId,
+    hipName: settings.hipName || "",
+  };
+}
+
+async function handleM3Action(
+  action: M3Action,
+  user: AuthenticatedUser,
+  body: Record<string, unknown>,
+  deps: RequestDeps,
+  config: GatewayConfig,
+): Promise<Response> {
+  requireM3Access(user, config);
+  const limiter = deps.m3RateLimiter ?? defaultM3RateLimiter;
+  if (!limiter.allow(`${user.userId}:${action}`)) {
+    throw new M3StructuredError(
+      429,
+      M3_ERROR_CODES.RATE_LIMITED,
+      "Too many M3 HIU requests. Please wait a moment and try again.",
+    );
+  }
+
+  const requestId = `req_${freshV3RequestId()}`;
+  const payload = m1Payload(body);
+  const hospital = await m3HospitalFor(deps, user.hospitalId!);
+
+  switch (action) {
+    case "m3ConsentRequest": {
+      const input = m3ConsentInputFrom(payload, user, hospital);
+      const validation = validateM3ConsentRequestInput(
+        input,
+        config.m1AbhaAddressSuffixes,
+      );
+      if (!validation.ok) {
+        throw m3InputError(validation.errors.join("; "), requestId);
+      }
+      const runtime = m3RuntimeFor(deps, config, hospital);
+      const result = await submitM3ConsentRequest(runtime, input);
+      return m3ResultResponse(result);
+    }
+    case "m3ConsentStatus": {
+      const lookup = m1Text(payload["requestId"] ?? payload["consentRequestId"]);
+      if (!lookup) {
+        throw m3InputError("requestId is required", requestId);
+      }
+      const runtime = m3RuntimeFor(deps, config, hospital);
+      const result = await fetchM3ConsentStatus(runtime, {
+        hospitalId: user.hospitalId!,
+        requestId: lookup,
+      });
+      return m3ResultResponse(result);
+    }
+    case "m3HealthInformationRequest": {
+      const consentId = m1Text(payload["consentId"]);
+      if (!consentId) {
+        throw m3InputError("consentId is required", requestId);
+      }
+      const runtime = m3RuntimeFor(deps, config, hospital);
+      const result = await requestM3HealthInformation(runtime, {
+        hospitalId: user.hospitalId!,
+        consentId,
+      });
+      return m3ResultResponse(result);
+    }
+  }
+}
+
+function m3ConsentInputFrom(
+  payload: Record<string, unknown>,
+  user: AuthenticatedUser,
+  hospital: M2Hospital,
+): M3ConsentRequestInput {
+  const abhaAddress = m1Text(payload["abhaAddress"] ?? payload["abhaId"]);
+  const dateFrom = m1Text(payload["dateFrom"] ?? payload["dataFrom"]);
+  const dateTo = m1Text(payload["dateTo"] ?? payload["dataTo"]);
+  const hiTypes = Array.isArray(payload["hiTypes"])
+    ? (payload["hiTypes"] as unknown[]).map((v) => String(v))
+    : [];
+  const careContexts = Array.isArray(payload["careContexts"])
+    ? (payload["careContexts"] as unknown[]).map((entry) => {
+      const record = m1Record(entry);
+      return {
+        patientReference: m1Text(record["patientReference"]),
+        careContextReference: m1Text(record["careContextReference"]),
+      };
+    })
+    : [];
+  const frequency = m1Record(payload["frequency"]);
+  return {
+    hospitalId: user.hospitalId!,
+    patientId: m1Text(payload["patientId"]),
+    abhaAddress,
+    purposeText: m1Text(payload["purpose"] ?? payload["purposeText"]),
+    purposeCode: m1Text(payload["purposeCode"]) || "CAREMGT",
+    purposeRefUri: m1Text(payload["purposeRefUri"]) ||
+      "https://abdm.gov.in/purposes/care-mgmt",
+    hiTypes,
+    dateFrom,
+    dateTo,
+    dataEraseAt: m1Text(payload["dataEraseAt"]) || dateTo,
+    accessMode: m1Text(payload["accessMode"]) || "VIEW",
+    frequencyUnit: m1Text(frequency["unit"]) || "HOUR",
+    frequencyValue: Number.isInteger(frequency["value"])
+      ? Number(frequency["value"])
+      : 1,
+    frequencyRepeats: Number.isInteger(frequency["repeats"])
+      ? Number(frequency["repeats"])
+      : 0,
+    hipId: m1Text(payload["hipId"]) || null,
+    careContexts,
+    requesterName: hospital.facilityName || hospital.facilityId,
+    requesterIdentifierType: "REGNO",
+    requesterIdentifierValue: hospital.facilityId,
+    requesterIdentifierSystem: "https://hfr.abdm.gov.in",
+  };
 }
 
 async function handleSession(
@@ -2337,6 +2650,17 @@ async function handleCallback(
     return handleM2Callback(req, body, subpath, m2Type, deps);
   }
 
+  // Official V3 M3 HIU callbacks (ABDM gateway -> HIU bridge).
+  const m3Type = m3CallbackTypeForSubpath(subpath);
+  if (m3Type) {
+    return handleM3Callback(req, body, subpath, m3Type, deps);
+  }
+
+  // HIU encrypted data push (HIP -> HIU dataPushUrl).
+  if (isM3DataPushSubpath(subpath)) {
+    return handleM3DataPush(req, body, deps);
+  }
+
   const requestId = readHeader(
     req.headers,
     "request-id",
@@ -2659,6 +2983,174 @@ async function handleM2Callback(
   }
 
   return jsonResponse({}, result.ackStatus);
+}
+
+// ----------------------------------------------------------------------------
+// M3 HIU callback dispatch (official V3 inbound paths) + encrypted data push
+// ----------------------------------------------------------------------------
+
+function m3ErrorResponse(
+  status: number,
+  code: string,
+  message: string,
+): Response {
+  return jsonResponse({ error: { code, message } }, status);
+}
+
+async function sendM3Outbound(
+  deps: RequestDeps,
+  config: GatewayConfig,
+  hospital: M2Hospital,
+  outbound: M3OutboundCall,
+): Promise<void> {
+  const outboundPromise = (async () => {
+    try {
+      const response = await v3GatewayPost(
+        deps.fetchImpl,
+        config,
+        deps.v3TokenCache ?? defaultV3TokenCache,
+        V3_M3_HIU_ID_HEADER,
+        config.hiuId,
+        outbound.path,
+        outbound.body,
+      );
+      if (!response.ok) {
+        console.log(
+          `abdm-gateway m3 outbound ${outbound.path} status=${response.status}`,
+        );
+      }
+    } catch (error) {
+      const message = redactSensitiveText(
+        error instanceof Error ? error.message : String(error),
+      );
+      console.error(`abdm-gateway m3 outbound ${outbound.path} error: ${message}`);
+    }
+  })();
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+    EdgeRuntime.waitUntil(outboundPromise);
+  } else {
+    await outboundPromise;
+  }
+}
+
+async function handleM3Callback(
+  req: Request,
+  body: Record<string, unknown>,
+  subpath: string,
+  type: M3CallbackType,
+  deps: RequestDeps,
+): Promise<Response> {
+  const requestId = m2RequestId(req, body);
+  const hiuId = readHeader(
+    req.headers,
+    V3_M3_HIU_ID_HEADER.toLowerCase(),
+    V3_M3_HIU_ID_HEADER,
+  ) ?? "";
+
+  // Resolve X-HIU-ID to a hospital row server-side. The header is a lookup key
+  // (HFR facility id), never a trusted hospital id by itself.
+  let hospital: M2Hospital | null = null;
+  if (deps.m2HospitalStore && hiuId) {
+    hospital = await deps.m2HospitalStore.findByHipId(hiuId);
+  }
+  if (!hospital) {
+    return m3ErrorResponse(
+      404,
+      M3_ERROR_CODES.HIU_NOT_FOUND,
+      "X-HIU-ID did not resolve to a hospital",
+    );
+  }
+
+  const config = requireConfig(deps.env);
+  let runtime: M3ProcessRuntime;
+  try {
+    runtime = m3RuntimeFor(deps, config, hospital);
+  } catch (error) {
+    if (error instanceof M3StructuredError) {
+      return m3ErrorResponse(error.status, error.code, error.message);
+    }
+    throw error;
+  }
+
+  let result: M3ProcessResult;
+  try {
+    result = await processM3Callback(type, body, runtime);
+  } catch (error) {
+    if (error instanceof M3ProcessingError) {
+      return m3ErrorResponse(error.status, error.code, error.message);
+    }
+    const message = redactSensitiveText(
+      error instanceof Error ? error.message : String(error),
+    );
+    console.error(`abdm-gateway m3 ${type} error: ${message}`);
+    return m3ErrorResponse(500, M3_ERROR_CODES.INTERNAL, "Internal M3 processing error");
+  }
+
+  if (result.outbound) {
+    await sendM3Outbound(deps, config, hospital, result.outbound);
+  }
+
+  return jsonResponse({}, result.ackStatus);
+}
+
+async function handleM3DataPush(
+  req: Request,
+  body: Record<string, unknown>,
+  deps: RequestDeps,
+): Promise<Response> {
+  const transactionId = m2TransactionId(req, body);
+  const hiRequestStore = deps.m3HiRequestStore;
+  if (!hiRequestStore) {
+    return m3ErrorResponse(500, M3_ERROR_CODES.INTERNAL, "M3 HIU stores are not configured");
+  }
+  if (!transactionId) {
+    return m3ErrorResponse(400, M3_ERROR_CODES.TRANSACTION_UNKNOWN, "transactionId is required");
+  }
+  const requestRow = await hiRequestStore.findByTransactionId(transactionId);
+  if (!requestRow || !requestRow.hospital_id) {
+    return m3ErrorResponse(400, M3_ERROR_CODES.TRANSACTION_UNKNOWN, "Transaction id not found");
+  }
+
+  let hospital: M2Hospital;
+  try {
+    hospital = await m3HospitalFor(deps, requestRow.hospital_id);
+  } catch (error) {
+    if (error instanceof M3StructuredError) {
+      return m3ErrorResponse(error.status, error.code, error.message);
+    }
+    throw error;
+  }
+
+  const config = requireConfig(deps.env);
+  let runtime: M3ProcessRuntime;
+  try {
+    runtime = m3RuntimeFor(deps, config, hospital);
+  } catch (error) {
+    if (error instanceof M3StructuredError) {
+      return m3ErrorResponse(error.status, error.code, error.message);
+    }
+    throw error;
+  }
+
+  let result;
+  try {
+    result = await processM3DataPush(body, runtime);
+  } catch (error) {
+    if (error instanceof M3ProcessingError) {
+      return m3ErrorResponse(error.status, error.code, error.message);
+    }
+    const message = redactSensitiveText(
+      error instanceof Error ? error.message : String(error),
+    );
+    console.error(`abdm-gateway m3 data-push error: ${message}`);
+    return m3ErrorResponse(500, M3_ERROR_CODES.INTERNAL, "Internal M3 data-push error");
+  }
+
+  if (result.outbound) {
+    await sendM3Outbound(deps, config, hospital, result.outbound);
+  }
+
+  return jsonResponse(result.ackBody, result.ackStatus);
 }
 
 // Re-exported for the production wiring in index.ts.
