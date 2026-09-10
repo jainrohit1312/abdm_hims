@@ -108,7 +108,9 @@ class DiagnosticReceiptService {
                 color: PdfColors.white,
                 fontSize: 9,
               ),
-              headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
+              headerDecoration: const pw.BoxDecoration(
+                color: PdfColors.blue700,
+              ),
               cellStyle: PDFFontHelper.bodyStyle(fontSize: 9),
               cellPadding: const pw.EdgeInsets.symmetric(
                 horizontal: 5,
@@ -143,7 +145,9 @@ class DiagnosticReceiptService {
                 color: PdfColors.white,
                 fontSize: 9,
               ),
-              headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
+              headerDecoration: const pw.BoxDecoration(
+                color: PdfColors.blue700,
+              ),
               cellStyle: PDFFontHelper.bodyStyle(fontSize: 9),
               cellPadding: const pw.EdgeInsets.symmetric(
                 horizontal: 5,
@@ -161,10 +165,7 @@ class DiagnosticReceiptService {
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.end,
                 children: [
-                  PDFFontHelper.text(
-                    'Authorized Signature',
-                    fontSize: 10,
-                  ),
+                  PDFFontHelper.text('Authorized Signature', fontSize: 10),
                   pw.SizedBox(height: 8),
                   PDFFontHelper.text(
                     'Keep this receipt for test collection & reports.',

@@ -155,7 +155,11 @@ class ComplianceCategoryChip extends StatelessWidget {
           const SizedBox(width: 4),
           Text(
             category.label,
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
           ),
         ],
       ),

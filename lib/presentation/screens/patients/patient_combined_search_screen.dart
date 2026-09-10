@@ -76,7 +76,7 @@ class _PatientCombinedSearchScreenState
                 fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
                   alpha: 0.3,
                 ),
-                              ),
+              ),
               onChanged: _onSearchChanged,
             ),
           ),

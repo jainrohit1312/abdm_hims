@@ -150,11 +150,26 @@ class _ComplianceDashboardScreenState
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
           child: Row(
             children: [
-              _statTile(Icons.folder_outlined, '$total', 'Records', Colors.blue),
+              _statTile(
+                Icons.folder_outlined,
+                '$total',
+                'Records',
+                Colors.blue,
+              ),
               const SizedBox(width: 8),
-              _statTile(Icons.description_outlined, '$documents', 'Files', Colors.indigo),
+              _statTile(
+                Icons.description_outlined,
+                '$documents',
+                'Files',
+                Colors.indigo,
+              ),
               const SizedBox(width: 8),
-              _statTile(Icons.timer_outlined, '$expiring', 'Expiring', Colors.orange),
+              _statTile(
+                Icons.timer_outlined,
+                '$expiring',
+                'Expiring',
+                Colors.orange,
+              ),
               const SizedBox(width: 8),
               _statTile(Icons.error_outline, '$expired', 'Expired', Colors.red),
             ],
@@ -213,7 +228,7 @@ class _ComplianceDashboardScreenState
                       },
                     ),
               isDense: true,
-                          ),
+            ),
           ),
           const SizedBox(height: 8),
           SingleChildScrollView(
@@ -275,17 +290,32 @@ class _ComplianceDashboardScreenState
                     }
                   }),
                   itemBuilder: (context) => [
-                    const PopupMenuItem(value: 'expiry', child: Text('Sort: Expiry date')),
-                    const PopupMenuItem(value: 'name', child: Text('Sort: Name')),
-                    const PopupMenuItem(value: 'created', child: Text('Sort: Date uploaded')),
+                    const PopupMenuItem(
+                      value: 'expiry',
+                      child: Text('Sort: Expiry date'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'name',
+                      child: Text('Sort: Name'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'created',
+                      child: Text('Sort: Date uploaded'),
+                    ),
                   ],
                   child: Chip(
                     avatar: Icon(
-                      _sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
+                      _sortAscending
+                          ? Icons.arrow_upward
+                          : Icons.arrow_downward,
                       size: 16,
                     ),
                     label: Text(
-                      'Sort: ${_sortBy == 'name' ? 'Name' : _sortBy == 'created' ? 'Uploaded' : 'Expiry'}',
+                      'Sort: ${_sortBy == 'name'
+                          ? 'Name'
+                          : _sortBy == 'created'
+                          ? 'Uploaded'
+                          : 'Expiry'}',
                       style: const TextStyle(fontSize: 12),
                     ),
                   ),
@@ -323,7 +353,8 @@ class _ComplianceDashboardScreenState
     if (records.isEmpty) {
       return const ComplianceEmptyState(
         icon: Icons.folder_off_outlined,
-        message: 'No compliance documents yet.\n'
+        message:
+            'No compliance documents yet.\n'
             'Add your first license, NOC or contract to start tracking renewals.',
       );
     }
@@ -385,9 +416,9 @@ class _ComplianceDashboardScreenState
       int result;
       switch (_sortBy) {
         case 'name':
-          result = a.documentName
-              .toLowerCase()
-              .compareTo(b.documentName.toLowerCase());
+          result = a.documentName.toLowerCase().compareTo(
+            b.documentName.toLowerCase(),
+          );
           break;
         case 'created':
           result = (b.createdAt ?? DateTime(2000)).compareTo(
@@ -478,14 +509,21 @@ class _ComplianceDashboardScreenState
           children: [
             Row(
               children: [
-                Icon(complianceCategoryIcon(record.category), size: 16, color: color),
+                Icon(
+                  complianceCategoryIcon(record.category),
+                  size: 16,
+                  color: color,
+                ),
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
                     record.documentName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],
@@ -495,7 +533,11 @@ class _ComplianceDashboardScreenState
               daysLeftLabel(record.daysToExpiry),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: 10,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
@@ -551,7 +593,11 @@ class _ComplianceDashboardScreenState
                               ),
                             ),
                             if (record.isFavorite)
-                              const Icon(Icons.star, size: 16, color: Colors.amber),
+                              const Icon(
+                                Icons.star,
+                                size: 16,
+                                color: Colors.amber,
+                              ),
                           ],
                         ),
                         const SizedBox(height: 2),
@@ -591,7 +637,11 @@ class _ComplianceDashboardScreenState
                   const SizedBox(width: 4),
                   Text(
                     record.displayExpiry,
-                    style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: color,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   if (record.daysToExpiry != null) ...[
                     const SizedBox(width: 6),

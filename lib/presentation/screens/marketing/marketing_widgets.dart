@@ -73,7 +73,11 @@ class GeoVerifiedChip extends StatelessWidget {
           const SizedBox(width: 4),
           Text(
             verified ? 'Geo Verified' : 'Not Verified',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
           ),
         ],
       ),
@@ -146,11 +150,7 @@ class MarketingEmptyState extends StatelessWidget {
 
 /// Renders a compact metric label/value pair.
 class MarketingMetric extends StatelessWidget {
-  const MarketingMetric({
-    super.key,
-    required this.label,
-    required this.value,
-  });
+  const MarketingMetric({super.key, required this.label, required this.value});
 
   final String label;
   final String value;

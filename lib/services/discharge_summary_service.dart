@@ -77,7 +77,8 @@ class DischargeSummaryService {
                     fontWeight: pw.FontWeight.bold,
                     color: PdfColors.blue900,
                   ),
-                  if (hospitalAddress != null && hospitalAddress.isNotEmpty) ...[
+                  if (hospitalAddress != null &&
+                      hospitalAddress.isNotEmpty) ...[
                     pw.SizedBox(height: 2),
                     PDFFontHelper.text(
                       hospitalAddress,
@@ -164,10 +165,7 @@ class DischargeSummaryService {
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    PDFFontHelper.text(
-                      'Generated on: ${_now()}',
-                      fontSize: 9,
-                    ),
+                    PDFFontHelper.text('Generated on: ${_now()}', fontSize: 9),
                     pw.SizedBox(height: 4),
                     PDFFontHelper.text(
                       'This is a computer-generated clinical document for '
@@ -191,10 +189,7 @@ class DischargeSummaryService {
                       fontSize: 10,
                       fontWeight: pw.FontWeight.bold,
                     ),
-                    PDFFontHelper.text(
-                      'Consultant In-Charge',
-                      fontSize: 8,
-                    ),
+                    PDFFontHelper.text('Consultant In-Charge', fontSize: 8),
                   ],
                 ),
               ],
@@ -254,11 +249,7 @@ class DischargeSummaryService {
       decoration: pw.BoxDecoration(
         border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
       ),
-      child: PDFFontHelper.text(
-        text,
-        fontSize: 10,
-        lineSpacing: 2,
-      ),
+      child: PDFFontHelper.text(text, fontSize: 10, lineSpacing: 2),
     );
   }
 

@@ -77,7 +77,9 @@ class AppConfig {
   //   flutter build web --dart-define=ABDM_REAL_MODE=true
   // ===========================================================================
   static const String abdmEnvironment = 'sandbox'; // or 'production'
-  static const bool abdmRealModeEnabled = bool.fromEnvironment('ABDM_REAL_MODE');
+  static const bool abdmRealModeEnabled = bool.fromEnvironment(
+    'ABDM_REAL_MODE',
+  );
 
   /// True when the app is allowed to call the secure ABDM backend.
   static bool get isAbdmConfigured => abdmRealModeEnabled;

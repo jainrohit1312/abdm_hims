@@ -78,9 +78,11 @@ class SupabaseMarketingVisitRepository implements MarketingVisitRepository {
     final row = await DatabaseService.fetchWithRetry(
       () => _client
           .from(ApiConstants.marketingVisitsTable)
-          .insert(_visitPayload(visit, hospitalId: hospitalId)
-            ..['created_at'] = now
-            ..['updated_at'] = now)
+          .insert(
+            _visitPayload(visit, hospitalId: hospitalId)
+              ..['created_at'] = now
+              ..['updated_at'] = now,
+          )
           .select()
           .single(),
     );

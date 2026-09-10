@@ -54,7 +54,5 @@ class EmployeeRepositoryException implements Exception {
 /// constraint (should be extremely rare with the database sequence).
 class EmployeeCodeConflictException extends EmployeeRepositoryException {
   const EmployeeCodeConflictException()
-      : super(
-          'Could not allocate a unique employee code. Please try again.',
-        );
+    : super('Could not allocate a unique employee code. Please try again.');
 }

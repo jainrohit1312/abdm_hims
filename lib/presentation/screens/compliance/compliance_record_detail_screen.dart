@@ -72,7 +72,8 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
           icon: Icons.error_outline,
           message: 'Failed to load record: $error',
           actionLabel: 'Retry',
-          onAction: () => ref.invalidate(complianceRecordDetailProvider(recordId)),
+          onAction: () =>
+              ref.invalidate(complianceRecordDetailProvider(recordId)),
         ),
       ),
     );
@@ -86,7 +87,9 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
     String hospitalId,
   ) {
     final status = record.derivedStatus;
-    final canManage = canManageCompliance(ref.watch(authStateProvider).userRole);
+    final canManage = canManageCompliance(
+      ref.watch(authStateProvider).userRole,
+    );
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -95,7 +98,14 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
         const SizedBox(height: 12),
         _buildInfoCard(context, record),
         const SizedBox(height: 12),
-        _buildDocumentsSection(context, ref, record, documentsAsync, hospitalId, canManage),
+        _buildDocumentsSection(
+          context,
+          ref,
+          record,
+          documentsAsync,
+          hospitalId,
+          canManage,
+        ),
         const SizedBox(height: 12),
         _buildReminderSection(context, ref, hospitalId),
         const SizedBox(height: 12),
@@ -105,7 +115,10 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
           OutlinedButton.icon(
             onPressed: () => _confirmDeleteRecord(context, ref, record),
             icon: const Icon(Icons.delete_outline, color: Colors.red),
-            label: const Text('Delete Record', style: TextStyle(color: Colors.red)),
+            label: const Text(
+              'Delete Record',
+              style: TextStyle(color: Colors.red),
+            ),
           ),
         ],
         const SizedBox(height: 24),
@@ -152,8 +165,8 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
                       Text(
                         record.documentName,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(record.documentType),
@@ -172,7 +185,9 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
                     await ref
                         .read(complianceServiceProvider)
                         .setFavorite(record.id, !record.isFavorite);
-                    await ref.read(complianceServiceProvider).logAudit(
+                    await ref
+                        .read(complianceServiceProvider)
+                        .logAudit(
                           hospitalId: record.hospitalId,
                           recordId: record.id,
                           userId: await ref
@@ -248,7 +263,11 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
 
   Widget _buildInfoCard(BuildContext context, ComplianceRecord record) {
     final rows = <(IconData, String, String)>[
-      (Icons.account_balance_outlined, 'Authority', record.authorityName ?? '—'),
+      (
+        Icons.account_balance_outlined,
+        'Authority',
+        record.authorityName ?? '—',
+      ),
       (Icons.tag_outlined, 'Number', record.documentNumber ?? '—'),
       (Icons.event_available_outlined, 'Issue Date', record.displayIssue),
       (Icons.event_busy_outlined, 'Expiry Date', record.displayExpiry),
@@ -278,7 +297,11 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
                   children: [
-                    Icon(row.$1, size: 18, color: Theme.of(context).colorScheme.primary),
+                    Icon(
+                      row.$1,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                     const SizedBox(width: 8),
                     SizedBox(
                       width: 90,
@@ -323,13 +346,14 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
                 Expanded(
                   child: Text(
                     'Documents & Versions',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 FilledButton.tonalIcon(
-                  onPressed: () => _showUploadSheet(context, ref, record, hospitalId),
+                  onPressed: () =>
+                      _showUploadSheet(context, ref, record, hospitalId),
                   icon: const Icon(Icons.upload_file, size: 18),
                   label: const Text('New Version'),
                 ),
@@ -345,13 +369,17 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
                   );
                 }
                 return Column(
-                  children: documents.map((doc) => _buildDocumentTile(
-                    context,
-                    ref,
-                    record,
-                    doc,
-                    canManage,
-                  )).toList(),
+                  children: documents
+                      .map(
+                        (doc) => _buildDocumentTile(
+                          context,
+                          ref,
+                          record,
+                          doc,
+                          canManage,
+                        ),
+                      )
+                      .toList(),
                 );
               },
               loading: () => const Padding(
@@ -388,13 +416,8 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
           style: const TextStyle(fontSize: 12),
         ),
         trailing: PopupMenuButton<String>(
-          onSelected: (action) => _handleDocumentAction(
-            context,
-            ref,
-            record,
-            doc,
-            action,
-          ),
+          onSelected: (action) =>
+              _handleDocumentAction(context, ref, record, doc, action),
           itemBuilder: (context) => [
             const PopupMenuItem(value: 'view', child: Text('View')),
             const PopupMenuItem(value: 'download', child: Text('Download')),
@@ -404,8 +427,9 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
               const PopupMenuItem(value: 'delete', child: Text('Delete')),
           ],
         ),
-        onTap: () =>
-            context.push('/compliance/document/${doc.id}/view?recordId=${record.id}'),
+        onTap: () => context.push(
+          '/compliance/document/${doc.id}/view?recordId=${record.id}',
+        ),
       ),
     );
   }
@@ -419,7 +443,9 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
   ) async {
     switch (action) {
       case 'view':
-        context.push('/compliance/document/${doc.id}/view?recordId=${record.id}');
+        context.push(
+          '/compliance/document/${doc.id}/view?recordId=${record.id}',
+        );
         break;
       case 'download':
         await _downloadDocument(context, ref, doc);
@@ -451,14 +477,18 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
       );
       await file.writeAsBytes(bytes, flush: true);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Saved to ${file.path}')),
-      );
-      await ref.read(complianceServiceProvider).logAudit(
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Saved to ${file.path}')));
+      await ref
+          .read(complianceServiceProvider)
+          .logAudit(
             hospitalId: doc.hospitalId,
             recordId: doc.recordId,
             documentId: doc.id,
-            userId: await ref.read(databaseServiceProvider).getCurrentUsersTableId(),
+            userId: await ref
+                .read(databaseServiceProvider)
+                .getCurrentUsersTableId(),
             action: 'download',
             detail: doc.fileName,
           );
@@ -538,11 +568,15 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
           ),
         ),
       );
-      await ref.read(complianceServiceProvider).logAudit(
+      await ref
+          .read(complianceServiceProvider)
+          .logAudit(
             hospitalId: doc.hospitalId,
             recordId: doc.recordId,
             documentId: doc.id,
-            userId: await ref.read(databaseServiceProvider).getCurrentUsersTableId(),
+            userId: await ref
+                .read(databaseServiceProvider)
+                .getCurrentUsersTableId(),
             action: 'share',
             detail: doc.fileName,
           );
@@ -562,9 +596,11 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
     ComplianceDocumentFile doc,
   ) async {
     if (!doc.isPdf) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Printing is available for PDF documents.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Printing is available for PDF documents.'),
+        ),
+      );
       return;
     }
     try {
@@ -576,11 +612,15 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
         onLayout: (_) async => bytes,
         name: doc.fileName,
       );
-      await ref.read(complianceServiceProvider).logAudit(
+      await ref
+          .read(complianceServiceProvider)
+          .logAudit(
             hospitalId: doc.hospitalId,
             recordId: doc.recordId,
             documentId: doc.id,
-            userId: await ref.read(databaseServiceProvider).getCurrentUsersTableId(),
+            userId: await ref
+                .read(databaseServiceProvider)
+                .getCurrentUsersTableId(),
             action: 'print',
             detail: doc.fileName,
           );
@@ -646,39 +686,48 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
       final bytes = await file.readAsBytes();
       if (!context.mounted) return;
       if (!ComplianceService.isAllowedExtension(file.name)) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Allowed: PDF, JPG, PNG, JPEG, DOC, DOCX')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Allowed: PDF, JPG, PNG, JPEG, DOC, DOCX'),
+          ),
+        );
         return;
       }
       if (bytes.length > ComplianceService.maxFileSizeBytes) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('File exceeds 25 MB limit')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('File exceeds 25 MB limit')),
+        );
         return;
       }
-      await ref.read(complianceServiceProvider).uploadDocument(
+      await ref
+          .read(complianceServiceProvider)
+          .uploadDocument(
             recordId: record.id,
             hospitalId: hospitalId,
             fileName: file.name,
             bytes: bytes,
-            uploadedBy: (await ref
+            uploadedBy:
+                (await ref
                     .read(databaseServiceProvider)
                     .getCurrentUsersTableId()) ??
                 '',
           );
-      await ref.read(complianceServiceProvider).logAudit(
+      await ref
+          .read(complianceServiceProvider)
+          .logAudit(
             hospitalId: hospitalId,
             recordId: record.id,
-            userId: await ref.read(databaseServiceProvider).getCurrentUsersTableId(),
+            userId: await ref
+                .read(databaseServiceProvider)
+                .getCurrentUsersTableId(),
             action: 'upload',
             detail: '${file.name} (new version)',
           );
       if (!context.mounted) return;
       ref.invalidate(complianceRefreshProvider);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Uploaded ${file.name} as a new version')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Uploaded ${file.name} as a new version')),
+      );
     } catch (e) {
       AppLogger.e('Version upload failed', e);
       if (context.mounted) {
@@ -706,9 +755,9 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
                 Expanded(
                   child: Text(
                     'Reminder History',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 TextButton(
@@ -719,7 +768,9 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
             ),
             remindersAsync.when(
               data: (reminders) {
-                final mine = reminders.where((r) => r.recordId == recordId).toList();
+                final mine = reminders
+                    .where((r) => r.recordId == recordId)
+                    .toList();
                 if (mine.isEmpty) {
                   return const Padding(
                     padding: EdgeInsets.symmetric(vertical: 8),
@@ -727,38 +778,45 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
                   );
                 }
                 return Column(
-                  children: mine.take(5).map((reminder) => ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(
-                      reminder.reminderType == ReminderType.expired
-                          ? Icons.error_outline
-                          : reminder.reminderType == ReminderType.sevenDay
-                          ? Icons.warning_amber_outlined
-                          : Icons.notifications_outlined,
-                      color: reminder.reminderType == ReminderType.expired
-                          ? Colors.red
-                          : reminder.reminderType == ReminderType.sevenDay
-                          ? Colors.orange
-                          : Colors.blue,
-                    ),
-                    title: Text(
-                      '${reminder.reminderType.label} • ${reminder.channel.label}',
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                    subtitle: Text(
-                      reminder.message ?? '',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    trailing: Text(
-                      reminder.createdAt == null
-                          ? ''
-                          : DateFormat('dd MMM').format(reminder.createdAt!.toLocal()),
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                  )).toList(),
+                  children: mine
+                      .take(5)
+                      .map(
+                        (reminder) => ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                            reminder.reminderType == ReminderType.expired
+                                ? Icons.error_outline
+                                : reminder.reminderType == ReminderType.sevenDay
+                                ? Icons.warning_amber_outlined
+                                : Icons.notifications_outlined,
+                            color: reminder.reminderType == ReminderType.expired
+                                ? Colors.red
+                                : reminder.reminderType == ReminderType.sevenDay
+                                ? Colors.orange
+                                : Colors.blue,
+                          ),
+                          title: Text(
+                            '${reminder.reminderType.label} • ${reminder.channel.label}',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          subtitle: Text(
+                            reminder.message ?? '',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          trailing: Text(
+                            reminder.createdAt == null
+                                ? ''
+                                : DateFormat(
+                                    'dd MMM',
+                                  ).format(reminder.createdAt!.toLocal()),
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ),
+                      )
+                      .toList(),
                 );
               },
               loading: () => const SizedBox.shrink(),
@@ -787,9 +845,9 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
                 Expanded(
                   child: Text(
                     'Audit Trail',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 TextButton(
@@ -808,27 +866,34 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
                   );
                 }
                 return Column(
-                  children: mine.take(5).map((log) => ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(_auditIcon(log.action), size: 20),
-                    title: Text(
-                      '${log.action.toUpperCase()} — ${log.userName ?? 'System'}',
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                    subtitle: Text(
-                      log.detail ?? '',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    trailing: Text(
-                      log.createdAt == null
-                          ? ''
-                          : DateFormat('dd MMM, hh:mm a').format(log.createdAt!.toLocal()),
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                  )).toList(),
+                  children: mine
+                      .take(5)
+                      .map(
+                        (log) => ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(_auditIcon(log.action), size: 20),
+                          title: Text(
+                            '${log.action.toUpperCase()} — ${log.userName ?? 'System'}',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          subtitle: Text(
+                            log.detail ?? '',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          trailing: Text(
+                            log.createdAt == null
+                                ? ''
+                                : DateFormat(
+                                    'dd MMM, hh:mm a',
+                                  ).format(log.createdAt!.toLocal()),
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        ),
+                      )
+                      .toList(),
                 );
               },
               loading: () => const SizedBox.shrink(),
@@ -925,11 +990,15 @@ class ComplianceRecordDetailScreen extends ConsumerWidget {
     if (confirmed != true || !context.mounted) return;
     try {
       await ref.read(complianceServiceProvider).deleteDocument(doc.id);
-      await ref.read(complianceServiceProvider).logAudit(
+      await ref
+          .read(complianceServiceProvider)
+          .logAudit(
             hospitalId: record.hospitalId,
             recordId: record.id,
             documentId: doc.id,
-            userId: await ref.read(databaseServiceProvider).getCurrentUsersTableId(),
+            userId: await ref
+                .read(databaseServiceProvider)
+                .getCurrentUsersTableId(),
             action: 'delete',
             detail: doc.fileName,
           );

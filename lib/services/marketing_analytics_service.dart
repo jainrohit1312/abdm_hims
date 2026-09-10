@@ -28,12 +28,15 @@ class MarketingAnalyticsService {
     final day = DateTime(now.year, now.month, now.day);
     final tomorrow = day.add(const Duration(days: 1));
 
-    final todayVisits = visits.where((v) => _inRange(v.visitedAt, day, tomorrow));
+    final todayVisits = visits.where(
+      (v) => _inRange(v.visitedAt, day, tomorrow),
+    );
     final todayReferrals = referrals
         .where((r) => _inRange(r.referralDate, day, tomorrow))
         .toList();
-    final monthReferrals =
-        referrals.where((r) => _inMonth(r.referralDate, now)).toList();
+    final monthReferrals = referrals
+        .where((r) => _inMonth(r.referralDate, now))
+        .toList();
 
     final today = todayVisits.toList();
     final doctorIdsVisitedToday = today
@@ -56,9 +59,8 @@ class MarketingAnalyticsService {
         return b.totalReferrals.compareTo(a.totalReferrals);
       });
 
-    final recentVisits = [...todayVisits]..sort(
-        (a, b) => b.visitedAt.compareTo(a.visitedAt),
-      );
+    final recentVisits = [...todayVisits]
+      ..sort((a, b) => b.visitedAt.compareTo(a.visitedAt));
 
     return MarketingDashboardSummary(
       todayVisits: today.length,
@@ -113,8 +115,7 @@ class MarketingAnalyticsService {
     for (final referral in referrals) {
       if (!_inMonth(referral.referralDate, now)) continue;
       final areaId = doctorsById[referral.referralDoctorId]?.areaId ?? '';
-      referralsMonthByArea[areaId] =
-          (referralsMonthByArea[areaId] ?? 0) + 1;
+      referralsMonthByArea[areaId] = (referralsMonthByArea[areaId] ?? 0) + 1;
     }
 
     // Preserve a deterministic order: areas list first (when provided), then

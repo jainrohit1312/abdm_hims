@@ -65,8 +65,9 @@ class _ComplianceDocumentViewerScreenState
       _loadError = null;
     });
     try {
-      final doc = await ref
-          .read(complianceDocumentByIdProvider(widget.documentId).future);
+      final doc = await ref.read(
+        complianceDocumentByIdProvider(widget.documentId).future,
+      );
       if (doc == null) {
         setState(() {
           _loading = false;
@@ -103,7 +104,9 @@ class _ComplianceDocumentViewerScreenState
       // Audit the view.
       final hospitalId = doc['hospital_id']?.toString() ?? '';
       if (hospitalId.isNotEmpty) {
-        await ref.read(complianceServiceProvider).logAudit(
+        await ref
+            .read(complianceServiceProvider)
+            .logAudit(
               hospitalId: hospitalId,
               recordId: doc['record_id']?.toString(),
               documentId: widget.documentId,
@@ -134,8 +137,12 @@ class _ComplianceDocumentViewerScreenState
           IconButton(
             tooltip: _watermarkOn ? 'Watermark ON' : 'Watermark OFF',
             icon: Icon(
-              _watermarkOn ? Icons.branding_watermark : Icons.branding_watermark_outlined,
-              color: _watermarkOn ? Theme.of(context).colorScheme.primary : null,
+              _watermarkOn
+                  ? Icons.branding_watermark
+                  : Icons.branding_watermark_outlined,
+              color: _watermarkOn
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
             ),
             onPressed: () => setState(() => _watermarkOn = !_watermarkOn),
           ),
@@ -212,7 +219,10 @@ class _ComplianceDocumentViewerScreenState
                   child: InteractiveViewer(
                     minScale: 0.5,
                     maxScale: 5,
-                    child: RawImage(image: _pdfPages[index], fit: BoxFit.contain),
+                    child: RawImage(
+                      image: _pdfPages[index],
+                      fit: BoxFit.contain,
+                    ),
                   ),
                 ),
               ),
@@ -260,10 +270,7 @@ class _ComplianceDocumentViewerScreenState
     }
 
     return Stack(
-      children: [
-        content,
-        if (_watermarkOn) _buildWatermarkOverlay(),
-      ],
+      children: [content, if (_watermarkOn) _buildWatermarkOverlay()],
     );
   }
 
@@ -297,8 +304,9 @@ class _ComplianceDocumentViewerScreenState
   }
 
   Future<File> _writeTemp() async {
-    final doc = await ref
-        .read(complianceDocumentByIdProvider(widget.documentId).future);
+    final doc = await ref.read(
+      complianceDocumentByIdProvider(widget.documentId).future,
+    );
     final fileName = doc?['file_name']?.toString() ?? 'document';
     final dir = await getTemporaryDirectory();
     final safeName = fileName.replaceAll(RegExp(r'[^\w.\-]+'), '_');
@@ -322,8 +330,9 @@ class _ComplianceDocumentViewerScreenState
   }
 
   Future<void> _shareCurrent() async {
-    final doc = await ref
-        .read(complianceDocumentByIdProvider(widget.documentId).future);
+    final doc = await ref.read(
+      complianceDocumentByIdProvider(widget.documentId).future,
+    );
     final fileName = doc?['file_name']?.toString() ?? 'document';
     final mimeType = doc?['mime_type']?.toString();
     try {
@@ -345,8 +354,9 @@ class _ComplianceDocumentViewerScreenState
   }
 
   Future<void> _downloadCurrent() async {
-    final doc = await ref
-        .read(complianceDocumentByIdProvider(widget.documentId).future);
+    final doc = await ref.read(
+      complianceDocumentByIdProvider(widget.documentId).future,
+    );
     final fileName = doc?['file_name']?.toString() ?? 'document';
     try {
       final directory = await _saveDirectory();
@@ -368,8 +378,9 @@ class _ComplianceDocumentViewerScreenState
   }
 
   Future<void> _printCurrent() async {
-    final doc = await ref
-        .read(complianceDocumentByIdProvider(widget.documentId).future);
+    final doc = await ref.read(
+      complianceDocumentByIdProvider(widget.documentId).future,
+    );
     final fileName = doc?['file_name']?.toString() ?? 'document';
     try {
       await Printing.layoutPdf(onLayout: (_) async => _bytes!, name: fileName);

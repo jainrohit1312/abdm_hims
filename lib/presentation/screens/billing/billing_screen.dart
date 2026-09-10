@@ -90,9 +90,7 @@ class _BillingScreenState extends ConsumerState<BillingScreen>
         ),
       ),
       body: hospitalId == null || hospitalId.isEmpty
-          ? const Center(
-              child: Text('Hospital not assigned to this user.'),
-            )
+          ? const Center(child: Text('Hospital not assigned to this user.'))
           : TabBarView(
               controller: _tabController,
               children: [
@@ -135,9 +133,9 @@ class _BillListTabState extends ConsumerState<_BillListTab>
   bool get wantKeepAlive => true;
 
   BillingFilter get _filter => BillingFilter(
-        hospitalId: widget.hospitalId,
-        sourceType: widget.sourceType,
-      );
+    hospitalId: widget.hospitalId,
+    sourceType: widget.sourceType,
+  );
 
   @override
   void initState() {
@@ -182,9 +180,9 @@ class _BillListTabState extends ConsumerState<_BillListTab>
                     (bill['patient_name']?.toString() ?? '')
                         .toLowerCase()
                         .contains(query) ||
-                    (bill['uhid']?.toString() ?? '')
-                        .toLowerCase()
-                        .contains(query) ||
+                    (bill['uhid']?.toString() ?? '').toLowerCase().contains(
+                      query,
+                    ) ||
                     (bill['bill_number']?.toString() ?? '')
                         .toLowerCase()
                         .contains(query),
@@ -319,8 +317,8 @@ class _BillListTabState extends ConsumerState<_BillListTab>
           child: Text(
             'No more bills',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
       );
@@ -422,7 +420,11 @@ class _BillCard extends ConsumerWidget {
                 children: [
                   _AmountColumn(label: 'Total', value: total),
                   const SizedBox(width: 12),
-                  _AmountColumn(label: 'Paid', value: paid, color: Colors.green),
+                  _AmountColumn(
+                    label: 'Paid',
+                    value: paid,
+                    color: Colors.green,
+                  ),
                   const SizedBox(width: 12),
                   _AmountColumn(
                     label: 'Balance',
@@ -577,9 +579,7 @@ class _TransactionHistorySectionState
                     ),
                     Text(
                       _inr(
-                        _toDouble(
-                          log['amount_paid'] ?? log['payment_amount'],
-                        ),
+                        _toDouble(log['amount_paid'] ?? log['payment_amount']),
                       ),
                       style: theme.textTheme.bodySmall?.copyWith(
                         fontWeight: FontWeight.bold,
@@ -671,10 +671,7 @@ class _AmountColumn extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
           Text(
             _currency.format(value),
             style: TextStyle(

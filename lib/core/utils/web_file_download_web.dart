@@ -16,10 +16,7 @@ Future<void> downloadBytes(Uint8List bytes, String fileName) async {
     throw Exception('Browser document is not available.');
   }
 
-  final anchor = document.callMethod<JSObject>(
-    'createElement'.toJS,
-    'a'.toJS,
-  );
+  final anchor = document.callMethod<JSObject>('createElement'.toJS, 'a'.toJS);
   final base64 = base64Encode(bytes);
   anchor['href'] = 'data:application/pdf;base64,$base64'.toJS;
   anchor['download'] = fileName.toJS;

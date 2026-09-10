@@ -63,10 +63,7 @@ class PrescriptionPrintService {
                         fontWeight: pw.FontWeight.bold,
                       ),
                       if (hospitalAddress.trim().isNotEmpty)
-                        PDFFontHelper.text(
-                          hospitalAddress,
-                          fontSize: 10,
-                        ),
+                        PDFFontHelper.text(hospitalAddress, fontSize: 10),
                     ],
                   ),
                 ),
@@ -135,10 +132,7 @@ class PrescriptionPrintService {
                     fontWeight: pw.FontWeight.bold,
                   ),
                   pw.SizedBox(height: 24),
-                  PDFFontHelper.text(
-                    'Doctor Signature',
-                    fontSize: 10,
-                  ),
+                  PDFFontHelper.text('Doctor Signature', fontSize: 10),
                 ],
               ),
             ),
@@ -275,9 +269,12 @@ class PrescriptionPrintService {
     // Medicines: naya `medicines` JSONB pehle, legacy `items` fallback.
     final rawMedicines = prescription['medicines'];
     final items = rawMedicines is List
-        ? rawMedicines.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList()
+        ? rawMedicines
+              .whereType<Map>()
+              .map((m) => Map<String, dynamic>.from(m))
+              .toList()
         : ((prescription['items'] as List?)?.cast<Map<String, dynamic>>() ??
-            const <Map<String, dynamic>>[]);
+              const <Map<String, dynamic>>[]);
     final medicines = <Map<String, dynamic>>[
       for (final item in items)
         {
@@ -313,8 +310,7 @@ class PrescriptionPrintService {
     // Hospital header.
     var hospitalName = 'HIMS Hospital';
     var hospitalAddress = '123, Healthcare Avenue, New Delhi';
-    final resolvedHospitalId =
-        (hospitalId != null && hospitalId.isNotEmpty)
+    final resolvedHospitalId = (hospitalId != null && hospitalId.isNotEmpty)
         ? hospitalId
         : prescription['hospital_id']?.toString();
     if (resolvedHospitalId != null && resolvedHospitalId.isNotEmpty) {
@@ -324,8 +320,7 @@ class PrescriptionPrintService {
       );
       if (hospital != null) {
         hospitalName = hospital['name']?.toString() ?? hospitalName;
-        hospitalAddress =
-            hospital['address']?.toString() ?? hospitalAddress;
+        hospitalAddress = hospital['address']?.toString() ?? hospitalAddress;
       }
     }
 
@@ -426,10 +421,7 @@ class PrescriptionPrintService {
                   ),
                 ),
                 pw.Expanded(
-                  child: PDFFontHelper.text(
-                    entry.value,
-                    fontSize: 10,
-                  ),
+                  child: PDFFontHelper.text(entry.value, fontSize: 10),
                 ),
               ],
             ),
@@ -445,11 +437,7 @@ class PrescriptionPrintService {
     if (text.isEmpty) return const <pw.Widget>[];
     return <pw.Widget>[
       pw.SizedBox(height: 12),
-      PDFFontHelper.text(
-        title,
-        fontSize: 12,
-        fontWeight: pw.FontWeight.bold,
-      ),
+      PDFFontHelper.text(title, fontSize: 12, fontWeight: pw.FontWeight.bold),
       pw.SizedBox(height: 4),
       PDFFontHelper.text(text, fontSize: 10),
     ];
@@ -507,8 +495,9 @@ class PrescriptionPrintService {
   // Clinical notes helpers
   // ---------------------------------------------------------------------------
 
-  static Map<String, dynamic> _asMap(dynamic value) =>
-      value is Map ? Map<String, dynamic>.from(value) : const <String, dynamic>{};
+  static Map<String, dynamic> _asMap(dynamic value) => value is Map
+      ? Map<String, dynamic>.from(value)
+      : const <String, dynamic>{};
 
   /// Unified columns (`history`, `investigations`, `advice`) ko legacy
   /// `clinical_notes` keys mein normalize karta hai taaki baaki PDF section
@@ -566,7 +555,9 @@ class PrescriptionPrintService {
     final otherInvestigations = _asList(inv['other_investigations']);
     if (otherInvestigations.isNotEmpty &&
         _asText(legacyInvestigations['previous_findings']).isEmpty) {
-      legacyInvestigations['previous_findings'] = otherInvestigations.join(', ');
+      legacyInvestigations['previous_findings'] = otherInvestigations.join(
+        ', ',
+      );
     }
     if (legacyInvestigations.isNotEmpty) {
       notes['investigations'] = legacyInvestigations;
@@ -600,7 +591,10 @@ class PrescriptionPrintService {
 
   static List<String> _asList(dynamic value) {
     if (value is List) {
-      return value.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+      return value
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
     }
     final text = _asText(value);
     if (text.isEmpty) return const <String>[];
@@ -615,7 +609,8 @@ class PrescriptionPrintService {
       if (_asText(vitals['pulse']).isNotEmpty) 'Pulse: ${vitals['pulse']} /min',
       if (_asText(vitals['temp']).isNotEmpty) 'Temp: ${vitals['temp']}°F',
       if (_asText(vitals['spo2']).isNotEmpty) 'SpO₂: ${vitals['spo2']}%',
-      if (_asText(vitals['weight']).isNotEmpty) 'Weight: ${vitals['weight']} kg',
+      if (_asText(vitals['weight']).isNotEmpty)
+        'Weight: ${vitals['weight']} kg',
     ];
     return parts.join('   •   ');
   }

@@ -16,11 +16,7 @@ import 'app_footer.dart';
 /// The optional [padding] is applied to the page content only; the footer
 /// stays full-width (same look as the previous shell-level footer).
 class AppPageScrollView extends StatelessWidget {
-  const AppPageScrollView({
-    super.key,
-    required this.child,
-    this.padding,
-  });
+  const AppPageScrollView({super.key, required this.child, this.padding});
 
   final Widget child;
   final EdgeInsetsGeometry? padding;

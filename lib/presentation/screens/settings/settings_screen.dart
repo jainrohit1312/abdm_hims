@@ -180,8 +180,7 @@ class SettingsScreen extends ConsumerWidget {
                 context: context,
                 applicationName: 'MediFlux Hospital Software',
                 applicationVersion: '1.0.0',
-                applicationLegalese:
-                    '© 2024 MediFlux Hospital Software',
+                applicationLegalese: '© 2024 MediFlux Hospital Software',
               );
             },
           ),

@@ -40,15 +40,10 @@ void main() {
     );
   }
 
-  test('monthly salary matches attendance units (25P + 2H => 26 units)',
-      () {
+  test('monthly salary matches attendance units (25P + 2H => 26 units)', () {
     final summary = calculator.calculate(
       employee: employee(monthlySalary: 30000),
-      attendance: monthly(
-        presentDays: 25,
-        halfDays: 2,
-        absentDays: 3,
-      ),
+      attendance: monthly(presentDays: 25, halfDays: 2, absentDays: 3),
       year: 2026,
       month: 9,
     );

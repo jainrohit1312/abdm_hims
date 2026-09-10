@@ -70,10 +70,7 @@ class ReceiptService {
             pw.SizedBox(height: 30),
             pw.Align(
               alignment: pw.Alignment.centerRight,
-              child: PDFFontHelper.text(
-                'Authorized Signature',
-                fontSize: 12,
-              ),
+              child: PDFFontHelper.text('Authorized Signature', fontSize: 12),
             ),
           ];
         },

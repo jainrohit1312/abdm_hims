@@ -34,9 +34,7 @@ class _MarketingScreenState extends ConsumerState<MarketingScreen> {
     if (hospitalId == null || hospitalId.isEmpty) {
       return Scaffold(
         appBar: SmartAppBar(title: const Text('PRO / Marketing')),
-        body: const Center(
-          child: Text('Hospital not assigned to this user.'),
-        ),
+        body: const Center(child: Text('Hospital not assigned to this user.')),
       );
     }
 

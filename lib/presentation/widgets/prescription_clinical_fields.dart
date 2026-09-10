@@ -376,7 +376,7 @@ class PrescriptionHistoryFields extends StatelessWidget {
           labelText: label,
           hintText: hint,
           isDense: true,
-                  ),
+        ),
       ),
     );
   }
@@ -525,10 +525,7 @@ class _MoreHistoryOptionsCardState extends State<_MoreHistoryOptionsCard> {
 class PrescriptionAdviceFollowUpFields extends StatelessWidget {
   final PrescriptionClinicalController controller;
 
-  const PrescriptionAdviceFollowUpFields({
-    super.key,
-    required this.controller,
-  });
+  const PrescriptionAdviceFollowUpFields({super.key, required this.controller});
 
   @override
   Widget build(BuildContext context) {
@@ -588,10 +585,7 @@ class PrescriptionAdviceFollowUpFields extends StatelessWidget {
 class PrescriptionInvestigationsFields extends StatefulWidget {
   final PrescriptionClinicalController controller;
 
-  const PrescriptionInvestigationsFields({
-    super.key,
-    required this.controller,
-  });
+  const PrescriptionInvestigationsFields({super.key, required this.controller});
 
   @override
   State<PrescriptionInvestigationsFields> createState() =>
@@ -663,12 +657,8 @@ class _PrescriptionInvestigationsFieldsState
       ],
     );
   }
-
 }
 
 InputDecoration _fieldDecoration(String label, {String? hint}) {
-  return InputDecoration(
-    labelText: label,
-    hintText: hint,
-      );
+  return InputDecoration(labelText: label, hintText: hint);
 }

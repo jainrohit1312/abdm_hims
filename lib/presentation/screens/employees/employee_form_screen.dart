@@ -86,9 +86,9 @@ class _EmployeeFormScreenState extends ConsumerState<EmployeeFormScreen> {
       );
       if (!mounted) return;
       if (employee == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Employee not found.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Employee not found.')));
         return;
       }
       setState(() {
@@ -122,8 +122,8 @@ class _EmployeeFormScreenState extends ConsumerState<EmployeeFormScreen> {
     final departmentsAsync = hospitalId == null
         ? null
         : ref.watch(hospitalDepartmentsProvider(hospitalId));
-    final departments = departmentsAsync?.valueOrNull ??
-        const <Map<String, dynamic>>[];
+    final departments =
+        departmentsAsync?.valueOrNull ?? const <Map<String, dynamic>>[];
 
     return AppPage(
       title: _isEdit ? 'Edit Employee' : 'Add Employee',
@@ -272,10 +272,7 @@ class _EmployeeFormScreenState extends ConsumerState<EmployeeFormScreen> {
     List<Map<String, dynamic>> departments,
   ) {
     final items = <DropdownMenuItem<String>>[
-      const DropdownMenuItem<String>(
-        value: null,
-        child: Text('No Department'),
-      ),
+      const DropdownMenuItem<String>(value: null, child: Text('No Department')),
     ];
 
     final currentId = _departmentId;
@@ -384,9 +381,15 @@ class _EmployeeFormScreenState extends ConsumerState<EmployeeFormScreen> {
 
       final repository = ref.read(employeeRepositoryProvider);
       if (_isEdit) {
-        await repository.updateEmployee(hospitalId: hospitalId, employee: draft);
+        await repository.updateEmployee(
+          hospitalId: hospitalId,
+          employee: draft,
+        );
       } else {
-        await repository.createEmployee(hospitalId: hospitalId, employee: draft);
+        await repository.createEmployee(
+          hospitalId: hospitalId,
+          employee: draft,
+        );
       }
 
       ref.read(employeesRefreshProvider.notifier).state++;

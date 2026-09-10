@@ -17,15 +17,14 @@ class StorageService {
   }) async {
     try {
       final bucket = bucketName ?? _bucketName;
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${path.split('/').last}';
+      final fileName =
+          '${DateTime.now().millisecondsSinceEpoch}_${path.split('/').last}';
       final fullPath = '$path/$fileName';
-      
-      await _client.storage.from(bucket).upload(
-            fullPath,
-            file,
-            fileOptions: const FileOptions(upsert: true),
-          );
-      
+
+      await _client.storage
+          .from(bucket)
+          .upload(fullPath, file, fileOptions: const FileOptions(upsert: true));
+
       final publicUrl = _client.storage.from(bucket).getPublicUrl(fullPath);
       return publicUrl;
     } catch (e) {
@@ -50,7 +49,9 @@ class StorageService {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final fullPath = '$path/${timestamp}_$safeName';
 
-      await _client.storage.from(bucket).uploadBinary(
+      await _client.storage
+          .from(bucket)
+          .uploadBinary(
             fullPath,
             bytes,
             fileOptions: const FileOptions(upsert: true),
@@ -100,10 +101,7 @@ class StorageService {
   }
 
   /// Downloads a storage object's raw bytes (web-safe, cross-platform).
-  Future<Uint8List> downloadBytes(
-    String path, {
-    String? bucketName,
-  }) async {
+  Future<Uint8List> downloadBytes(String path, {String? bucketName}) async {
     try {
       final bucket = bucketName ?? _bucketName;
       return await _client.storage.from(bucket).download(path);

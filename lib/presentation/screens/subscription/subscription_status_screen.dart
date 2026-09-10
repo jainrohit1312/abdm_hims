@@ -20,7 +20,8 @@ class SubscriptionStatusScreen extends ConsumerStatefulWidget {
       _SubscriptionStatusScreenState();
 }
 
-class _SubscriptionStatusScreenState extends ConsumerState<SubscriptionStatusScreen> {
+class _SubscriptionStatusScreenState
+    extends ConsumerState<SubscriptionStatusScreen> {
   String _selectedPlanId = 'standard';
   String _selectedPaymentMethod = 'mock';
   bool _submitting = false;
@@ -58,7 +59,10 @@ class _SubscriptionStatusScreenState extends ConsumerState<SubscriptionStatusScr
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(
-        SnackBar(content: Text('Renewal failed: $e'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text('Renewal failed: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -265,17 +269,33 @@ class _SubscriptionStatusScreenState extends ConsumerState<SubscriptionStatusScr
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            _detailRow(context, Icons.play_circle_outline, 'Trial Start',
-                _formatDate(status['trial_start_date'])),
+            _detailRow(
+              context,
+              Icons.play_circle_outline,
+              'Trial Start',
+              _formatDate(status['trial_start_date']),
+            ),
             const Divider(height: 16),
-            _detailRow(context, Icons.event_outlined, 'Trial End',
-                _formatDate(status['trial_end_date'])),
+            _detailRow(
+              context,
+              Icons.event_outlined,
+              'Trial End',
+              _formatDate(status['trial_end_date']),
+            ),
             const Divider(height: 16),
-            _detailRow(context, Icons.workspace_premium_outlined,
-                'Subscription Expiry', _formatDate(status['subscription_expiry'])),
+            _detailRow(
+              context,
+              Icons.workspace_premium_outlined,
+              'Subscription Expiry',
+              _formatDate(status['subscription_expiry']),
+            ),
             const Divider(height: 16),
-            _detailRow(context, Icons.card_membership, 'Current Plan',
-                _planLabel(status['subscription_plan'])),
+            _detailRow(
+              context,
+              Icons.card_membership,
+              'Current Plan',
+              _planLabel(status['subscription_plan']),
+            ),
           ],
         ),
       ),
@@ -293,12 +313,12 @@ class _SubscriptionStatusScreenState extends ConsumerState<SubscriptionStatusScr
       children: [
         Icon(icon, size: 20, color: theme.colorScheme.primary),
         const SizedBox(width: 12),
-        Expanded(
-          child: Text(label, style: theme.textTheme.bodyMedium),
-        ),
+        Expanded(child: Text(label, style: theme.textTheme.bodyMedium)),
         Text(
           value,
-          style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ],
     );
@@ -308,9 +328,9 @@ class _SubscriptionStatusScreenState extends ConsumerState<SubscriptionStatusScr
     return Text(
       title,
       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: Theme.of(context).colorScheme.primary,
-          ),
+        fontWeight: FontWeight.bold,
+        color: Theme.of(context).colorScheme.primary,
+      ),
     );
   }
 
@@ -390,9 +410,9 @@ class _SubscriptionStatusScreenState extends ConsumerState<SubscriptionStatusScr
       children: [
         Text(
           'Payment Method (mock gateway)',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
         Wrap(
@@ -412,8 +432,8 @@ class _SubscriptionStatusScreenState extends ConsumerState<SubscriptionStatusScr
         Text(
           'Stripe / UPI / Paytm are mocked — no real payment is charged.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       ],
     );
@@ -464,9 +484,7 @@ class _SubscriptionStatusScreenState extends ConsumerState<SubscriptionStatusScr
           '₹${_amount(payment['payment_amount']).toStringAsFixed(2)} — '
           '${_planLabel(payment['subscription_plan'])}',
         ),
-        subtitle: Text(
-          '${_formatDateTime(payment['payment_date'])} • $method',
-        ),
+        subtitle: Text('${_formatDateTime(payment['payment_date'])} • $method'),
         trailing: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
@@ -479,7 +497,9 @@ class _SubscriptionStatusScreenState extends ConsumerState<SubscriptionStatusScr
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: isSuccess ? Colors.green.shade700 : theme.colorScheme.error,
+              color: isSuccess
+                  ? Colors.green.shade700
+                  : theme.colorScheme.error,
             ),
           ),
         ),

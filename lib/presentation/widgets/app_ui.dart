@@ -36,7 +36,8 @@ extension AppResponsiveContext on BuildContext {
   bool get isCompact => screenWidth < AppBreakpoints.compact;
 
   bool get isMedium =>
-      screenWidth >= AppBreakpoints.compact && screenWidth < AppBreakpoints.medium;
+      screenWidth >= AppBreakpoints.compact &&
+      screenWidth < AppBreakpoints.medium;
 
   bool get isWide => screenWidth >= AppBreakpoints.medium;
 
@@ -83,7 +84,8 @@ class AppPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final effectivePadding = padding ?? context.pagePadding;
 
-    final content = body ??
+    final content =
+        body ??
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: children,
@@ -186,10 +188,7 @@ class AppSectionCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (action != null) ...[
-                    const SizedBox(width: 8),
-                    action!,
-                  ],
+                  if (action != null) ...[const SizedBox(width: 8), action!],
                 ],
               ),
               const SizedBox(height: 14),
@@ -245,10 +244,7 @@ class AppSectionHeader extends StatelessWidget {
             ],
           ),
         ),
-        if (action != null) ...[
-          const SizedBox(width: 8),
-          action!,
-        ],
+        if (action != null) ...[const SizedBox(width: 8), action!],
       ],
     );
   }
@@ -259,11 +255,7 @@ class AppSectionHeader extends StatelessWidget {
 /// on phones, which fixes the "two fields squeezed together" overflow.
 /// ---------------------------------------------------------------------------
 class AppFieldRow extends StatelessWidget {
-  const AppFieldRow({
-    required this.children,
-    super.key,
-    this.gap = 12,
-  });
+  const AppFieldRow({required this.children, super.key, this.gap = 12});
 
   /// Usually two widgets (each field already wrapped in `Expanded`-friendly
   /// containers). When more than two are provided they are distributed evenly.
@@ -372,31 +364,31 @@ class AppSubmitButton extends StatelessWidget {
             child: CircularProgressIndicator(strokeWidth: 2.2),
           )
         : icon == null
-            ? Text(label)
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, size: 18),
-                  const SizedBox(width: 8),
-                  Text(label),
-                ],
-              );
+        ? Text(label)
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 18),
+              const SizedBox(width: 8),
+              Text(label),
+            ],
+          );
 
     return SizedBox(
       width: double.infinity,
       child: switch (variant) {
         AppButtonVariant.filled => FilledButton(
-            onPressed: loading ? null : onPressed,
-            child: child,
-          ),
+          onPressed: loading ? null : onPressed,
+          child: child,
+        ),
         AppButtonVariant.elevated => ElevatedButton(
-            onPressed: loading ? null : onPressed,
-            child: child,
-          ),
+          onPressed: loading ? null : onPressed,
+          child: child,
+        ),
         AppButtonVariant.outlined => OutlinedButton(
-            onPressed: loading ? null : onPressed,
-            child: child,
-          ),
+          onPressed: loading ? null : onPressed,
+          child: child,
+        ),
       },
     );
   }
@@ -429,28 +421,31 @@ class AppInfoBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    final (Color background, Color foreground, IconData defaultIcon) = switch (
-        tone) {
+    final (
+      Color background,
+      Color foreground,
+      IconData defaultIcon,
+    ) = switch (tone) {
       AppBannerTone.info => (
-          scheme.primaryContainer.withValues(alpha: 0.45),
-          scheme.onPrimaryContainer,
-          Icons.info_outline,
-        ),
+        scheme.primaryContainer.withValues(alpha: 0.45),
+        scheme.onPrimaryContainer,
+        Icons.info_outline,
+      ),
       AppBannerTone.success => (
-          const Color(0xFFE8F5E9),
-          const Color(0xFF1B5E20),
-          Icons.check_circle_outline,
-        ),
+        const Color(0xFFE8F5E9),
+        const Color(0xFF1B5E20),
+        Icons.check_circle_outline,
+      ),
       AppBannerTone.warning => (
-          const Color(0xFFFFF4E5),
-          const Color(0xFF8A5300),
-          Icons.warning_amber_rounded,
-        ),
+        const Color(0xFFFFF4E5),
+        const Color(0xFF8A5300),
+        Icons.warning_amber_rounded,
+      ),
       AppBannerTone.error => (
-          scheme.errorContainer.withValues(alpha: 0.5),
-          scheme.onErrorContainer,
-          Icons.error_outline,
-        ),
+        scheme.errorContainer.withValues(alpha: 0.5),
+        scheme.onErrorContainer,
+        Icons.error_outline,
+      ),
     };
 
     return Container(
@@ -469,10 +464,10 @@ class AppInfoBanner extends StatelessWidget {
             child: Text(
               message,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: foreground,
-                    height: 1.4,
-                    fontWeight: FontWeight.w500,
-                  ),
+                color: foreground,
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],

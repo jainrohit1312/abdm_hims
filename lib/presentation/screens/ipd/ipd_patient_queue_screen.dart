@@ -290,7 +290,7 @@ class _IPDPatientQueueScreenState extends ConsumerState<IPDPatientQueueScreen> {
                     filled: true,
                     fillColor: theme.colorScheme.surfaceContainerHighest
                         .withValues(alpha: 0.3),
-                                      ),
+                  ),
                   onChanged: (_) => setState(() {}),
                 ),
                 const SizedBox(height: 8),

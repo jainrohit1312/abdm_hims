@@ -27,7 +27,8 @@ class DiagnosticResultScreen extends ConsumerStatefulWidget {
       _DiagnosticResultScreenState();
 }
 
-class _DiagnosticResultScreenState extends ConsumerState<DiagnosticResultScreen> {
+class _DiagnosticResultScreenState
+    extends ConsumerState<DiagnosticResultScreen> {
   String? _focusOrderId;
 
   @override
@@ -122,7 +123,9 @@ class _DiagnosticResultScreenState extends ConsumerState<DiagnosticResultScreen>
                     children: [
                       const Icon(Icons.link, size: 16),
                       const SizedBox(width: 8),
-                      const Expanded(child: Text('Opened from Billing history')),
+                      const Expanded(
+                        child: Text('Opened from Billing history'),
+                      ),
                       TextButton(
                         onPressed: () => setState(() => _focusOrderId = null),
                         child: const Text('Show All Orders'),
@@ -180,9 +183,9 @@ class _DiagnosticOrdersTabState extends ConsumerState<_DiagnosticOrdersTab> {
   final _scrollController = ScrollController();
 
   DiagnosticOrdersParams get _params => DiagnosticOrdersParams(
-        hospitalId: widget.hospitalId,
-        status: widget.status,
-      );
+    hospitalId: widget.hospitalId,
+    status: widget.status,
+  );
 
   @override
   void initState() {
@@ -251,9 +254,8 @@ class _DiagnosticOrdersTabState extends ConsumerState<_DiagnosticOrdersTab> {
     });
 
     return RefreshIndicator(
-      onRefresh: () => ref
-          .read(diagnosticOrdersListProvider(_params).notifier)
-          .refresh(),
+      onRefresh: () =>
+          ref.read(diagnosticOrdersListProvider(_params).notifier).refresh(),
       child: ListView.builder(
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
@@ -303,8 +305,8 @@ class _DiagnosticOrdersTabState extends ConsumerState<_DiagnosticOrdersTab> {
           child: Text(
             'No more orders',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
       );
@@ -339,7 +341,8 @@ class _OrderTileState extends ConsumerState<_OrderTile> {
 
   @override
   Widget build(BuildContext context) {
-    final patient = (order['patients'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final patient =
+        (order['patients'] as Map?)?.cast<String, dynamic>() ?? const {};
     final patientName =
         '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'.trim();
     final uhid = patient['uhid']?.toString() ?? '-';
@@ -398,11 +401,15 @@ class _OrderTileState extends ConsumerState<_OrderTile> {
     WidgetRef ref,
     List<Map<String, dynamic>> items,
   ) {
-    final allFinal = items.isNotEmpty && items.every((item) {
-      final results = ((item['diagnostic_results'] as List?) ?? const [])
-          .cast<Map<String, dynamic>>();
-      return results.any((r) => r['status'] == 'final' || r['status'] == 'amended');
-    });
+    final allFinal =
+        items.isNotEmpty &&
+        items.every((item) {
+          final results = ((item['diagnostic_results'] as List?) ?? const [])
+              .cast<Map<String, dynamic>>();
+          return results.any(
+            (r) => r['status'] == 'final' || r['status'] == 'amended',
+          );
+        });
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -427,9 +434,7 @@ class _OrderTileState extends ConsumerState<_OrderTile> {
               ),
               const SizedBox(width: 12),
               FilledButton(
-                onPressed: allFinal
-                    ? () => _markCompleted(context, ref)
-                    : null,
+                onPressed: allFinal ? () => _markCompleted(context, ref) : null,
                 child: const Text('Mark Completed'),
               ),
             ],
@@ -499,15 +504,15 @@ class _OrderTileState extends ConsumerState<_OrderTile> {
       ref.invalidate(diagnosticOrderItemsProvider(order['id'].toString()));
       ref.invalidate(diagnosticOrdersListProvider);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Result saved')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Result saved')));
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save result: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to save result: $e')));
       }
     }
   }
@@ -543,7 +548,9 @@ class _OrderTileState extends ConsumerState<_OrderTile> {
       for (final item in items) {
         final itemResults = ((item['diagnostic_results'] as List?) ?? const [])
             .cast<Map<String, dynamic>>();
-        final result = itemResults.isEmpty ? const <String, dynamic>{} : itemResults.last;
+        final result = itemResults.isEmpty
+            ? const <String, dynamic>{}
+            : itemResults.last;
         results.add({
           'test_name': item['test_name']?.toString() ?? '-',
           'category': item['category']?.toString() ?? 'other',
@@ -557,7 +564,8 @@ class _OrderTileState extends ConsumerState<_OrderTile> {
         });
       }
 
-      final patient = (order['patients'] as Map?)?.cast<String, dynamic>() ?? const {};
+      final patient =
+          (order['patients'] as Map?)?.cast<String, dynamic>() ?? const {};
       final patientName =
           '${patient['first_name'] ?? ''} ${patient['last_name'] ?? ''}'.trim();
       final uhid = patient['uhid']?.toString() ?? '-';
@@ -567,7 +575,8 @@ class _OrderTileState extends ConsumerState<_OrderTile> {
       if (doctorId != null && doctorId.isNotEmpty) {
         final doctor = await db.getDoctorById(doctorId);
         final doctorFullName =
-            '${doctor?['first_name'] ?? ''} ${doctor?['last_name'] ?? ''}'.trim();
+            '${doctor?['first_name'] ?? ''} ${doctor?['last_name'] ?? ''}'
+                .trim();
         if (doctorFullName.isNotEmpty) doctorName = doctorFullName;
       }
 
@@ -615,7 +624,11 @@ class _OrderTileState extends ConsumerState<_OrderTile> {
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: color),
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
       ),
     );
   }
@@ -761,36 +774,34 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
       }
 
       final technicianId =
-          await ref.read(databaseServiceProvider).getCurrentUsersTableId() ?? '';
+          await ref.read(databaseServiceProvider).getCurrentUsersTableId() ??
+          '';
 
       if (!mounted) return;
-      Navigator.pop(
-        context,
-        {
-          'order_item_id': widget.item['id'],
-          'result_value': _valueController.text.trim().isEmpty
-              ? null
-              : _valueController.text.trim(),
-          'reference_range': _referenceController.text.trim().isEmpty
-              ? null
-              : _referenceController.text.trim(),
-          'unit': _unitController.text.trim().isEmpty
-              ? null
-              : _unitController.text.trim(),
-          'findings': _findingsController.text.trim().isEmpty
-              ? null
-              : _findingsController.text.trim(),
-          'impression': _impressionController.text.trim().isEmpty
-              ? null
-              : _impressionController.text.trim(),
-          'recommendations': _recommendationsController.text.trim().isEmpty
-              ? null
-              : _recommendationsController.text.trim(),
-          'image_url': imageUrl,
-          'status': _status,
-          'technician_id': technicianId.isEmpty ? null : technicianId,
-        },
-      );
+      Navigator.pop(context, {
+        'order_item_id': widget.item['id'],
+        'result_value': _valueController.text.trim().isEmpty
+            ? null
+            : _valueController.text.trim(),
+        'reference_range': _referenceController.text.trim().isEmpty
+            ? null
+            : _referenceController.text.trim(),
+        'unit': _unitController.text.trim().isEmpty
+            ? null
+            : _unitController.text.trim(),
+        'findings': _findingsController.text.trim().isEmpty
+            ? null
+            : _findingsController.text.trim(),
+        'impression': _impressionController.text.trim().isEmpty
+            ? null
+            : _impressionController.text.trim(),
+        'recommendations': _recommendationsController.text.trim().isEmpty
+            ? null
+            : _recommendationsController.text.trim(),
+        'image_url': imageUrl,
+        'status': _status,
+        'technician_id': technicianId.isEmpty ? null : technicianId,
+      });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -844,17 +855,13 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                 TextField(
                   controller: _findingsController,
                   maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Findings',
-                                      ),
+                  decoration: const InputDecoration(labelText: 'Findings'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _impressionController,
                   maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Impression',
-                                      ),
+                  decoration: const InputDecoration(labelText: 'Impression'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -862,7 +869,7 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                   maxLines: 2,
                   decoration: const InputDecoration(
                     labelText: 'Recommendations',
-                                      ),
+                  ),
                 ),
               ] else if (isCardiology) ...[
                 TextField(
@@ -871,15 +878,13 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                   decoration: const InputDecoration(
                     labelText: 'Interpretation',
                     hintText: 'e.g. Normal sinus rhythm',
-                                      ),
+                  ),
                 ),
               ] else ...[
                 TextField(
                   controller: _valueController,
                   maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Result Value',
-                                      ),
+                  decoration: const InputDecoration(labelText: 'Result Value'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -887,7 +892,7 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                   maxLines: 2,
                   decoration: const InputDecoration(
                     labelText: 'Findings / Notes',
-                                      ),
+                  ),
                 ),
               ],
               if (_showImageUpload) ...[
@@ -897,15 +902,14 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: _status,
-                decoration: const InputDecoration(
-                  labelText: 'Status',
-                                  ),
+                decoration: const InputDecoration(labelText: 'Status'),
                 items: const [
                   DropdownMenuItem(value: 'draft', child: Text('Draft')),
                   DropdownMenuItem(value: 'final', child: Text('Final')),
                   DropdownMenuItem(value: 'amended', child: Text('Amended')),
                 ],
-                onChanged: (value) => setState(() => _status = value ?? 'final'),
+                onChanged: (value) =>
+                    setState(() => _status = value ?? 'final'),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -914,7 +918,7 @@ class _ResultEntryDialogState extends ConsumerState<_ResultEntryDialog> {
                 decoration: const InputDecoration(
                   labelText: 'Result Date (auto)',
                   prefixIcon: Icon(Icons.event_outlined),
-                                  ),
+                ),
               ),
             ],
           ),

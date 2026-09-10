@@ -134,41 +134,49 @@ class DriftLocalDatabase implements LocalDatabase {
 
     switch (table) {
       case LocalTables.patients:
-        await db.into(db.patientRecords).insertOnConflictUpdate(
-          PatientRecordsCompanion.insert(
-            offlineId: offlineId,
-            payload: payload,
-            updatedAt: ts,
-            isSynced: Value(isSynced),
-          ),
-        );
+        await db
+            .into(db.patientRecords)
+            .insertOnConflictUpdate(
+              PatientRecordsCompanion.insert(
+                offlineId: offlineId,
+                payload: payload,
+                updatedAt: ts,
+                isSynced: Value(isSynced),
+              ),
+            );
       case LocalTables.opdRegistrations:
-        await db.into(db.opdRegistrationRecords).insertOnConflictUpdate(
-          OpdRegistrationRecordsCompanion.insert(
-            offlineId: offlineId,
-            payload: payload,
-            updatedAt: ts,
-            isSynced: Value(isSynced),
-          ),
-        );
+        await db
+            .into(db.opdRegistrationRecords)
+            .insertOnConflictUpdate(
+              OpdRegistrationRecordsCompanion.insert(
+                offlineId: offlineId,
+                payload: payload,
+                updatedAt: ts,
+                isSynced: Value(isSynced),
+              ),
+            );
       case LocalTables.ipdAdmissions:
-        await db.into(db.ipdAdmissionRecords).insertOnConflictUpdate(
-          IpdAdmissionRecordsCompanion.insert(
-            offlineId: offlineId,
-            payload: payload,
-            updatedAt: ts,
-            isSynced: Value(isSynced),
-          ),
-        );
+        await db
+            .into(db.ipdAdmissionRecords)
+            .insertOnConflictUpdate(
+              IpdAdmissionRecordsCompanion.insert(
+                offlineId: offlineId,
+                payload: payload,
+                updatedAt: ts,
+                isSynced: Value(isSynced),
+              ),
+            );
       case LocalTables.billing:
-        await db.into(db.billingRecords).insertOnConflictUpdate(
-          BillingRecordsCompanion.insert(
-            offlineId: offlineId,
-            payload: payload,
-            updatedAt: ts,
-            isSynced: Value(isSynced),
-          ),
-        );
+        await db
+            .into(db.billingRecords)
+            .insertOnConflictUpdate(
+              BillingRecordsCompanion.insert(
+                offlineId: offlineId,
+                payload: payload,
+                updatedAt: ts,
+                isSynced: Value(isSynced),
+              ),
+            );
       default:
         throw ArgumentError.value(table, 'table', 'Unsupported offline table');
     }
@@ -186,36 +194,36 @@ class DriftLocalDatabase implements LocalDatabase {
 
     switch (table) {
       case LocalTables.patients:
-        await (db.update(db.patientRecords)
-              ..where((t) => t.offlineId.equals(offlineId)))
-            .write(
+        await (db.update(
+          db.patientRecords,
+        )..where((t) => t.offlineId.equals(offlineId))).write(
           PatientRecordsCompanion(
             isSynced: const Value(true),
             updatedAt: Value(ts),
           ),
         );
       case LocalTables.opdRegistrations:
-        await (db.update(db.opdRegistrationRecords)
-              ..where((t) => t.offlineId.equals(offlineId)))
-            .write(
+        await (db.update(
+          db.opdRegistrationRecords,
+        )..where((t) => t.offlineId.equals(offlineId))).write(
           OpdRegistrationRecordsCompanion(
             isSynced: const Value(true),
             updatedAt: Value(ts),
           ),
         );
       case LocalTables.ipdAdmissions:
-        await (db.update(db.ipdAdmissionRecords)
-              ..where((t) => t.offlineId.equals(offlineId)))
-            .write(
+        await (db.update(
+          db.ipdAdmissionRecords,
+        )..where((t) => t.offlineId.equals(offlineId))).write(
           IpdAdmissionRecordsCompanion(
             isSynced: const Value(true),
             updatedAt: Value(ts),
           ),
         );
       case LocalTables.billing:
-        await (db.update(db.billingRecords)
-              ..where((t) => t.offlineId.equals(offlineId)))
-            .write(
+        await (db.update(
+          db.billingRecords,
+        )..where((t) => t.offlineId.equals(offlineId))).write(
           BillingRecordsCompanion(
             isSynced: const Value(true),
             updatedAt: Value(ts),
@@ -235,21 +243,21 @@ class DriftLocalDatabase implements LocalDatabase {
 
     switch (table) {
       case LocalTables.patients:
-        await (db.delete(db.patientRecords)
-              ..where((t) => t.offlineId.equals(offlineId)))
-            .go();
+        await (db.delete(
+          db.patientRecords,
+        )..where((t) => t.offlineId.equals(offlineId))).go();
       case LocalTables.opdRegistrations:
-        await (db.delete(db.opdRegistrationRecords)
-              ..where((t) => t.offlineId.equals(offlineId)))
-            .go();
+        await (db.delete(
+          db.opdRegistrationRecords,
+        )..where((t) => t.offlineId.equals(offlineId))).go();
       case LocalTables.ipdAdmissions:
-        await (db.delete(db.ipdAdmissionRecords)
-              ..where((t) => t.offlineId.equals(offlineId)))
-            .go();
+        await (db.delete(
+          db.ipdAdmissionRecords,
+        )..where((t) => t.offlineId.equals(offlineId))).go();
       case LocalTables.billing:
-        await (db.delete(db.billingRecords)
-              ..where((t) => t.offlineId.equals(offlineId)))
-            .go();
+        await (db.delete(
+          db.billingRecords,
+        )..where((t) => t.offlineId.equals(offlineId))).go();
       default:
         throw ArgumentError.value(table, 'table', 'Unsupported offline table');
     }
@@ -456,22 +464,18 @@ class DriftLocalDatabase implements LocalDatabase {
     final db = _requireDb();
     var count = 0;
 
-    count += (await (db.select(db.patientRecords)
-              ..where((t) => t.isSynced.equals(false)))
-            .get())
-        .length;
-    count += (await (db.select(db.opdRegistrationRecords)
-              ..where((t) => t.isSynced.equals(false)))
-            .get())
-        .length;
-    count += (await (db.select(db.ipdAdmissionRecords)
-              ..where((t) => t.isSynced.equals(false)))
-            .get())
-        .length;
-    count += (await (db.select(db.billingRecords)
-              ..where((t) => t.isSynced.equals(false)))
-            .get())
-        .length;
+    count += (await (db.select(
+      db.patientRecords,
+    )..where((t) => t.isSynced.equals(false))).get()).length;
+    count += (await (db.select(
+      db.opdRegistrationRecords,
+    )..where((t) => t.isSynced.equals(false))).get()).length;
+    count += (await (db.select(
+      db.ipdAdmissionRecords,
+    )..where((t) => t.isSynced.equals(false))).get()).length;
+    count += (await (db.select(
+      db.billingRecords,
+    )..where((t) => t.isSynced.equals(false))).get()).length;
 
     return count;
   }

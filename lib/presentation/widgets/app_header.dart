@@ -268,10 +268,7 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
         // LEFT: dedicated, non-compressed MediFlux branding block. The logo
         // gets its own fixed-width area and is vertically centred across both
         // navigation rows.
-        SizedBox(
-          width: 170,
-          child: Center(child: _Brand(height: 40)),
-        ),
+        SizedBox(width: 170, child: Center(child: _Brand(height: 40))),
         const SizedBox(width: 4),
         // Home control stays right after the branding area.
         IconButton(
@@ -598,11 +595,7 @@ const List<_NavDestination> _navDestinations = [
     icon: Icons.medical_information_outlined,
     excludeRoutes: ['/ipd/wards'],
   ),
-  _NavDestination(
-    label: 'ABHA',
-    route: '/abha',
-    icon: Icons.fingerprint,
-  ),
+  _NavDestination(label: 'ABHA', route: '/abha', icon: Icons.fingerprint),
   _NavDestination(
     label: 'Ward',
     route: '/ipd/wards',

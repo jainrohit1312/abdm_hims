@@ -51,9 +51,11 @@ class SupabaseMarketingAreaRepository implements MarketingAreaRepository {
     final row = await DatabaseService.fetchWithRetry(
       () => _client
           .from(ApiConstants.marketingAreasTable)
-          .insert(_areaPayload(area, hospitalId: hospitalId)
-            ..['created_at'] = now
-            ..['updated_at'] = now)
+          .insert(
+            _areaPayload(area, hospitalId: hospitalId)
+              ..['created_at'] = now
+              ..['updated_at'] = now,
+          )
           .select()
           .single(),
     );
@@ -68,8 +70,10 @@ class SupabaseMarketingAreaRepository implements MarketingAreaRepository {
     final row = await DatabaseService.fetchWithRetry(
       () => _client
           .from(ApiConstants.marketingAreasTable)
-          .update(_areaPayload(area, hospitalId: hospitalId)
-            ..['updated_at'] = DateTime.now().toUtc().toIso8601String())
+          .update(
+            _areaPayload(area, hospitalId: hospitalId)
+              ..['updated_at'] = DateTime.now().toUtc().toIso8601String(),
+          )
           .eq('id', area.id)
           .eq('hospital_id', hospitalId)
           .select()

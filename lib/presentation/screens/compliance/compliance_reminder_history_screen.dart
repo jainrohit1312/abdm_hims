@@ -45,21 +45,26 @@ class _ComplianceReminderHistoryScreenState
             child: remindersAsync.when(
               data: (reminders) {
                 final recordNames = <String, String>{
-                  for (final record in recordsAsync.valueOrNull ?? const <ComplianceRecord>[])
+                  for (final record
+                      in recordsAsync.valueOrNull ?? const <ComplianceRecord>[])
                     record.id: record.documentName,
                 };
                 final filtered = _typeFilter == null
                     ? reminders
-                    : reminders.where((r) => r.reminderType == _typeFilter).toList();
+                    : reminders
+                          .where((r) => r.reminderType == _typeFilter)
+                          .toList();
                 if (filtered.isEmpty) {
                   return const ComplianceEmptyState(
                     icon: Icons.notifications_off_outlined,
-                    message: 'No reminders yet.\n'
+                    message:
+                        'No reminders yet.\n'
                         'Reminders appear automatically 30 and 7 days before expiry, and when a document expires.',
                   );
                 }
                 return RefreshIndicator(
-                  onRefresh: () async => ref.invalidate(complianceRefreshProvider),
+                  onRefresh: () async =>
+                      ref.invalidate(complianceRefreshProvider),
                   child: ListView.builder(
                     padding: const EdgeInsets.all(12),
                     itemCount: filtered.length,
@@ -94,7 +99,11 @@ class _ComplianceReminderHistoryScreenState
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            _chip('All', _typeFilter == null, () => setState(() => _typeFilter = null)),
+            _chip(
+              'All',
+              _typeFilter == null,
+              () => setState(() => _typeFilter = null),
+            ),
             for (final type in ReminderType.values)
               _chip(
                 type.label,
@@ -110,7 +119,12 @@ class _ComplianceReminderHistoryScreenState
     );
   }
 
-  Widget _chip(String label, bool selected, VoidCallback onTap, {Color? color}) {
+  Widget _chip(
+    String label,
+    bool selected,
+    VoidCallback onTap, {
+    Color? color,
+  }) {
     final effectiveColor = color ?? Theme.of(context).colorScheme.primary;
     return Padding(
       padding: const EdgeInsets.only(right: 6),
@@ -124,7 +138,10 @@ class _ComplianceReminderHistoryScreenState
     );
   }
 
-  Widget _buildReminderTile(ComplianceReminderEntry reminder, String recordName) {
+  Widget _buildReminderTile(
+    ComplianceReminderEntry reminder,
+    String recordName,
+  ) {
     final color = _typeColor(reminder.reminderType);
     final icon = reminder.reminderType == ReminderType.expired
         ? Icons.error_outline
@@ -160,7 +177,9 @@ class _ComplianceReminderHistoryScreenState
         trailing: Text(
           reminder.createdAt == null
               ? ''
-              : DateFormat('dd MMM, hh:mm a').format(reminder.createdAt!.toLocal()),
+              : DateFormat(
+                  'dd MMM, hh:mm a',
+                ).format(reminder.createdAt!.toLocal()),
           style: const TextStyle(fontSize: 11),
         ),
       ),

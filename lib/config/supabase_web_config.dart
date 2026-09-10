@@ -45,30 +45,30 @@ class SupabaseWebConfig {
 
   /// Supabase project URL.
   static String get supabaseUrl => _resolve(
-        runtimeValue: _readRuntimeEnv('SUPABASE_URL'),
-        dartDefine: _dartDefineSupabaseUrl,
-        fallback: _fallbackSupabaseUrl,
-      );
+    runtimeValue: _readRuntimeEnv('SUPABASE_URL'),
+    dartDefine: _dartDefineSupabaseUrl,
+    fallback: _fallbackSupabaseUrl,
+  );
 
   /// Supabase anon (public) key.
   ///
   /// This key is designed to be shipped to browsers — row level security (RLS)
   /// keeps the data protected. Never put the `service_role` key here.
   static String get supabaseAnonKey => _resolve(
-        runtimeValue: _readRuntimeEnv('SUPABASE_ANON_KEY'),
-        dartDefine: _dartDefineSupabaseAnonKey,
-        fallback: _fallbackSupabaseAnonKey,
-      );
+    runtimeValue: _readRuntimeEnv('SUPABASE_ANON_KEY'),
+    dartDefine: _dartDefineSupabaseAnonKey,
+    fallback: _fallbackSupabaseAnonKey,
+  );
 
   /// DeepSeek API key used by the clinical counseling summarization flow.
   ///
   /// NOTE: client-side apps cannot keep this key secret. Prefer proxying the
   /// DeepSeek call through a Supabase Edge Function in production.
   static String get deepSeekApiKey => _resolve(
-        runtimeValue: _readRuntimeEnv('DEEPSEEK_API_KEY'),
-        dartDefine: _dartDefineDeepSeekApiKey,
-        fallback: _fallbackDeepSeekApiKey,
-      );
+    runtimeValue: _readRuntimeEnv('DEEPSEEK_API_KEY'),
+    dartDefine: _dartDefineDeepSeekApiKey,
+    fallback: _fallbackDeepSeekApiKey,
+  );
 
   /// Reads a value from `window._env_` at runtime (web builds only).
   ///

@@ -222,11 +222,15 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
         child: Center(
           child: TextButton.icon(
             onPressed: () => ref
-                .read(voucherListProvider(VoucherFilter(
-                  hospitalId: ref.read(authStateProvider).hospitalId ?? '',
-                  from: _fromDate,
-                  to: _toDate,
-                )).notifier)
+                .read(
+                  voucherListProvider(
+                    VoucherFilter(
+                      hospitalId: ref.read(authStateProvider).hospitalId ?? '',
+                      from: _fromDate,
+                      to: _toDate,
+                    ),
+                  ).notifier,
+                )
                 .nextPage(),
             icon: const Icon(Icons.refresh),
             label: const Text('Failed to load more — Retry'),
@@ -241,8 +245,8 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
           child: Text(
             'No more vouchers',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
       );
@@ -300,8 +304,9 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
                   Text(
                     '$count voucher${count == 1 ? '' : 's'}',
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.onPrimaryContainer
-                          .withValues(alpha: 0.75),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onPrimaryContainer.withValues(alpha: 0.75),
                       fontSize: 12,
                     ),
                   ),
@@ -311,9 +316,9 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
             Text(
               _formatCurrency(total),
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  ),
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.onPrimaryContainer,
+              ),
             ),
           ],
         ),
@@ -363,9 +368,9 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
                 Text(
                   _formatCurrency(amount),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: _voucherTypeColor(voucherType),
-                      ),
+                    fontWeight: FontWeight.bold,
+                    color: _voucherTypeColor(voucherType),
+                  ),
                 ),
               ],
             ),
@@ -393,8 +398,8 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
                     '${attachments.length} attachment'
                     '${attachments.length == 1 ? '' : 's'}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -404,9 +409,7 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
                   padding: const EdgeInsets.only(bottom: 2),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(6),
-                    onTap: () => _openAttachment(
-                      attachment['url']?.toString(),
-                    ),
+                    onTap: () => _openAttachment(attachment['url']?.toString()),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
                         vertical: 4,
@@ -458,9 +461,7 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
     if (raw is List) {
       return raw
           .whereType<Map>()
-          .map(
-            (item) => item.cast<String, dynamic>(),
-          )
+          .map((item) => item.cast<String, dynamic>())
           .where((item) => (item['url']?.toString() ?? '').isNotEmpty)
           .toList();
     }
@@ -486,7 +487,14 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
   IconData _attachmentIcon(String? fileName) {
     final extension = (fileName ?? '').toLowerCase().split('.').last;
     if (extension == 'pdf') return Icons.picture_as_pdf_outlined;
-    if (const ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(extension)) {
+    if (const [
+      'jpg',
+      'jpeg',
+      'png',
+      'gif',
+      'webp',
+      'bmp',
+    ].contains(extension)) {
       return Icons.image_outlined;
     }
     if (const ['xls', 'xlsx', 'csv'].contains(extension)) {
@@ -507,7 +515,11 @@ class _VoucherListScreenState extends ConsumerState<VoucherListScreen> {
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          fontSize: 11,
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

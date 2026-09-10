@@ -8,16 +8,17 @@ import 'local_db.dart';
 
 /// Result of a single [SyncService.syncPendingData] pass.
 class SyncResult {
-  const SyncResult({required this.synced, this.remaining = 0, this.skipped = false});
+  const SyncResult({
+    required this.synced,
+    this.remaining = 0,
+    this.skipped = false,
+  });
 
   final int synced;
   final int remaining;
   final bool skipped;
 
-  static const SyncResult skippedResult = SyncResult(
-    synced: 0,
-    skipped: true,
-  );
+  static const SyncResult skippedResult = SyncResult(synced: 0, skipped: true);
 }
 
 /// Background sync engine.

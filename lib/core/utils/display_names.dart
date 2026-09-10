@@ -59,3 +59,24 @@ String cleanDoctorDisplayName(String? raw, {String? department}) {
   name = name.replaceAll(_edgeSeparators, '').trim();
   return name;
 }
+
+/// Cleans a doctor name for use on printed slips / PDFs.
+///
+/// Unlike [cleanDoctorDisplayName] this keeps any `Dr.` prefix — the slip
+/// shows the doctor exactly as configured (for example `Dr. Om Chaudhary`).
+/// It only removes embedded record ids (UUIDs / long hex tokens) and stray
+/// separators left behind by legacy data that stored `name - id` in a single
+/// column.
+///
+/// Returns `''` when nothing displayable remains; the caller decides the
+/// final fallback (for example `N/A`).
+String cleanDoctorName(String? raw) {
+  var name = (raw ?? '').trim();
+  if (name.isEmpty) return '';
+
+  name = name.replaceAll(_uuidToken, ' ');
+  name = name.replaceAll(_longHexToken, ' ');
+  name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
+  name = name.replaceAll(_edgeSeparators, '').trim();
+  return name;
+}

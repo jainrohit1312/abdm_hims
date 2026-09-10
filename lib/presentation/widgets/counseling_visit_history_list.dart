@@ -98,10 +98,7 @@ class CounselingVisitHistoryList extends ConsumerWidget {
               children: [
                 for (var i = 0; i < sessions.length; i++) ...[
                   if (i > 0) const SizedBox(height: 8),
-                  _SessionCard(
-                    session: sessions[i],
-                    patientName: patientName,
-                  ),
+                  _SessionCard(session: sessions[i], patientName: patientName),
                 ],
               ],
             );
@@ -184,7 +181,10 @@ class _SessionCard extends StatelessWidget {
                     label: _formatDuration(durationSeconds),
                   ),
                 if (hasVideo)
-                  const _InfoChip(icon: Icons.videocam_outlined, label: 'Video'),
+                  const _InfoChip(
+                    icon: Icons.videocam_outlined,
+                    label: 'Video',
+                  ),
                 if (hasAudio)
                   const _InfoChip(icon: Icons.mic_none, label: 'Audio'),
                 if (hasSummary)

@@ -569,7 +569,7 @@ class _IPDAdmissionScreenState extends ConsumerState<IPDAdmissionScreen> {
                                   decoration: InputDecoration(
                                     labelText: 'Select Bed',
                                     suffixIcon: const Icon(Icons.bed),
-                                                                      ),
+                                  ),
                                   child: Text(
                                     _selectedBedId == null
                                         ? 'Tap to select a bed'
@@ -999,13 +999,15 @@ class _IPDAdmissionScreenState extends ConsumerState<IPDAdmissionScreen> {
         try {
           final userId = await dbService.getCurrentUsersTableId();
           if (userId != null) {
-            await ref.read(personalizedTagServiceProvider).setEntityTags(
-              userId: userId,
-              fieldKey: PersonalizedTagFields.ipd,
-              entityType: PersonalizedTagEntityTypes.ipdAdmission,
-              entityId: admissionId,
-              names: admissionTags,
-            );
+            await ref
+                .read(personalizedTagServiceProvider)
+                .setEntityTags(
+                  userId: userId,
+                  fieldKey: PersonalizedTagFields.ipd,
+                  entityType: PersonalizedTagEntityTypes.ipdAdmission,
+                  entityId: admissionId,
+                  names: admissionTags,
+                );
           }
         } catch (e) {
           debugPrint('IPD tags save failed (non-blocking): $e');

@@ -44,8 +44,7 @@ class DoctorPrescriptionForm extends ConsumerStatefulWidget {
       DoctorPrescriptionFormState();
 }
 
-class DoctorPrescriptionFormState
-    extends ConsumerState<DoctorPrescriptionForm>
+class DoctorPrescriptionFormState extends ConsumerState<DoctorPrescriptionForm>
     with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
@@ -188,9 +187,8 @@ class DoctorPrescriptionFormState
     await showDialog<void>(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.35),
-      builder: (context) => MedicineSelectionDialog(
-        onMedicineAdded: _addMedicineFromDialog,
-      ),
+      builder: (context) =>
+          MedicineSelectionDialog(onMedicineAdded: _addMedicineFromDialog),
     );
   }
 
@@ -220,21 +218,21 @@ class DoctorPrescriptionFormState
     }
 
     // OPD -> full clinical document, IPD -> medicines only.
-    final isIpd = widget.ipdAdmissionId != null &&
-        widget.ipdAdmissionId!.isNotEmpty;
+    final isIpd =
+        widget.ipdAdmissionId != null && widget.ipdAdmissionId!.isNotEmpty;
     final unifiedSections =
         widget.clinicalController?.toUnifiedJson() ?? const <String, dynamic>{};
-    final history = (unifiedSections['history'] as Map?)?.cast<String, dynamic>() ??
+    final history =
+        (unifiedSections['history'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
     final investigations =
         (unifiedSections['investigations'] as Map?)?.cast<String, dynamic>() ??
-            const <String, dynamic>{};
+        const <String, dynamic>{};
     final advice =
         (unifiedSections['advice'] as Map?)?.cast<String, dynamic>() ??
-            const <String, dynamic>{};
-    final hasClinicalData = history.isNotEmpty ||
-        investigations.isNotEmpty ||
-        advice.isNotEmpty;
+        const <String, dynamic>{};
+    final hasClinicalData =
+        history.isNotEmpty || investigations.isNotEmpty || advice.isNotEmpty;
 
     if (isIpd) {
       if (_medicines.isEmpty) {
@@ -381,8 +379,8 @@ class DoctorPrescriptionFormState
     // Unified module rule: OPD ko poori clinical document milti hai, IPD ko
     // sirf medicines (History / Investigations / Advice IPD mein dusre
     // modules handle karte hain).
-    final isIpd = widget.ipdAdmissionId != null &&
-        widget.ipdAdmissionId!.isNotEmpty;
+    final isIpd =
+        widget.ipdAdmissionId != null && widget.ipdAdmissionId!.isNotEmpty;
     final showClinicalSections =
         !widget.embedded && clinicalController != null && !isIpd;
 
@@ -843,7 +841,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
                     decoration: InputDecoration(
                       labelText: 'Dosage',
                       hintText: '1-0-1',
-                                          ),
+                    ),
                     onChanged: (value) {
                       widget.medicine.dosage = value.trim();
                       widget.onChanged();
@@ -857,9 +855,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
                       'duration_${medicine.hashCode}_${medicine.duration}',
                     ),
                     initialValue: _durationDropdownValue,
-                    decoration: InputDecoration(
-                      labelText: 'Duration',
-                                          ),
+                    decoration: InputDecoration(labelText: 'Duration'),
                     items: medicineDurationOptions
                         .map(
                           (duration) => DropdownMenuItem(
@@ -894,7 +890,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
                 decoration: InputDecoration(
                   labelText: 'Custom Duration',
                   hintText: 'e.g. 21 Days / 2 Weeks / 6 Months',
-                                  ),
+                ),
                 onChanged: (value) {
                   widget.medicine.duration = value.trim();
                   widget.onChanged();
@@ -912,9 +908,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
               const SizedBox(height: 6),
               TextFormField(
                 controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: 'Medicine Name',
-                                  ),
+                decoration: InputDecoration(labelText: 'Medicine Name'),
                 onChanged: (value) {
                   widget.medicine.medicineName = value.trim();
                   widget.onChanged();
@@ -926,7 +920,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
                 decoration: InputDecoration(
                   labelText: 'Strength',
                   hintText: 'e.g. 500mg',
-                                  ),
+                ),
                 onChanged: (value) {
                   widget.medicine.strength = value.trim().isEmpty
                       ? null
@@ -936,19 +930,18 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
               ),
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
-                key: ValueKey('route_${widget.medicine.hashCode}_${widget.medicine.route}'),
-                initialValue: medicineRouteOptions.contains(widget.medicine.route)
+                key: ValueKey(
+                  'route_${widget.medicine.hashCode}_${widget.medicine.route}',
+                ),
+                initialValue:
+                    medicineRouteOptions.contains(widget.medicine.route)
                     ? widget.medicine.route
                     : 'Other',
-                decoration: InputDecoration(
-                  labelText: 'Route',
-                                  ),
+                decoration: InputDecoration(labelText: 'Route'),
                 items: medicineRouteOptions
                     .map(
-                      (route) => DropdownMenuItem(
-                        value: route,
-                        child: Text(route),
-                      ),
+                      (route) =>
+                          DropdownMenuItem(value: route, child: Text(route)),
                     )
                     .toList(),
                 onChanged: (value) {
@@ -965,7 +958,7 @@ class _PrescriptionMedicineCardState extends State<_PrescriptionMedicineCard> {
                   labelText: 'Instructions',
                   hintText: 'e.g. With water, After food',
                   alignLabelWithHint: true,
-                                  ),
+                ),
                 onChanged: (value) {
                   widget.medicine.instructions = value.trim();
                   widget.onChanged();

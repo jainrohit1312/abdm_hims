@@ -375,7 +375,8 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
       return;
     }
     final netPayable = _netPayable;
-    final balanceAmount = ((netPayable - paidAmount) * 100).roundToDouble() / 100;
+    final balanceAmount =
+        ((netPayable - paidAmount) * 100).roundToDouble() / 100;
 
     setState(() => _submitting = true);
     try {
@@ -960,11 +961,7 @@ class _DiagnosticOrderScreenState extends ConsumerState<DiagnosticOrderScreen> {
     );
   }
 
-  Widget _amountRow(
-    String label,
-    double value, {
-    bool bold = false,
-  }) {
+  Widget _amountRow(String label, double value, {bool bold = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [

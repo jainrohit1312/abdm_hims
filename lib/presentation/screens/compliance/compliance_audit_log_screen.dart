@@ -65,7 +65,8 @@ class _ComplianceAuditLogScreenState
                   );
                 }
                 return RefreshIndicator(
-                  onRefresh: () async => ref.invalidate(complianceRefreshProvider),
+                  onRefresh: () async =>
+                      ref.invalidate(complianceRefreshProvider),
                   child: ListView.builder(
                     padding: const EdgeInsets.all(12),
                     itemCount: filtered.length,
@@ -95,7 +96,11 @@ class _ComplianceAuditLogScreenState
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            _chip('All', _actionFilter == null, () => setState(() => _actionFilter = null)),
+            _chip(
+              'All',
+              _actionFilter == null,
+              () => setState(() => _actionFilter = null),
+            ),
             for (final action in _actions)
               _chip(
                 action.toUpperCase(),
@@ -111,7 +116,12 @@ class _ComplianceAuditLogScreenState
     );
   }
 
-  Widget _chip(String label, bool selected, VoidCallback onTap, {Color? color}) {
+  Widget _chip(
+    String label,
+    bool selected,
+    VoidCallback onTap, {
+    Color? color,
+  }) {
     final effectiveColor = color ?? Theme.of(context).colorScheme.primary;
     return Padding(
       padding: const EdgeInsets.only(right: 6),

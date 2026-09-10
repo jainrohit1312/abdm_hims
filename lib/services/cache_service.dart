@@ -57,7 +57,9 @@ class CacheService {
   Box<String> get _requireBox {
     final box = _box;
     if (box == null) {
-      throw StateError('CacheService.init() must be called before using the cache.');
+      throw StateError(
+        'CacheService.init() must be called before using the cache.',
+      );
     }
     return box;
   }

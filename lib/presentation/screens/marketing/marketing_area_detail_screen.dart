@@ -21,9 +21,7 @@ class MarketingAreaDetailScreen extends ConsumerWidget {
     if (hospitalId == null || hospitalId.isEmpty) {
       return Scaffold(
         appBar: SmartAppBar(title: const Text('Marketing Area')),
-        body: const Center(
-          child: Text('Hospital not assigned to this user.'),
-        ),
+        body: const Center(child: Text('Hospital not assigned to this user.')),
       );
     }
 
@@ -76,7 +74,8 @@ class MarketingAreaDetailScreen extends ConsumerWidget {
       for (final summary in summaries) summary.referralDoctorId: summary,
     };
 
-    final areaName = areaActivityAsync.valueOrNull?.areaName ?? 'Marketing Area';
+    final areaName =
+        areaActivityAsync.valueOrNull?.areaName ?? 'Marketing Area';
 
     return Scaffold(
       appBar: SmartAppBar(title: Text(areaName)),
@@ -119,9 +118,8 @@ class MarketingAreaDetailScreen extends ConsumerWidget {
                   );
                 }
                 return RefreshIndicator(
-                  onRefresh: () async => ref.invalidate(
-                    referralDoctorsProvider(hospitalId),
-                  ),
+                  onRefresh: () async =>
+                      ref.invalidate(referralDoctorsProvider(hospitalId)),
                   child: ListView.separated(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -166,7 +164,9 @@ class MarketingAreaDetailScreen extends ConsumerWidget {
                                     doctor.clinicName!.isNotEmpty)
                                   Text(
                                     doctor.clinicName!,
-                                    style: Theme.of(context).textTheme.bodySmall,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
                                   ),
                                 const SizedBox(height: 6),
                                 Wrap(

@@ -35,9 +35,7 @@ class _EmployeeManagementScreenState
     if (hospitalId == null || hospitalId.isEmpty) {
       return Scaffold(
         appBar: SmartAppBar(title: const Text('Employee Management')),
-        body: const Center(
-          child: Text('Hospital not assigned to this user.'),
-        ),
+        body: const Center(child: Text('Hospital not assigned to this user.')),
       );
     }
 
@@ -95,8 +93,8 @@ class _EmployeesTabState extends ConsumerState<_EmployeesTab> {
       hospitalDepartmentsProvider(widget.hospitalId),
     );
 
-    final departments = departmentsAsync.valueOrNull ??
-        const <Map<String, dynamic>>[];
+    final departments =
+        departmentsAsync.valueOrNull ?? const <Map<String, dynamic>>[];
     final departmentNames = <String, String>{
       for (final d in departments)
         if (d['id']?.toString().isNotEmpty == true)
@@ -168,10 +166,9 @@ class _EmployeesTabState extends ConsumerState<_EmployeesTab> {
                     final employee = filtered[index];
                     return _EmployeeCard(
                       employee: employee,
-                      departmentName: departmentNames[employee.departmentId] ??
-                          (employee.departmentId == null
-                              ? '—'
-                              : 'Unknown'),
+                      departmentName:
+                          departmentNames[employee.departmentId] ??
+                          (employee.departmentId == null ? '—' : 'Unknown'),
                     );
                   },
                 ),
@@ -253,9 +250,10 @@ class _EmployeeCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              [departmentName, employee.designation]
-                  .where((e) => e != null && e.isNotEmpty)
-                  .join(' • '),
+              [
+                departmentName,
+                employee.designation,
+              ].where((e) => e != null && e.isNotEmpty).join(' • '),
             ),
             Text(
               '${_formatCurrency(employee.monthlySalary)} / month'
@@ -319,7 +317,10 @@ class _AttendanceTab extends StatelessWidget {
           const Material(
             color: Colors.transparent,
             child: TabBar(
-              tabs: [Tab(text: 'Daily'), Tab(text: 'Monthly')],
+              tabs: [
+                Tab(text: 'Daily'),
+                Tab(text: 'Monthly'),
+              ],
             ),
           ),
           Expanded(
@@ -361,8 +362,7 @@ class _DailyAttendanceTabState extends ConsumerState<_DailyAttendanceTab> {
     final employeesAsync = ref.watch(employeesProvider(widget.hospitalId));
 
     final employeesById = <String, Employee>{
-      for (final e in employeesAsync.valueOrNull ?? const <Employee>[])
-        e.id: e,
+      for (final e in employeesAsync.valueOrNull ?? const <Employee>[]) e.id: e,
     };
 
     return Column(
@@ -404,9 +404,8 @@ class _DailyAttendanceTabState extends ConsumerState<_DailyAttendanceTab> {
                 );
               }
               return RefreshIndicator(
-                onRefresh: () async => ref.invalidate(dailyAttendanceProvider(
-                  params,
-                )),
+                onRefresh: () async =>
+                    ref.invalidate(dailyAttendanceProvider(params)),
                 child: ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -532,10 +531,7 @@ class _DailyAttendanceRow extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _DetailRow(
-              label: 'Date',
-              value: _dateFormat.format(summary.date),
-            ),
+            _DetailRow(label: 'Date', value: _dateFormat.format(summary.date)),
             _DetailRow(
               label: 'Punch In',
               value: summary.firstPunchIn == null
@@ -632,7 +628,11 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (Color background, Color foreground, IconData icon) = switch (status) {
+    final (
+      Color background,
+      Color foreground,
+      IconData icon,
+    ) = switch (status) {
       AttendanceStatus.present => (
         Colors.green.withValues(alpha: 0.14),
         Colors.green.shade800,
@@ -709,8 +709,7 @@ class _MonthlyAttendanceTabState extends ConsumerState<_MonthlyAttendanceTab> {
     final employeesAsync = ref.watch(employeesProvider(widget.hospitalId));
 
     final employeesById = <String, Employee>{
-      for (final e in employeesAsync.valueOrNull ?? const <Employee>[])
-        e.id: e,
+      for (final e in employeesAsync.valueOrNull ?? const <Employee>[]) e.id: e,
     };
 
     return Column(
@@ -797,8 +796,12 @@ class _MonthlyAttendanceRow extends StatelessWidget {
             _Metric(label: 'Absent', value: '${summary.absentDays}'),
             _Metric(
               label: 'Units',
-              value: summary.attendanceUnits
-                  .toStringAsFixed(summary.attendanceUnits == summary.attendanceUnits.roundToDouble() ? 0 : 1),
+              value: summary.attendanceUnits.toStringAsFixed(
+                summary.attendanceUnits ==
+                        summary.attendanceUnits.roundToDouble()
+                    ? 0
+                    : 1,
+              ),
             ),
             _Metric(
               label: 'Hours',
@@ -946,10 +949,7 @@ class _SalaryTabState extends ConsumerState<_SalaryTab> {
                     ],
                   ),
                   AppGap.md,
-                  for (final row in rows) ...[
-                    _SalaryRow(row: row),
-                    AppGap.xs,
-                  ],
+                  for (final row in rows) ...[_SalaryRow(row: row), AppGap.xs],
                   const AppFooter(),
                 ],
               );

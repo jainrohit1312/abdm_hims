@@ -80,8 +80,7 @@ class _ReferralDoctorsTabState extends ConsumerState<ReferralDoctorsTab> {
           (doctor.clinicName?.toLowerCase().contains(_query) ?? false) ||
           (doctor.mobileNumber?.contains(_query) ?? false) ||
           (doctor.city?.toLowerCase().contains(_query) ?? false);
-      final matchesArea =
-          _areaFilter == null || doctor.areaId == _areaFilter;
+      final matchesArea = _areaFilter == null || doctor.areaId == _areaFilter;
       return matchesQuery && matchesArea;
     }).toList();
 
@@ -96,13 +95,15 @@ class _ReferralDoctorsTabState extends ConsumerState<ReferralDoctorsTab> {
                 controller: _searchController,
                 decoration: InputDecoration(
                   prefixIcon: const Icon(Icons.search),
-                  hintText: 'Search by referral doctor / clinic / mobile / city',
+                  hintText:
+                      'Search by referral doctor / clinic / mobile / city',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                   isDense: true,
                 ),
-                onChanged: (value) => setState(() => _query = value.trim().toLowerCase()),
+                onChanged: (value) =>
+                    setState(() => _query = value.trim().toLowerCase()),
               ),
               AppGap.sm,
               Row(
@@ -223,8 +224,7 @@ class _ReferralDoctorCard extends StatelessWidget {
       margin: EdgeInsets.zero,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () =>
-            context.push('/marketing/referral-doctors/${doctor.id}'),
+        onTap: () => context.push('/marketing/referral-doctors/${doctor.id}'),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Column(

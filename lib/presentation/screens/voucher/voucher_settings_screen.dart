@@ -71,9 +71,9 @@ class _VoucherSettingsScreenState extends ConsumerState<VoucherSettingsScreen> {
           .createVoucherCategory(hospitalId: hospitalId, categoryName: name);
       _invalidateCategories(hospitalId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Category "$name" added')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Category "$name" added')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -138,9 +138,7 @@ class _VoucherSettingsScreenState extends ConsumerState<VoucherSettingsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(
-        SnackBar(content: Text('Failed to delete category: $e')),
-      );
+      ).showSnackBar(SnackBar(content: Text('Failed to delete category: $e')));
     }
   }
 
@@ -268,10 +266,8 @@ class _VoucherSettingsScreenState extends ConsumerState<VoucherSettingsScreen> {
                                 children: [
                                   Switch(
                                     value: category['is_active'] != false,
-                                    onChanged: (_) => _toggleCategory(
-                                      hospitalId,
-                                      category,
-                                    ),
+                                    onChanged: (_) =>
+                                        _toggleCategory(hospitalId, category),
                                   ),
                                   IconButton(
                                     tooltip: 'Delete',
@@ -279,10 +275,8 @@ class _VoucherSettingsScreenState extends ConsumerState<VoucherSettingsScreen> {
                                       Icons.delete_outline,
                                       color: Colors.red,
                                     ),
-                                    onPressed: () => _deleteCategory(
-                                      hospitalId,
-                                      category,
-                                    ),
+                                    onPressed: () =>
+                                        _deleteCategory(hospitalId, category),
                                   ),
                                 ],
                               ),
@@ -356,7 +350,9 @@ class _VoucherSettingsScreenState extends ConsumerState<VoucherSettingsScreen> {
                             )
                           : const Icon(Icons.save_outlined),
                       label: Text(
-                        _savingSettings ? 'Saving...' : 'Save Approval Settings',
+                        _savingSettings
+                            ? 'Saving...'
+                            : 'Save Approval Settings',
                       ),
                     ),
                   ),
@@ -374,9 +370,9 @@ class _VoucherSettingsScreenState extends ConsumerState<VoucherSettingsScreen> {
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
         title,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+        style: Theme.of(
+          context,
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
       ),
     );
   }

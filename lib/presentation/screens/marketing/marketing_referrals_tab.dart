@@ -272,10 +272,11 @@ class _MarketingReferralsTabState extends ConsumerState<MarketingReferralsTab> {
     return referrals.where((referral) {
       final doctorAreaId = doctorById[referral.referralDoctorId]?.areaId;
       final matchesArea = _areaFilter == null || doctorAreaId == _areaFilter;
-      final matchesEmployee = _employeeFilter == null ||
+      final matchesEmployee =
+          _employeeFilter == null ||
           referral.marketingEmployeeId == _employeeFilter;
-      final matchesDoctor = _doctorFilter == null ||
-          referral.referralDoctorId == _doctorFilter;
+      final matchesDoctor =
+          _doctorFilter == null || referral.referralDoctorId == _doctorFilter;
       return matchesArea && matchesEmployee && matchesDoctor;
     }).toList();
   }
@@ -300,8 +301,8 @@ class _ReferralCard extends StatelessWidget {
     final link = referral.opdRegistrationId != null
         ? 'OPD'
         : referral.ipdAdmissionId != null
-            ? 'IPD'
-            : null;
+        ? 'IPD'
+        : null;
 
     return Card(
       margin: EdgeInsets.zero,

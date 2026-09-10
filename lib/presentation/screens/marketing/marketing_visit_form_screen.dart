@@ -141,9 +141,8 @@ class _MarketingVisitFormScreenState
                     ),
                 ],
                 onChanged: (value) => setState(() => _doctorId = value),
-                validator: (value) => value == null
-                    ? 'Select a referral doctor'
-                    : null,
+                validator: (value) =>
+                    value == null ? 'Select a referral doctor' : null,
               ),
               AppGap.sm,
               AppFieldRow(
@@ -302,19 +301,19 @@ class _MarketingVisitFormScreenState
 
     if (hasCoordinates) {
       if (doctor.hasLocation) {
-        final result = ref.read(geofenceServiceProvider).check(
-          doctorLatitude: doctor.latitude!,
-          doctorLongitude: doctor.longitude!,
-          employeeLatitude: lat,
-          employeeLongitude: lng,
-          allowedRadiusMeters: doctor.geoRadiusMeters.toDouble(),
-        );
+        final result = ref
+            .read(geofenceServiceProvider)
+            .check(
+              doctorLatitude: doctor.latitude!,
+              doctorLongitude: doctor.longitude!,
+              employeeLatitude: lat,
+              employeeLongitude: lng,
+              allowedRadiusMeters: doctor.geoRadiusMeters.toDouble(),
+            );
         if (!result.isInside) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text(
-                "You are outside this referral doctor's location.",
-              ),
+              content: Text("You are outside this referral doctor's location."),
               backgroundColor: Colors.red,
             ),
           );
@@ -362,9 +361,7 @@ class _MarketingVisitFormScreenState
           .createVisit(hospitalId: hospitalId, visit: visit);
 
       ref.read(marketingRefreshProvider.notifier).state++;
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Visit saved!')),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('Visit saved!')));
       if (mounted) context.go('/marketing');
     } on MarketingRepositoryException catch (e) {
       messenger.showSnackBar(

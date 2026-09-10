@@ -9,66 +9,100 @@ class $PatientRecordsTable extends PatientRecords
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
   $PatientRecordsTable(this.attachedDatabase, [this._alias]);
-  static const VerificationMeta _offlineIdMeta =
-      const VerificationMeta('offlineId');
+  static const VerificationMeta _offlineIdMeta = const VerificationMeta(
+    'offlineId',
+  );
   @override
   late final GeneratedColumn<String> offlineId = GeneratedColumn<String>(
-      'offline_id', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _isSyncedMeta =
-      const VerificationMeta('isSynced');
+    'offline_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _isSyncedMeta = const VerificationMeta(
+    'isSynced',
+  );
   @override
   late final GeneratedColumn<bool> isSynced = GeneratedColumn<bool>(
-      'is_synced', aliasedName, false,
-      type: DriftSqlType.bool,
-      requiredDuringInsert: false,
-      defaultConstraints:
-          GeneratedColumn.constraintIsAlways('CHECK ("is_synced" IN (0, 1))'),
-      defaultValue: const Constant(false));
-  static const VerificationMeta _payloadMeta =
-      const VerificationMeta('payload');
+    'is_synced',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_synced" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _payloadMeta = const VerificationMeta(
+    'payload',
+  );
   @override
   late final GeneratedColumn<String> payload = GeneratedColumn<String>(
-      'payload', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _updatedAtMeta =
-      const VerificationMeta('updatedAt');
+    'payload',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
   @override
   late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
-      'updated_at', aliasedName, false,
-      type: DriftSqlType.int, requiredDuringInsert: true);
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
   @override
-  List<GeneratedColumn> get $columns =>
-      [offlineId, isSynced, payload, updatedAt];
+  List<GeneratedColumn> get $columns => [
+    offlineId,
+    isSynced,
+    payload,
+    updatedAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
   static const String $name = 'patient_records';
   @override
-  VerificationContext validateIntegrity(Insertable<OfflinePatient> instance,
-      {bool isInserting = false}) {
+  VerificationContext validateIntegrity(
+    Insertable<OfflinePatient> instance, {
+    bool isInserting = false,
+  }) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
     if (data.containsKey('offline_id')) {
-      context.handle(_offlineIdMeta,
-          offlineId.isAcceptableOrUnknown(data['offline_id']!, _offlineIdMeta));
+      context.handle(
+        _offlineIdMeta,
+        offlineId.isAcceptableOrUnknown(data['offline_id']!, _offlineIdMeta),
+      );
     } else if (isInserting) {
       context.missing(_offlineIdMeta);
     }
     if (data.containsKey('is_synced')) {
-      context.handle(_isSyncedMeta,
-          isSynced.isAcceptableOrUnknown(data['is_synced']!, _isSyncedMeta));
+      context.handle(
+        _isSyncedMeta,
+        isSynced.isAcceptableOrUnknown(data['is_synced']!, _isSyncedMeta),
+      );
     }
     if (data.containsKey('payload')) {
-      context.handle(_payloadMeta,
-          payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta));
+      context.handle(
+        _payloadMeta,
+        payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta),
+      );
     } else if (isInserting) {
       context.missing(_payloadMeta);
     }
     if (data.containsKey('updated_at')) {
-      context.handle(_updatedAtMeta,
-          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
@@ -81,14 +115,22 @@ class $PatientRecordsTable extends PatientRecords
   OfflinePatient map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return OfflinePatient(
-      offlineId: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}offline_id'])!,
-      isSynced: attachedDatabase.typeMapping
-          .read(DriftSqlType.bool, data['${effectivePrefix}is_synced'])!,
-      payload: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}payload'])!,
-      updatedAt: attachedDatabase.typeMapping
-          .read(DriftSqlType.int, data['${effectivePrefix}updated_at'])!,
+      offlineId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}offline_id'],
+      )!,
+      isSynced: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_synced'],
+      )!,
+      payload: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at'],
+      )!,
     );
   }
 
@@ -103,11 +145,12 @@ class OfflinePatient extends DataClass implements Insertable<OfflinePatient> {
   final bool isSynced;
   final String payload;
   final int updatedAt;
-  const OfflinePatient(
-      {required this.offlineId,
-      required this.isSynced,
-      required this.payload,
-      required this.updatedAt});
+  const OfflinePatient({
+    required this.offlineId,
+    required this.isSynced,
+    required this.payload,
+    required this.updatedAt,
+  });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -127,8 +170,10 @@ class OfflinePatient extends DataClass implements Insertable<OfflinePatient> {
     );
   }
 
-  factory OfflinePatient.fromJson(Map<String, dynamic> json,
-      {ValueSerializer? serializer}) {
+  factory OfflinePatient.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return OfflinePatient(
       offlineId: serializer.fromJson<String>(json['offlineId']),
@@ -148,17 +193,17 @@ class OfflinePatient extends DataClass implements Insertable<OfflinePatient> {
     };
   }
 
-  OfflinePatient copyWith(
-          {String? offlineId,
-          bool? isSynced,
-          String? payload,
-          int? updatedAt}) =>
-      OfflinePatient(
-        offlineId: offlineId ?? this.offlineId,
-        isSynced: isSynced ?? this.isSynced,
-        payload: payload ?? this.payload,
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
+  OfflinePatient copyWith({
+    String? offlineId,
+    bool? isSynced,
+    String? payload,
+    int? updatedAt,
+  }) => OfflinePatient(
+    offlineId: offlineId ?? this.offlineId,
+    isSynced: isSynced ?? this.isSynced,
+    payload: payload ?? this.payload,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
   @override
   String toString() {
     return (StringBuffer('OfflinePatient(')
@@ -201,9 +246,9 @@ class PatientRecordsCompanion extends UpdateCompanion<OfflinePatient> {
     required String payload,
     required int updatedAt,
     this.rowid = const Value.absent(),
-  })  : offlineId = Value(offlineId),
-        payload = Value(payload),
-        updatedAt = Value(updatedAt);
+  }) : offlineId = Value(offlineId),
+       payload = Value(payload),
+       updatedAt = Value(updatedAt);
   static Insertable<OfflinePatient> custom({
     Expression<String>? offlineId,
     Expression<bool>? isSynced,
@@ -220,12 +265,13 @@ class PatientRecordsCompanion extends UpdateCompanion<OfflinePatient> {
     });
   }
 
-  PatientRecordsCompanion copyWith(
-      {Value<String>? offlineId,
-      Value<bool>? isSynced,
-      Value<String>? payload,
-      Value<int>? updatedAt,
-      Value<int>? rowid}) {
+  PatientRecordsCompanion copyWith({
+    Value<String>? offlineId,
+    Value<bool>? isSynced,
+    Value<String>? payload,
+    Value<int>? updatedAt,
+    Value<int>? rowid,
+  }) {
     return PatientRecordsCompanion(
       offlineId: offlineId ?? this.offlineId,
       isSynced: isSynced ?? this.isSynced,
@@ -275,37 +321,61 @@ class $OpdRegistrationRecordsTable extends OpdRegistrationRecords
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
   $OpdRegistrationRecordsTable(this.attachedDatabase, [this._alias]);
-  static const VerificationMeta _offlineIdMeta =
-      const VerificationMeta('offlineId');
+  static const VerificationMeta _offlineIdMeta = const VerificationMeta(
+    'offlineId',
+  );
   @override
   late final GeneratedColumn<String> offlineId = GeneratedColumn<String>(
-      'offline_id', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _isSyncedMeta =
-      const VerificationMeta('isSynced');
+    'offline_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _isSyncedMeta = const VerificationMeta(
+    'isSynced',
+  );
   @override
   late final GeneratedColumn<bool> isSynced = GeneratedColumn<bool>(
-      'is_synced', aliasedName, false,
-      type: DriftSqlType.bool,
-      requiredDuringInsert: false,
-      defaultConstraints:
-          GeneratedColumn.constraintIsAlways('CHECK ("is_synced" IN (0, 1))'),
-      defaultValue: const Constant(false));
-  static const VerificationMeta _payloadMeta =
-      const VerificationMeta('payload');
+    'is_synced',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_synced" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _payloadMeta = const VerificationMeta(
+    'payload',
+  );
   @override
   late final GeneratedColumn<String> payload = GeneratedColumn<String>(
-      'payload', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _updatedAtMeta =
-      const VerificationMeta('updatedAt');
+    'payload',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
   @override
   late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
-      'updated_at', aliasedName, false,
-      type: DriftSqlType.int, requiredDuringInsert: true);
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
   @override
-  List<GeneratedColumn> get $columns =>
-      [offlineId, isSynced, payload, updatedAt];
+  List<GeneratedColumn> get $columns => [
+    offlineId,
+    isSynced,
+    payload,
+    updatedAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -313,29 +383,38 @@ class $OpdRegistrationRecordsTable extends OpdRegistrationRecords
   static const String $name = 'opd_registration_records';
   @override
   VerificationContext validateIntegrity(
-      Insertable<OfflineOpdRegistration> instance,
-      {bool isInserting = false}) {
+    Insertable<OfflineOpdRegistration> instance, {
+    bool isInserting = false,
+  }) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
     if (data.containsKey('offline_id')) {
-      context.handle(_offlineIdMeta,
-          offlineId.isAcceptableOrUnknown(data['offline_id']!, _offlineIdMeta));
+      context.handle(
+        _offlineIdMeta,
+        offlineId.isAcceptableOrUnknown(data['offline_id']!, _offlineIdMeta),
+      );
     } else if (isInserting) {
       context.missing(_offlineIdMeta);
     }
     if (data.containsKey('is_synced')) {
-      context.handle(_isSyncedMeta,
-          isSynced.isAcceptableOrUnknown(data['is_synced']!, _isSyncedMeta));
+      context.handle(
+        _isSyncedMeta,
+        isSynced.isAcceptableOrUnknown(data['is_synced']!, _isSyncedMeta),
+      );
     }
     if (data.containsKey('payload')) {
-      context.handle(_payloadMeta,
-          payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta));
+      context.handle(
+        _payloadMeta,
+        payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta),
+      );
     } else if (isInserting) {
       context.missing(_payloadMeta);
     }
     if (data.containsKey('updated_at')) {
-      context.handle(_updatedAtMeta,
-          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
@@ -348,14 +427,22 @@ class $OpdRegistrationRecordsTable extends OpdRegistrationRecords
   OfflineOpdRegistration map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return OfflineOpdRegistration(
-      offlineId: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}offline_id'])!,
-      isSynced: attachedDatabase.typeMapping
-          .read(DriftSqlType.bool, data['${effectivePrefix}is_synced'])!,
-      payload: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}payload'])!,
-      updatedAt: attachedDatabase.typeMapping
-          .read(DriftSqlType.int, data['${effectivePrefix}updated_at'])!,
+      offlineId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}offline_id'],
+      )!,
+      isSynced: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_synced'],
+      )!,
+      payload: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at'],
+      )!,
     );
   }
 
@@ -371,11 +458,12 @@ class OfflineOpdRegistration extends DataClass
   final bool isSynced;
   final String payload;
   final int updatedAt;
-  const OfflineOpdRegistration(
-      {required this.offlineId,
-      required this.isSynced,
-      required this.payload,
-      required this.updatedAt});
+  const OfflineOpdRegistration({
+    required this.offlineId,
+    required this.isSynced,
+    required this.payload,
+    required this.updatedAt,
+  });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -395,8 +483,10 @@ class OfflineOpdRegistration extends DataClass
     );
   }
 
-  factory OfflineOpdRegistration.fromJson(Map<String, dynamic> json,
-      {ValueSerializer? serializer}) {
+  factory OfflineOpdRegistration.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return OfflineOpdRegistration(
       offlineId: serializer.fromJson<String>(json['offlineId']),
@@ -416,17 +506,17 @@ class OfflineOpdRegistration extends DataClass
     };
   }
 
-  OfflineOpdRegistration copyWith(
-          {String? offlineId,
-          bool? isSynced,
-          String? payload,
-          int? updatedAt}) =>
-      OfflineOpdRegistration(
-        offlineId: offlineId ?? this.offlineId,
-        isSynced: isSynced ?? this.isSynced,
-        payload: payload ?? this.payload,
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
+  OfflineOpdRegistration copyWith({
+    String? offlineId,
+    bool? isSynced,
+    String? payload,
+    int? updatedAt,
+  }) => OfflineOpdRegistration(
+    offlineId: offlineId ?? this.offlineId,
+    isSynced: isSynced ?? this.isSynced,
+    payload: payload ?? this.payload,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
   @override
   String toString() {
     return (StringBuffer('OfflineOpdRegistration(')
@@ -470,9 +560,9 @@ class OpdRegistrationRecordsCompanion
     required String payload,
     required int updatedAt,
     this.rowid = const Value.absent(),
-  })  : offlineId = Value(offlineId),
-        payload = Value(payload),
-        updatedAt = Value(updatedAt);
+  }) : offlineId = Value(offlineId),
+       payload = Value(payload),
+       updatedAt = Value(updatedAt);
   static Insertable<OfflineOpdRegistration> custom({
     Expression<String>? offlineId,
     Expression<bool>? isSynced,
@@ -489,12 +579,13 @@ class OpdRegistrationRecordsCompanion
     });
   }
 
-  OpdRegistrationRecordsCompanion copyWith(
-      {Value<String>? offlineId,
-      Value<bool>? isSynced,
-      Value<String>? payload,
-      Value<int>? updatedAt,
-      Value<int>? rowid}) {
+  OpdRegistrationRecordsCompanion copyWith({
+    Value<String>? offlineId,
+    Value<bool>? isSynced,
+    Value<String>? payload,
+    Value<int>? updatedAt,
+    Value<int>? rowid,
+  }) {
     return OpdRegistrationRecordsCompanion(
       offlineId: offlineId ?? this.offlineId,
       isSynced: isSynced ?? this.isSynced,
@@ -544,37 +635,61 @@ class $IpdAdmissionRecordsTable extends IpdAdmissionRecords
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
   $IpdAdmissionRecordsTable(this.attachedDatabase, [this._alias]);
-  static const VerificationMeta _offlineIdMeta =
-      const VerificationMeta('offlineId');
+  static const VerificationMeta _offlineIdMeta = const VerificationMeta(
+    'offlineId',
+  );
   @override
   late final GeneratedColumn<String> offlineId = GeneratedColumn<String>(
-      'offline_id', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _isSyncedMeta =
-      const VerificationMeta('isSynced');
+    'offline_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _isSyncedMeta = const VerificationMeta(
+    'isSynced',
+  );
   @override
   late final GeneratedColumn<bool> isSynced = GeneratedColumn<bool>(
-      'is_synced', aliasedName, false,
-      type: DriftSqlType.bool,
-      requiredDuringInsert: false,
-      defaultConstraints:
-          GeneratedColumn.constraintIsAlways('CHECK ("is_synced" IN (0, 1))'),
-      defaultValue: const Constant(false));
-  static const VerificationMeta _payloadMeta =
-      const VerificationMeta('payload');
+    'is_synced',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_synced" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _payloadMeta = const VerificationMeta(
+    'payload',
+  );
   @override
   late final GeneratedColumn<String> payload = GeneratedColumn<String>(
-      'payload', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _updatedAtMeta =
-      const VerificationMeta('updatedAt');
+    'payload',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
   @override
   late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
-      'updated_at', aliasedName, false,
-      type: DriftSqlType.int, requiredDuringInsert: true);
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
   @override
-  List<GeneratedColumn> get $columns =>
-      [offlineId, isSynced, payload, updatedAt];
+  List<GeneratedColumn> get $columns => [
+    offlineId,
+    isSynced,
+    payload,
+    updatedAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -582,29 +697,38 @@ class $IpdAdmissionRecordsTable extends IpdAdmissionRecords
   static const String $name = 'ipd_admission_records';
   @override
   VerificationContext validateIntegrity(
-      Insertable<OfflineIpdAdmission> instance,
-      {bool isInserting = false}) {
+    Insertable<OfflineIpdAdmission> instance, {
+    bool isInserting = false,
+  }) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
     if (data.containsKey('offline_id')) {
-      context.handle(_offlineIdMeta,
-          offlineId.isAcceptableOrUnknown(data['offline_id']!, _offlineIdMeta));
+      context.handle(
+        _offlineIdMeta,
+        offlineId.isAcceptableOrUnknown(data['offline_id']!, _offlineIdMeta),
+      );
     } else if (isInserting) {
       context.missing(_offlineIdMeta);
     }
     if (data.containsKey('is_synced')) {
-      context.handle(_isSyncedMeta,
-          isSynced.isAcceptableOrUnknown(data['is_synced']!, _isSyncedMeta));
+      context.handle(
+        _isSyncedMeta,
+        isSynced.isAcceptableOrUnknown(data['is_synced']!, _isSyncedMeta),
+      );
     }
     if (data.containsKey('payload')) {
-      context.handle(_payloadMeta,
-          payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta));
+      context.handle(
+        _payloadMeta,
+        payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta),
+      );
     } else if (isInserting) {
       context.missing(_payloadMeta);
     }
     if (data.containsKey('updated_at')) {
-      context.handle(_updatedAtMeta,
-          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
@@ -617,14 +741,22 @@ class $IpdAdmissionRecordsTable extends IpdAdmissionRecords
   OfflineIpdAdmission map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return OfflineIpdAdmission(
-      offlineId: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}offline_id'])!,
-      isSynced: attachedDatabase.typeMapping
-          .read(DriftSqlType.bool, data['${effectivePrefix}is_synced'])!,
-      payload: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}payload'])!,
-      updatedAt: attachedDatabase.typeMapping
-          .read(DriftSqlType.int, data['${effectivePrefix}updated_at'])!,
+      offlineId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}offline_id'],
+      )!,
+      isSynced: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_synced'],
+      )!,
+      payload: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at'],
+      )!,
     );
   }
 
@@ -640,11 +772,12 @@ class OfflineIpdAdmission extends DataClass
   final bool isSynced;
   final String payload;
   final int updatedAt;
-  const OfflineIpdAdmission(
-      {required this.offlineId,
-      required this.isSynced,
-      required this.payload,
-      required this.updatedAt});
+  const OfflineIpdAdmission({
+    required this.offlineId,
+    required this.isSynced,
+    required this.payload,
+    required this.updatedAt,
+  });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -664,8 +797,10 @@ class OfflineIpdAdmission extends DataClass
     );
   }
 
-  factory OfflineIpdAdmission.fromJson(Map<String, dynamic> json,
-      {ValueSerializer? serializer}) {
+  factory OfflineIpdAdmission.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return OfflineIpdAdmission(
       offlineId: serializer.fromJson<String>(json['offlineId']),
@@ -685,17 +820,17 @@ class OfflineIpdAdmission extends DataClass
     };
   }
 
-  OfflineIpdAdmission copyWith(
-          {String? offlineId,
-          bool? isSynced,
-          String? payload,
-          int? updatedAt}) =>
-      OfflineIpdAdmission(
-        offlineId: offlineId ?? this.offlineId,
-        isSynced: isSynced ?? this.isSynced,
-        payload: payload ?? this.payload,
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
+  OfflineIpdAdmission copyWith({
+    String? offlineId,
+    bool? isSynced,
+    String? payload,
+    int? updatedAt,
+  }) => OfflineIpdAdmission(
+    offlineId: offlineId ?? this.offlineId,
+    isSynced: isSynced ?? this.isSynced,
+    payload: payload ?? this.payload,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
   @override
   String toString() {
     return (StringBuffer('OfflineIpdAdmission(')
@@ -739,9 +874,9 @@ class IpdAdmissionRecordsCompanion
     required String payload,
     required int updatedAt,
     this.rowid = const Value.absent(),
-  })  : offlineId = Value(offlineId),
-        payload = Value(payload),
-        updatedAt = Value(updatedAt);
+  }) : offlineId = Value(offlineId),
+       payload = Value(payload),
+       updatedAt = Value(updatedAt);
   static Insertable<OfflineIpdAdmission> custom({
     Expression<String>? offlineId,
     Expression<bool>? isSynced,
@@ -758,12 +893,13 @@ class IpdAdmissionRecordsCompanion
     });
   }
 
-  IpdAdmissionRecordsCompanion copyWith(
-      {Value<String>? offlineId,
-      Value<bool>? isSynced,
-      Value<String>? payload,
-      Value<int>? updatedAt,
-      Value<int>? rowid}) {
+  IpdAdmissionRecordsCompanion copyWith({
+    Value<String>? offlineId,
+    Value<bool>? isSynced,
+    Value<String>? payload,
+    Value<int>? updatedAt,
+    Value<int>? rowid,
+  }) {
     return IpdAdmissionRecordsCompanion(
       offlineId: offlineId ?? this.offlineId,
       isSynced: isSynced ?? this.isSynced,
@@ -813,66 +949,100 @@ class $BillingRecordsTable extends BillingRecords
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
   $BillingRecordsTable(this.attachedDatabase, [this._alias]);
-  static const VerificationMeta _offlineIdMeta =
-      const VerificationMeta('offlineId');
+  static const VerificationMeta _offlineIdMeta = const VerificationMeta(
+    'offlineId',
+  );
   @override
   late final GeneratedColumn<String> offlineId = GeneratedColumn<String>(
-      'offline_id', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _isSyncedMeta =
-      const VerificationMeta('isSynced');
+    'offline_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _isSyncedMeta = const VerificationMeta(
+    'isSynced',
+  );
   @override
   late final GeneratedColumn<bool> isSynced = GeneratedColumn<bool>(
-      'is_synced', aliasedName, false,
-      type: DriftSqlType.bool,
-      requiredDuringInsert: false,
-      defaultConstraints:
-          GeneratedColumn.constraintIsAlways('CHECK ("is_synced" IN (0, 1))'),
-      defaultValue: const Constant(false));
-  static const VerificationMeta _payloadMeta =
-      const VerificationMeta('payload');
+    'is_synced',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_synced" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _payloadMeta = const VerificationMeta(
+    'payload',
+  );
   @override
   late final GeneratedColumn<String> payload = GeneratedColumn<String>(
-      'payload', aliasedName, false,
-      type: DriftSqlType.string, requiredDuringInsert: true);
-  static const VerificationMeta _updatedAtMeta =
-      const VerificationMeta('updatedAt');
+    'payload',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
   @override
   late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
-      'updated_at', aliasedName, false,
-      type: DriftSqlType.int, requiredDuringInsert: true);
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
   @override
-  List<GeneratedColumn> get $columns =>
-      [offlineId, isSynced, payload, updatedAt];
+  List<GeneratedColumn> get $columns => [
+    offlineId,
+    isSynced,
+    payload,
+    updatedAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
   static const String $name = 'billing_records';
   @override
-  VerificationContext validateIntegrity(Insertable<OfflineBilling> instance,
-      {bool isInserting = false}) {
+  VerificationContext validateIntegrity(
+    Insertable<OfflineBilling> instance, {
+    bool isInserting = false,
+  }) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
     if (data.containsKey('offline_id')) {
-      context.handle(_offlineIdMeta,
-          offlineId.isAcceptableOrUnknown(data['offline_id']!, _offlineIdMeta));
+      context.handle(
+        _offlineIdMeta,
+        offlineId.isAcceptableOrUnknown(data['offline_id']!, _offlineIdMeta),
+      );
     } else if (isInserting) {
       context.missing(_offlineIdMeta);
     }
     if (data.containsKey('is_synced')) {
-      context.handle(_isSyncedMeta,
-          isSynced.isAcceptableOrUnknown(data['is_synced']!, _isSyncedMeta));
+      context.handle(
+        _isSyncedMeta,
+        isSynced.isAcceptableOrUnknown(data['is_synced']!, _isSyncedMeta),
+      );
     }
     if (data.containsKey('payload')) {
-      context.handle(_payloadMeta,
-          payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta));
+      context.handle(
+        _payloadMeta,
+        payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta),
+      );
     } else if (isInserting) {
       context.missing(_payloadMeta);
     }
     if (data.containsKey('updated_at')) {
-      context.handle(_updatedAtMeta,
-          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
@@ -885,14 +1055,22 @@ class $BillingRecordsTable extends BillingRecords
   OfflineBilling map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return OfflineBilling(
-      offlineId: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}offline_id'])!,
-      isSynced: attachedDatabase.typeMapping
-          .read(DriftSqlType.bool, data['${effectivePrefix}is_synced'])!,
-      payload: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}payload'])!,
-      updatedAt: attachedDatabase.typeMapping
-          .read(DriftSqlType.int, data['${effectivePrefix}updated_at'])!,
+      offlineId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}offline_id'],
+      )!,
+      isSynced: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_synced'],
+      )!,
+      payload: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at'],
+      )!,
     );
   }
 
@@ -907,11 +1085,12 @@ class OfflineBilling extends DataClass implements Insertable<OfflineBilling> {
   final bool isSynced;
   final String payload;
   final int updatedAt;
-  const OfflineBilling(
-      {required this.offlineId,
-      required this.isSynced,
-      required this.payload,
-      required this.updatedAt});
+  const OfflineBilling({
+    required this.offlineId,
+    required this.isSynced,
+    required this.payload,
+    required this.updatedAt,
+  });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -931,8 +1110,10 @@ class OfflineBilling extends DataClass implements Insertable<OfflineBilling> {
     );
   }
 
-  factory OfflineBilling.fromJson(Map<String, dynamic> json,
-      {ValueSerializer? serializer}) {
+  factory OfflineBilling.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return OfflineBilling(
       offlineId: serializer.fromJson<String>(json['offlineId']),
@@ -952,17 +1133,17 @@ class OfflineBilling extends DataClass implements Insertable<OfflineBilling> {
     };
   }
 
-  OfflineBilling copyWith(
-          {String? offlineId,
-          bool? isSynced,
-          String? payload,
-          int? updatedAt}) =>
-      OfflineBilling(
-        offlineId: offlineId ?? this.offlineId,
-        isSynced: isSynced ?? this.isSynced,
-        payload: payload ?? this.payload,
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
+  OfflineBilling copyWith({
+    String? offlineId,
+    bool? isSynced,
+    String? payload,
+    int? updatedAt,
+  }) => OfflineBilling(
+    offlineId: offlineId ?? this.offlineId,
+    isSynced: isSynced ?? this.isSynced,
+    payload: payload ?? this.payload,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
   @override
   String toString() {
     return (StringBuffer('OfflineBilling(')
@@ -1005,9 +1186,9 @@ class BillingRecordsCompanion extends UpdateCompanion<OfflineBilling> {
     required String payload,
     required int updatedAt,
     this.rowid = const Value.absent(),
-  })  : offlineId = Value(offlineId),
-        payload = Value(payload),
-        updatedAt = Value(updatedAt);
+  }) : offlineId = Value(offlineId),
+       payload = Value(payload),
+       updatedAt = Value(updatedAt);
   static Insertable<OfflineBilling> custom({
     Expression<String>? offlineId,
     Expression<bool>? isSynced,
@@ -1024,12 +1205,13 @@ class BillingRecordsCompanion extends UpdateCompanion<OfflineBilling> {
     });
   }
 
-  BillingRecordsCompanion copyWith(
-      {Value<String>? offlineId,
-      Value<bool>? isSynced,
-      Value<String>? payload,
-      Value<int>? updatedAt,
-      Value<int>? rowid}) {
+  BillingRecordsCompanion copyWith({
+    Value<String>? offlineId,
+    Value<bool>? isSynced,
+    Value<String>? payload,
+    Value<int>? updatedAt,
+    Value<int>? rowid,
+  }) {
     return BillingRecordsCompanion(
       offlineId: offlineId ?? this.offlineId,
       isSynced: isSynced ?? this.isSynced,
@@ -1086,9 +1268,9 @@ abstract class _$LocalDriftDatabase extends GeneratedDatabase {
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
   List<DatabaseSchemaEntity> get allSchemaEntities => [
-        patientRecords,
-        opdRegistrationRecords,
-        ipdAdmissionRecords,
-        billingRecords
-      ];
+    patientRecords,
+    opdRegistrationRecords,
+    ipdAdmissionRecords,
+    billingRecords,
+  ];
 }

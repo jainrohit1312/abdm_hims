@@ -228,7 +228,9 @@ class MarketingVisit {
       visitedAt: _toDate(json['visited_at']) ?? DateTime.now(),
       latitude: _toDoubleOrNull(json['latitude']),
       longitude: _toDoubleOrNull(json['longitude']),
-      distanceFromDoctorMeters: _toDoubleOrNull(json['distance_from_doctor_meters']),
+      distanceFromDoctorMeters: _toDoubleOrNull(
+        json['distance_from_doctor_meters'],
+      ),
       geofenceRadiusMeters: _toInt(json['geofence_radius_meters']),
       geoVerified: json['geo_verified'] == true,
       visitSource: json['visit_source']?.toString() ?? 'mobile_app',

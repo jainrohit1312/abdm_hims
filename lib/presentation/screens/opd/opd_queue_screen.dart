@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/providers.dart';
 import '../../../core/constants/api_constants.dart';
+import '../../../core/utils/display_names.dart';
 import '../../../services/print_prescription.dart';
 import '../../widgets/app_refresh_button.dart';
 import '../../widgets/smart_navigation.dart';
@@ -73,9 +74,7 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
     }
   }
 
-  List<Map<String, dynamic>> _applyFilters(
-    List<Map<String, dynamic>> entries,
-  ) {
+  List<Map<String, dynamic>> _applyFilters(List<Map<String, dynamic>> entries) {
     var filtered = entries.where((entry) {
       if (_statusFilter != 'all' && entry['status'] != _statusFilter) {
         return false;
@@ -218,9 +217,12 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
       final doctorId = entry['doctor_id']?.toString();
       final departmentId = entry['department_id']?.toString();
       final storedDoctorName = entry['doctor_name']?.toString();
-      final doctorName = (storedDoctorName != null && storedDoctorName.isNotEmpty)
-          ? storedDoctorName
-          : await _resolveDoctorName(doctorId);
+      final resolvedDoctorName = await _resolveDoctorName(doctorId);
+      final doctorName = resolvedDoctorName.isNotEmpty
+          ? resolvedDoctorName
+          : (cleanDoctorName(storedDoctorName).isNotEmpty
+                ? cleanDoctorName(storedDoctorName)
+                : 'N/A');
       var departmentName = 'N/A';
       if (departmentId != null && departmentId.isNotEmpty) {
         final dept = await dbService.getById(
@@ -233,28 +235,27 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
       final slipNumber =
           'OPD-${(opdId.length >= 8 ? opdId.substring(0, 8) : opdId).toUpperCase()}';
 
-      final netPayable = double.tryParse(
+      final netPayable =
+          double.tryParse(
             (entry['payment_amount'] ?? entry['paid_amount'] ?? 0).toString(),
           ) ??
           0;
-      final consultationFee = double.tryParse(
-            entry['consultation_fee']?.toString() ?? '',
-          ) ??
+      final consultationFee =
+          double.tryParse(entry['consultation_fee']?.toString() ?? '') ??
           netPayable;
-      final paidAmount = double.tryParse(
-            (entry['paid_amount'] ?? netPayable).toString(),
-          ) ??
+      final paidAmount =
+          double.tryParse((entry['paid_amount'] ?? netPayable).toString()) ??
           netPayable;
-      final balanceAmount = double.tryParse(
+      final balanceAmount =
+          double.tryParse(
             (entry['balance_amount'] ?? (netPayable - paidAmount)).toString(),
           ) ??
           (netPayable - paidAmount);
 
       final slipData = <String, dynamic>{
-        'hospitalName': hospital?['name']?.toString() ?? 'HIMS Hospital',
-        'hospitalAddress':
-            hospital?['address']?.toString() ??
-            '123, Healthcare Avenue, New Delhi',
+        'hospital': hospital,
+        'hospitalName': hospital?['name']?.toString() ?? 'N/A',
+        'hospitalAddress': hospitalAddressFromRecord(hospital),
         'patientName': patientName.isEmpty ? 'Unknown Patient' : patientName,
         'uhid': patients['uhid']?.toString() ?? 'N/A',
         'doctorName': doctorName,
@@ -271,6 +272,8 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
             DateTime.tryParse(entry['visit_date']?.toString() ?? '') ??
             DateTime.now(),
         'slipNumber': slipNumber,
+        'tokenNumber': entry['token_number']?.toString(),
+        'isEmergency': entry['is_emergency'] == true,
       };
 
       await OPDSlipPrintService.printSlip(slipData);
@@ -315,9 +318,9 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
       );
 
       if (mounted && error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
       }
     } catch (_) {
       if (mounted) {
@@ -333,28 +336,35 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
   }
 
   Future<String> _resolveDoctorName(String? doctorId) async {
-    if (doctorId == null || doctorId.isEmpty) return 'N/A';
+    if (doctorId == null || doctorId.isEmpty) return '';
     try {
       final dbService = ref.read(databaseServiceProvider);
 
       // doctor_id column har deployment mein exist nahi karta; agar kisi row
-      // mein ho to doctors aur users dono tables try karo, warna N/A.
-      final doctor = await dbService.getById(ApiConstants.doctorsTable, doctorId);
-      final doctorName = doctor?['name']?.toString();
-      if (doctorName != null && doctorName.isNotEmpty) return doctorName;
+      // mein ho to doctors aur users dono tables try karo. Doctor row ka
+      // dedicated `name` column preferred hai — stored `doctor_name` string
+      // sirf fallback ke roop mein use hota hai.
+      final doctor = await dbService.getById(
+        ApiConstants.doctorsTable,
+        doctorId,
+      );
+      final doctorName = cleanDoctorName(doctor?['name']);
+      if (doctorName.isNotEmpty) return doctorName;
 
       final user = await dbService.getById(ApiConstants.usersTable, doctorId);
       if (user != null) {
-        final name = [
-          user['first_name'],
-          user['last_name'],
-        ].where((n) => n != null && n.toString().isNotEmpty).join(' ').trim();
+        final name = cleanDoctorName(
+          [
+            user['first_name'],
+            user['last_name'],
+          ].where((n) => n != null && n.toString().isNotEmpty).join(' '),
+        );
         if (name.isNotEmpty) return name;
       }
     } catch (_) {
       // Doctor name optional hai; slip baaki data ke saath print ho jayegi.
     }
-    return 'N/A';
+    return '';
   }
 
   @override
@@ -368,9 +378,7 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
     ref.listen(authStateProvider, (previous, next) {
       final previousId = previous?.hospitalId;
       final nextId = next.hospitalId;
-      if (nextId != null &&
-          nextId.isNotEmpty &&
-          nextId != previousId) {
+      if (nextId != null && nextId.isNotEmpty && nextId != previousId) {
         Future.microtask(() {
           if (mounted) {
             ref.read(opdQueueProvider.notifier).refresh();
@@ -384,8 +392,7 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
         ? null
         : ref.watch(opdQueueProvider);
 
-    final allEntries =
-        queueState?.items ?? const <Map<String, dynamic>>[];
+    final allEntries = queueState?.items ?? const <Map<String, dynamic>>[];
 
     return Scaffold(
       appBar: SmartAppBar(
@@ -430,7 +437,7 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
                     filled: true,
                     fillColor: theme.colorScheme.surfaceContainerHighest
                         .withValues(alpha: 0.3),
-                                      ),
+                  ),
                   onChanged: _onSearchChanged,
                 ),
                 const SizedBox(height: 8),
@@ -751,16 +758,9 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: _statusColor(status).withValues(alpha: 0.2),
-          child: Icon(
-            Icons.person,
-            color: _statusColor(status),
-            size: 24,
-          ),
+          child: Icon(Icons.person, color: _statusColor(status), size: 24),
         ),
-        title: Text(
-          _patientName(entry),
-          style: theme.textTheme.titleSmall,
-        ),
+        title: Text(_patientName(entry), style: theme.textTheme.titleSmall),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -827,10 +827,7 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
               )
             else
               IconButton(
-                icon: const Icon(
-                  Icons.medication_outlined,
-                  color: Colors.teal,
-                ),
+                icon: const Icon(Icons.medication_outlined, color: Colors.teal),
                 tooltip: 'Print Prescription',
                 onPressed: () {
                   if (opdId != null) {

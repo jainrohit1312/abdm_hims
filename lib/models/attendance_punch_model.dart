@@ -61,9 +61,7 @@ class AttendancePunch {
       hospitalId: json['hospital_id']?.toString() ?? '',
       employeeId: json['employee_id']?.toString() ?? '',
       punchedAt: _toLocalDateTime(json['punched_at']) ?? DateTime.now(),
-      punchType: AttendancePunchType.fromValue(
-        json['punch_type']?.toString(),
-      ),
+      punchType: AttendancePunchType.fromValue(json['punch_type']?.toString()),
       source: json['source']?.toString() ?? 'face_kiosk',
       deviceId: json['device_id']?.toString(),
       createdAt: _toLocalDateTime(json['created_at']),

@@ -22,6 +22,7 @@ class PDFFontHelper {
   static pw.Font? _regularFont;
   static pw.Font? _boldFont;
   static bool _fontsLoaded = false;
+  static bool _embeddedFontsLoaded = false;
 
   /// Loads the NotoSans fonts from the asset bundle.
   ///
@@ -39,12 +40,21 @@ class PDFFontHelper {
       final boldData = await rootBundle.load('assets/fonts/NotoSans-Bold.ttf');
       _boldFont = pw.Font.ttf(boldData);
       _fontsLoaded = true;
+      _embeddedFontsLoaded = true;
     } catch (_) {
       _regularFont = pw.Font.helvetica();
       _boldFont = pw.Font.helveticaBold();
       _fontsLoaded = true;
+      _embeddedFontsLoaded = false;
     }
   }
+
+  /// True when the embedded NotoSans TTF assets were loaded successfully.
+  ///
+  /// Helvetica fallback does not contain the Indian rupee glyph, so callers
+  /// that print `₹` amounts can assert/verify this flag before generating a
+  /// PDF.
+  static bool get hasEmbeddedFonts => _embeddedFontsLoaded;
 
   /// Regular NotoSans font (Helvetica fallback if fonts are not loaded yet
   /// or failed to load).
@@ -127,10 +137,14 @@ class PDFFontHelper {
     pw.TextAlign textAlign = pw.TextAlign.left,
     double? letterSpacing,
     double? lineSpacing,
+    int? maxLines,
+    pw.TextOverflow? overflow,
   }) {
     return pw.Text(
       text,
       textAlign: textAlign,
+      maxLines: maxLines,
+      overflow: overflow,
       style: textStyle(
         fontSize: fontSize,
         fontWeight: fontWeight,
@@ -149,10 +163,14 @@ class PDFFontHelper {
     pw.TextAlign textAlign = pw.TextAlign.left,
     double? letterSpacing,
     double? lineSpacing,
+    int? maxLines,
+    pw.TextOverflow? overflow,
   }) {
     return pw.Text(
       text,
       textAlign: textAlign,
+      maxLines: maxLines,
+      overflow: overflow,
       style: headingStyle(
         fontSize: fontSize,
         color: color,
@@ -168,10 +186,14 @@ class PDFFontHelper {
     double fontSize = 10,
     PdfColor color = PdfColors.black,
     pw.TextAlign textAlign = pw.TextAlign.left,
+    int? maxLines,
+    pw.TextOverflow? overflow,
   }) {
     return pw.Text(
       text,
       textAlign: textAlign,
+      maxLines: maxLines,
+      overflow: overflow,
       style: currencyStyle(fontSize: fontSize, color: color),
     );
   }
@@ -182,5 +204,36 @@ class PDFFontHelper {
   /// still needs to render with the NotoSans currency glyph.
   static String formatCurrency(num amount, {int decimals = 2}) {
     return '₹ ${amount.toStringAsFixed(decimals)}';
+  }
+
+  /// Formats a numeric amount with Indian digit grouping and no space after
+  /// the rupee symbol: `₹300`, `₹1,000`, `₹1,05,000.50`.
+  ///
+  /// The embedded NotoSans font used by [textStyle] contains the `₹` glyph
+  /// (U+20B9), so these strings render correctly wherever that style is
+  /// applied to the amount text.
+  static String formatIndianCurrency(num amount, {int decimals = 0}) {
+    if (amount.isNaN || amount.isInfinite) {
+      return '₹0${decimals > 0 ? '.${'0' * decimals}' : ''}';
+    }
+    final sign = amount < 0 ? '-' : '';
+    final fixed = amount.abs().toStringAsFixed(decimals);
+    final split = fixed.split('.');
+    final intPart = split[0];
+
+    var grouped = intPart;
+    if (intPart.length > 3) {
+      final last3 = intPart.substring(intPart.length - 3);
+      final rest = intPart.substring(0, intPart.length - 3);
+      final groups = <String>[];
+      for (var i = rest.length; i > 0; i -= 2) {
+        final start = (i - 2) < 0 ? 0 : (i - 2);
+        groups.insert(0, rest.substring(start, i));
+      }
+      grouped = '${groups.join(',')},$last3';
+    }
+
+    final decimalPart = split.length > 1 ? '.${split[1]}' : '';
+    return '$sign₹$grouped$decimalPart';
   }
 }

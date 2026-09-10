@@ -69,24 +69,23 @@ class PrescriptionMedicine {
       duration: json['duration']?.toString() ?? '',
       route: json['route']?.toString() ?? '',
       instructions: json['instructions']?.toString() ?? '',
-      customTimes: (json['custom_times'] as List?)
-              ?.map((e) => e.toString())
-              .toList() ??
+      customTimes:
+          (json['custom_times'] as List?)?.map((e) => e.toString()).toList() ??
           const [],
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'medicine_name': medicineName,
-        if (genericName != null) 'generic_name': genericName,
-        if (strength != null) 'strength': strength,
-        'dosage': dosage,
-        'frequency': frequency,
-        'duration': duration,
-        'route': route,
-        'instructions': instructions,
-        'custom_times': customTimes,
-      };
+    'medicine_name': medicineName,
+    if (genericName != null) 'generic_name': genericName,
+    if (strength != null) 'strength': strength,
+    'dosage': dosage,
+    'frequency': frequency,
+    'duration': duration,
+    'route': route,
+    'instructions': instructions,
+    'custom_times': customTimes,
+  };
 
   /// Medicine ka display title — strength ke saath jab available ho.
   String get displayName => strength == null || strength!.isEmpty
@@ -136,21 +135,22 @@ class PrescriptionHistory {
   }
 
   Map<String, dynamic> toJson() => {
-        'chief_complaints': chiefComplaints,
-        'history_presenting_illness': historyPresentingIllness,
-        'past_history': pastHistory,
-        'personal_history': personalHistory,
-        'family_history': familyHistory,
-        'allergies': allergies,
-        'examination_findings': examinationFindings,
-        'diagnosis': diagnosis,
-        'vitals': vitals,
-      };
+    'chief_complaints': chiefComplaints,
+    'history_presenting_illness': historyPresentingIllness,
+    'past_history': pastHistory,
+    'personal_history': personalHistory,
+    'family_history': familyHistory,
+    'allergies': allergies,
+    'examination_findings': examinationFindings,
+    'diagnosis': diagnosis,
+    'vitals': vitals,
+  };
 
-  bool get isEmpty =>
-      toJson().values.every((value) => value is String
-          ? value.trim().isEmpty
-          : (value is Map ? value.isEmpty : true));
+  bool get isEmpty => toJson().values.every(
+    (value) => value is String
+        ? value.trim().isEmpty
+        : (value is Map ? value.isEmpty : true),
+  );
 }
 
 /// `investigations` JSONB — OPD only.
@@ -167,7 +167,10 @@ class PrescriptionInvestigations {
 
   factory PrescriptionInvestigations.fromJson(Map<String, dynamic> json) {
     List<String> list(dynamic value) => (value is List)
-        ? value.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList()
+        ? value
+              .map((e) => e.toString().trim())
+              .where((e) => e.isNotEmpty)
+              .toList()
         : const [];
 
     return PrescriptionInvestigations(
@@ -178,10 +181,10 @@ class PrescriptionInvestigations {
   }
 
   Map<String, dynamic> toJson() => {
-        'lab_tests': labTests,
-        'radiology': radiology,
-        'other_investigations': otherInvestigations,
-      };
+    'lab_tests': labTests,
+    'radiology': radiology,
+    'other_investigations': otherInvestigations,
+  };
 
   bool get isEmpty =>
       labTests.isEmpty && radiology.isEmpty && otherInvestigations.isEmpty;
@@ -214,15 +217,15 @@ class PrescriptionAdvice {
   }
 
   Map<String, dynamic> toJson() => {
-        'follow_up_date': followUpDate,
-        'dietary_advice': dietaryAdvice,
-        'activity_advice': activityAdvice,
-        'other_advice': otherAdvice,
-        'follow_up': followUp,
-      };
+    'follow_up_date': followUpDate,
+    'dietary_advice': dietaryAdvice,
+    'activity_advice': activityAdvice,
+    'other_advice': otherAdvice,
+    'follow_up': followUp,
+  };
 
-  bool get isEmpty => toJson().values.every(
-      (value) => value is String && value.trim().isEmpty);
+  bool get isEmpty =>
+      toJson().values.every((value) => value is String && value.trim().isEmpty);
 }
 
 /// Parsed view of one unified `prescriptions` row.
@@ -270,19 +273,17 @@ class UnifiedPrescription {
     final rawMedicines = row['medicines'];
     if (rawMedicines is List && rawMedicines.isNotEmpty) {
       medicines.addAll(
-        rawMedicines
-            .whereType<Map>()
-            .map((m) => PrescriptionMedicine.fromJson(
-                Map<String, dynamic>.from(m))),
+        rawMedicines.whereType<Map>().map(
+          (m) => PrescriptionMedicine.fromJson(Map<String, dynamic>.from(m)),
+        ),
       );
     } else {
       final items = row['items'];
       if (items is List) {
         medicines.addAll(
-          items
-              .whereType<Map>()
-              .map((m) => PrescriptionMedicine.fromJson(
-                  Map<String, dynamic>.from(m))),
+          items.whereType<Map>().map(
+            (m) => PrescriptionMedicine.fromJson(Map<String, dynamic>.from(m)),
+          ),
         );
       } else if (row['medicine_name']?.toString().isNotEmpty == true &&
           row['medicine_name']?.toString() != 'No medicines prescribed') {
@@ -318,20 +319,19 @@ class UnifiedPrescription {
 
   /// Insert payload for `savePrescription` (unified columns + legacy sync).
   Map<String, dynamic> toInsertPayload() => {
-        'visit_type': visitType.value,
-        'history': history.toJson(),
-        'investigations': investigations.toJson(),
-        'medicines': medicines.map((m) => m.toJson()).toList(),
-        'advice': advice.toJson(),
-      };
+    'visit_type': visitType.value,
+    'history': history.toJson(),
+    'investigations': investigations.toJson(),
+    'medicines': medicines.map((m) => m.toJson()).toList(),
+    'advice': advice.toJson(),
+  };
 
   bool get isOpd => visitType.isOpd;
   bool get isIpd => visitType.isIpd;
 
   /// True jab OPD wale clinical sections mein koi data ho.
-  bool get hasClinicalData => !history.isEmpty ||
-      !investigations.isEmpty ||
-      !advice.isEmpty;
+  bool get hasClinicalData =>
+      !history.isEmpty || !investigations.isEmpty || !advice.isEmpty;
 }
 
 Map<String, dynamic> _asMap(dynamic value) =>

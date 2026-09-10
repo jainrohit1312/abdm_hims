@@ -25,9 +25,7 @@ class ReferralDoctorDetailScreen extends ConsumerWidget {
     if (hospitalId == null || hospitalId.isEmpty) {
       return Scaffold(
         appBar: SmartAppBar(title: const Text('Referral Doctor')),
-        body: const Center(
-          child: Text('Hospital not assigned to this user.'),
-        ),
+        body: const Center(child: Text('Hospital not assigned to this user.')),
       );
     }
 
@@ -88,9 +86,8 @@ class ReferralDoctorDetailScreen extends ConsumerWidget {
       title: doctor.name,
       subtitle: doctor.clinicName ?? 'Referral Doctor',
       action: FilledButton.icon(
-        onPressed: () => context.push(
-          '/marketing/referral-doctors/${doctor.id}/edit',
-        ),
+        onPressed: () =>
+            context.push('/marketing/referral-doctors/${doctor.id}/edit'),
         icon: const Icon(Icons.edit_outlined, size: 16),
         label: const Text('Edit'),
       ),
@@ -174,18 +171,21 @@ class ReferralDoctorDetailScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildActivityCard(
-    BuildContext context,
-    ReferralDoctorDetail detail,
-  ) {
+  Widget _buildActivityCard(BuildContext context, ReferralDoctorDetail detail) {
     return AppSectionCard(
       title: 'Activity',
       child: Wrap(
         spacing: 16,
         runSpacing: 8,
         children: [
-          MarketingMetric(label: 'Last Visit', value: formatMarketingDate(detail.lastVisit)),
-          MarketingMetric(label: 'Total Visits', value: '${detail.totalVisits}'),
+          MarketingMetric(
+            label: 'Last Visit',
+            value: formatMarketingDate(detail.lastVisit),
+          ),
+          MarketingMetric(
+            label: 'Total Visits',
+            value: '${detail.totalVisits}',
+          ),
           MarketingMetric(
             label: 'Visits This Month',
             value: '${detail.visitsThisMonth}',
@@ -223,9 +223,7 @@ class ReferralDoctorDetailScreen extends ConsumerWidget {
                     subtitle: Text(
                       [
                         employeeNames[visit.marketingEmployeeId] ?? '—',
-                        formatMarketingDistance(
-                          visit.distanceFromDoctorMeters,
-                        ),
+                        formatMarketingDistance(visit.distanceFromDoctorMeters),
                       ].where((e) => e.isNotEmpty).join(' • '),
                     ),
                   ),

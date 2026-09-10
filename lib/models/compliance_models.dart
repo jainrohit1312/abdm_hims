@@ -256,8 +256,7 @@ class ComplianceRecord {
   }
 
   /// Live status derived from [expiryDate] (used to keep stored status fresh).
-  ComplianceStatus get derivedStatus =>
-      ComplianceStatus.fromExpiry(expiryDate);
+  ComplianceStatus get derivedStatus => ComplianceStatus.fromExpiry(expiryDate);
 
   String get displayExpiry {
     final expiry = expiryDate;
@@ -312,13 +311,11 @@ class ComplianceDocumentFile {
       fileUrl: json['file_url']?.toString(),
       fileSize: (json['file_size'] is num)
           ? (json['file_size'] as num).toInt()
-          : int.tryParse(json['file_size']?.toString() ?? '') ??
-                0,
+          : int.tryParse(json['file_size']?.toString() ?? '') ?? 0,
       mimeType: json['mime_type']?.toString(),
       version: (json['version'] is num)
           ? (json['version'] as num).toInt()
-          : int.tryParse(json['version']?.toString() ?? '1') ??
-                1,
+          : int.tryParse(json['version']?.toString() ?? '1') ?? 1,
       ocrText: json['ocr_text']?.toString(),
       uploadedBy: json['uploaded_by']?.toString(),
       createdAt: _parseDate(json['created_at']),
@@ -556,7 +553,10 @@ String? _formatDate(DateTime? date) {
 
 List<String> _parseStringList(dynamic value) {
   if (value is List) {
-    return value.map((e) => e?.toString() ?? '').where((e) => e.isNotEmpty).toList();
+    return value
+        .map((e) => e?.toString() ?? '')
+        .where((e) => e.isNotEmpty)
+        .toList();
   }
   if (value is String && value.trim().isNotEmpty) {
     return value

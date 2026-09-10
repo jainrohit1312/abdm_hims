@@ -36,7 +36,9 @@ class SalaryCalculator {
     required int month,
   }) {
     final eligibleDays = attendance.eligibleDays;
-    final dailyRate = eligibleDays > 0 ? employee.monthlySalary / eligibleDays : 0.0;
+    final dailyRate = eligibleDays > 0
+        ? employee.monthlySalary / eligibleDays
+        : 0.0;
     final payable = dailyRate * attendance.attendanceUnits;
 
     return EmployeeSalarySummary(

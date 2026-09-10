@@ -215,8 +215,8 @@ class _ReferralDoctorFormScreenState
                           ),
                       ],
                       onChanged: (value) => setState(
-                        () => _practitionerType = value ??
-                            MarketingConstants.practitionerTypeClinic,
+                        () => _practitionerType =
+                            value ?? MarketingConstants.practitionerTypeClinic,
                       ),
                     ),
                   ],

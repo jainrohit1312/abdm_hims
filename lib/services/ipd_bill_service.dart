@@ -69,7 +69,8 @@ class IPDBillService {
                     fontWeight: pw.FontWeight.bold,
                     color: PdfColors.green900,
                   ),
-                  if (hospitalAddress != null && hospitalAddress.isNotEmpty) ...[
+                  if (hospitalAddress != null &&
+                      hospitalAddress.isNotEmpty) ...[
                     pw.SizedBox(height: 2),
                     PDFFontHelper.text(
                       hospitalAddress,
@@ -238,10 +239,7 @@ class IPDBillService {
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    PDFFontHelper.text(
-                      'Generated on: ${_now()}',
-                      fontSize: 9,
-                    ),
+                    PDFFontHelper.text('Generated on: ${_now()}', fontSize: 9),
                     pw.SizedBox(height: 4),
                     PDFFontHelper.text(
                       'This is a computer-generated bill and is valid for '
@@ -260,10 +258,7 @@ class IPDBillService {
                       fontWeight: pw.FontWeight.bold,
                     ),
                     pw.SizedBox(height: 28),
-                    PDFFontHelper.text(
-                      'Accounts Department',
-                      fontSize: 8,
-                    ),
+                    PDFFontHelper.text('Accounts Department', fontSize: 8),
                   ],
                 ),
               ],

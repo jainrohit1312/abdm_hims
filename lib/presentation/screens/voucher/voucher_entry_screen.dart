@@ -116,10 +116,12 @@ class _VoucherEntryScreenState extends ConsumerState<VoucherEntryScreen> {
     final hospitalId = ref.read(authStateProvider).hospitalId;
     if (hospitalId == null) return;
 
-    final number = await ref.read(databaseServiceProvider).generateVoucherNumber(
-      hospitalId,
-      voucherDate: DateFormat('yyyy-MM-dd').format(_voucherDate),
-    );
+    final number = await ref
+        .read(databaseServiceProvider)
+        .generateVoucherNumber(
+          hospitalId,
+          voucherDate: DateFormat('yyyy-MM-dd').format(_voucherDate),
+        );
     if (!mounted) return;
     setState(() {
       _voucherNumber = number;
@@ -220,7 +222,14 @@ class _VoucherEntryScreenState extends ConsumerState<VoucherEntryScreen> {
   IconData _attachmentIcon(String fileName) {
     final extension = fileName.toLowerCase().split('.').last;
     if (extension == 'pdf') return Icons.picture_as_pdf_outlined;
-    if (const ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(extension)) {
+    if (const [
+      'jpg',
+      'jpeg',
+      'png',
+      'gif',
+      'webp',
+      'bmp',
+    ].contains(extension)) {
       return Icons.image_outlined;
     }
     if (const ['xls', 'xlsx', 'csv'].contains(extension)) {
@@ -308,7 +317,9 @@ class _VoucherEntryScreenState extends ConsumerState<VoucherEntryScreen> {
           createdVoucher['voucher_number']?.toString() ?? _voucherNumber;
       if (createdVoucherNumber != null && createdVoucherNumber.isNotEmpty) {
         try {
-          await ref.read(pushNotificationServiceProvider).notifyVoucher(
+          await ref
+              .read(pushNotificationServiceProvider)
+              .notifyVoucher(
                 hospitalId: hospitalId,
                 voucherNumber: createdVoucherNumber,
                 linkUrl: '/vouchers',
@@ -349,14 +360,18 @@ class _VoucherEntryScreenState extends ConsumerState<VoucherEntryScreen> {
   @override
   Widget build(BuildContext context) {
     final hospitalId = ref.watch(authStateProvider).hospitalId;
-    final customCategories = ref
+    final customCategories =
+        ref
             .watch(voucherCategoriesProvider(hospitalId))
-            .maybeWhen(data: (list) => list, orElse: () => const <Map<String, dynamic>>[])
-        .where((c) => (c['category_name']?.toString() ?? '').isNotEmpty)
-        .map((c) => c['category_name'].toString())
-        .toSet()
-        .toList()
-      ..sort();
+            .maybeWhen(
+              data: (list) => list,
+              orElse: () => const <Map<String, dynamic>>[],
+            )
+            .where((c) => (c['category_name']?.toString() ?? '').isNotEmpty)
+            .map((c) => c['category_name'].toString())
+            .toSet()
+            .toList()
+          ..sort();
 
     return Scaffold(
       appBar: SmartAppBar(
@@ -420,10 +435,8 @@ class _VoucherEntryScreenState extends ConsumerState<VoucherEntryScreen> {
                 decoration: const InputDecoration(labelText: 'Payment Mode'),
                 items: _paymentModes
                     .map(
-                      (mode) => DropdownMenuItem(
-                        value: mode,
-                        child: Text(mode),
-                      ),
+                      (mode) =>
+                          DropdownMenuItem(value: mode, child: Text(mode)),
                     )
                     .toList(),
                 onChanged: (value) =>
@@ -472,10 +485,8 @@ class _VoucherEntryScreenState extends ConsumerState<VoucherEntryScreen> {
                 decoration: const InputDecoration(labelText: 'Voucher Type'),
                 items: _voucherTypes
                     .map(
-                      (type) => DropdownMenuItem(
-                        value: type,
-                        child: Text(type),
-                      ),
+                      (type) =>
+                          DropdownMenuItem(value: type, child: Text(type)),
                     )
                     .toList(),
                 onChanged: (value) =>
@@ -565,9 +576,9 @@ class _VoucherEntryScreenState extends ConsumerState<VoucherEntryScreen> {
       children: [
         Text(
           'Attachments',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
         Material(
@@ -585,7 +596,9 @@ class _VoucherEntryScreenState extends ConsumerState<VoucherEntryScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    _uploading ? Icons.cloud_upload_outlined : Icons.attach_file,
+                    _uploading
+                        ? Icons.cloud_upload_outlined
+                        : Icons.attach_file,
                   ),
                   const SizedBox(width: 8),
                   Flexible(
@@ -609,10 +622,10 @@ class _VoucherEntryScreenState extends ConsumerState<VoucherEntryScreen> {
         Text(
           'Allowed: PDF / image files only • Max 2 MB per file',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
-              ),
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+          ),
         ),
         if (_attachments.isNotEmpty) ...[
           const SizedBox(height: 8),
@@ -659,9 +672,9 @@ class _VoucherEntryScreenState extends ConsumerState<VoucherEntryScreen> {
           children: [
             Text(
               title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             ...children,

@@ -62,9 +62,11 @@ class SupabaseReferralDoctorRepository implements ReferralDoctorRepository {
     final row = await DatabaseService.fetchWithRetry(
       () => _client
           .from(ApiConstants.referralDoctorsTable)
-          .insert(_doctorPayload(doctor, hospitalId: hospitalId)
-            ..['created_at'] = now
-            ..['updated_at'] = now)
+          .insert(
+            _doctorPayload(doctor, hospitalId: hospitalId)
+              ..['created_at'] = now
+              ..['updated_at'] = now,
+          )
           .select()
           .single(),
     );
@@ -79,8 +81,10 @@ class SupabaseReferralDoctorRepository implements ReferralDoctorRepository {
     final row = await DatabaseService.fetchWithRetry(
       () => _client
           .from(ApiConstants.referralDoctorsTable)
-          .update(_doctorPayload(doctor, hospitalId: hospitalId)
-            ..['updated_at'] = DateTime.now().toUtc().toIso8601String())
+          .update(
+            _doctorPayload(doctor, hospitalId: hospitalId)
+              ..['updated_at'] = DateTime.now().toUtc().toIso8601String(),
+          )
           .eq('id', doctor.id)
           .eq('hospital_id', hospitalId)
           .select()

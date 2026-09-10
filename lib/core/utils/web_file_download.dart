@@ -1,7 +1,8 @@
 import 'dart:typed_data';
 
 import 'web_file_download_stub.dart'
-    if (dart.library.js_interop) 'web_file_download_web.dart' as impl;
+    if (dart.library.js_interop) 'web_file_download_web.dart'
+    as impl;
 
 /// Browser-safe file download helper used by the Reports module.
 ///

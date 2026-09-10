@@ -41,9 +41,7 @@ class AppRefreshButton extends ConsumerWidget {
         side: BorderSide(
           color: theme.colorScheme.primary.withValues(alpha: 0.28),
         ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         padding: const EdgeInsets.all(10),
       ),
       onPressed: () => _handleRefresh(ref),

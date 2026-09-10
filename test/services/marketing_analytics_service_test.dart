@@ -45,11 +45,7 @@ void main() {
     );
   }
 
-  PatientReferral referral(
-    String id,
-    String doctorId,
-    DateTime referralDate,
-  ) {
+  PatientReferral referral(String id, String doctorId, DateTime referralDate) {
     return PatientReferral(
       id: id,
       hospitalId: 'h1',

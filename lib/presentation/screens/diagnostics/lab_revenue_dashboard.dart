@@ -56,9 +56,8 @@ class LabRevenueDashboard extends ConsumerWidget {
               Text('Failed to load revenue stats: $error'),
               const SizedBox(height: 12),
               FilledButton(
-                onPressed: () => ref.invalidate(
-                  diagnosticsRevenueStatsProvider(hospitalId),
-                ),
+                onPressed: () =>
+                    ref.invalidate(diagnosticsRevenueStatsProvider(hospitalId)),
                 child: const Text('Retry'),
               ),
             ],
@@ -255,10 +254,7 @@ class _StatCard extends StatelessWidget {
             ),
             if (subLabel != null) ...[
               const SizedBox(height: 4),
-              Text(
-                subLabel!,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              Text(subLabel!, style: Theme.of(context).textTheme.bodySmall),
             ],
           ],
         ),

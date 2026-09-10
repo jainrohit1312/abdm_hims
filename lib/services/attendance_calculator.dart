@@ -112,7 +112,8 @@ class AttendanceCalculator {
 
     for (final employee in employees) {
       final dayMap =
-          punchesByEmployeeDay[employee.id] ?? const <int, List<AttendancePunch>>{};
+          punchesByEmployeeDay[employee.id] ??
+          const <int, List<AttendancePunch>>{};
 
       var eligibleDays = 0;
       var presentDays = 0;
@@ -178,7 +179,8 @@ class AttendanceCalculator {
     DateTime date,
     List<AttendancePunch> punches,
   ) {
-    final sorted = [...punches]..sort((a, b) => a.punchedAt.compareTo(b.punchedAt));
+    final sorted = [...punches]
+      ..sort((a, b) => a.punchedAt.compareTo(b.punchedAt));
 
     DateTime? firstPunchIn;
     DateTime? lastPunchOut;

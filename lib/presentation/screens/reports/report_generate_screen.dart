@@ -160,9 +160,7 @@ class _ReportGenerateScreenState extends ConsumerState<ReportGenerateScreen> {
     if (hospitalId == null || hospitalId.isEmpty) {
       return Scaffold(
         appBar: SmartAppBar(title: const Text('Generate Report')),
-        body: const Center(
-          child: Text('Hospital not assigned to this user.'),
-        ),
+        body: const Center(child: Text('Hospital not assigned to this user.')),
       );
     }
 

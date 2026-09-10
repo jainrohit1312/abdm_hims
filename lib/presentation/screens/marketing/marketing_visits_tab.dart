@@ -39,8 +39,7 @@ class _MarketingVisitsTabState extends ConsumerState<MarketingVisitsTab> {
     _to = _from;
   }
 
-  DateTime get _toExclusive =>
-      DateTime(_to.year, _to.month, _to.day + 1);
+  DateTime get _toExclusive => DateTime(_to.year, _to.month, _to.day + 1);
 
   @override
   Widget build(BuildContext context) {
@@ -281,12 +280,12 @@ class _MarketingVisitsTabState extends ConsumerState<MarketingVisitsTab> {
 
   List<MarketingVisit> _filter(List<MarketingVisit> visits) {
     return visits.where((visit) {
-      final matchesArea =
-          _areaFilter == null || visit.areaId == _areaFilter;
-      final matchesEmployee = _employeeFilter == null ||
+      final matchesArea = _areaFilter == null || visit.areaId == _areaFilter;
+      final matchesEmployee =
+          _employeeFilter == null ||
           visit.marketingEmployeeId == _employeeFilter;
-      final matchesDoctor = _doctorFilter == null ||
-          visit.referralDoctorId == _doctorFilter;
+      final matchesDoctor =
+          _doctorFilter == null || visit.referralDoctorId == _doctorFilter;
       return matchesArea && matchesEmployee && matchesDoctor;
     }).toList();
   }
@@ -355,10 +354,7 @@ class _VisitCard extends StatelessWidget {
                   label: 'Employee',
                   value: employee?.fullName ?? '—',
                 ),
-                MarketingMetric(
-                  label: 'Visit Location',
-                  value: locationText,
-                ),
+                MarketingMetric(label: 'Visit Location', value: locationText),
                 MarketingMetric(
                   label: 'Distance',
                   value: formatMarketingDistance(

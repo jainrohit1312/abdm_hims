@@ -79,7 +79,10 @@ class _ComplianceRecordFormScreenState
   Future<void> _loadRecord() async {
     final record = await ref
         .read(complianceServiceProvider)
-        .getRecordById(widget.recordId!, hospitalId: ref.read(authStateProvider).hospitalId);
+        .getRecordById(
+          widget.recordId!,
+          hospitalId: ref.read(authStateProvider).hospitalId,
+        );
     if (!mounted || record == null) return;
     setState(() {
       _documentNameController.text = record.documentName;
@@ -102,7 +105,9 @@ class _ComplianceRecordFormScreenState
   }
 
   Future<void> _pickDate({required bool isIssue}) async {
-    final initial = isIssue ? (_issueDate ?? DateTime.now()) : (_expiryDate ?? DateTime.now());
+    final initial = isIssue
+        ? (_issueDate ?? DateTime.now())
+        : (_expiryDate ?? DateTime.now());
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
@@ -143,7 +148,10 @@ class _ComplianceRecordFormScreenState
 
   Future<void> _pickFromGallery() async {
     try {
-      final shots = await _imagePicker.pickMultiImage(imageQuality: 85, maxWidth: 2400);
+      final shots = await _imagePicker.pickMultiImage(
+        imageQuality: 85,
+        maxWidth: 2400,
+      );
       if (shots.isEmpty || !mounted) return;
       for (final shot in shots) {
         final bytes = await shot.readAsBytes();
@@ -264,7 +272,9 @@ class _ComplianceRecordFormScreenState
       await service.logAudit(
         hospitalId: hospitalId,
         recordId: saved.id,
-        userId: await ref.read(databaseServiceProvider).getCurrentUsersTableId(),
+        userId: await ref
+            .read(databaseServiceProvider)
+            .getCurrentUsersTableId(),
         action: _isEdit ? 'update' : 'upload',
         detail: '${saved.documentName} (${saved.documentType})',
       );
@@ -305,7 +315,9 @@ class _ComplianceRecordFormScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: SmartAppBar(
-        title: Text(_isEdit ? 'Edit Compliance Record' : 'New Compliance Document'),
+        title: Text(
+          _isEdit ? 'Edit Compliance Record' : 'New Compliance Document',
+        ),
         actions: [
           AppRefreshButton(
             onRefresh: () {
@@ -484,10 +496,10 @@ class _ComplianceRecordFormScreenState
         Text(
           'PDF, JPG, PNG, JPEG, DOC, DOCX • Max 25 MB per file',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
-              ),
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+          ),
         ),
         const SizedBox(height: 8),
         Row(
@@ -547,9 +559,8 @@ class _ComplianceRecordFormScreenState
                           width: 44,
                           height: 44,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Icon(
-                            documentTypeIcon(draft.name),
-                          ),
+                          errorBuilder: (_, _, _) =>
+                              Icon(documentTypeIcon(draft.name)),
                         ),
                       )
                     : Icon(documentTypeIcon(draft.name)),

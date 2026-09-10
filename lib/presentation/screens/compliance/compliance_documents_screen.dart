@@ -64,13 +64,15 @@ class _ComplianceDocumentsScreenState
       );
     }
 
-    final documentsAsync = ref.watch(allComplianceDocumentsProvider(hospitalId));
+    final documentsAsync = ref.watch(
+      allComplianceDocumentsProvider(hospitalId),
+    );
 
     return Scaffold(
       appBar: SmartAppBar(
-        title: Text(_selectionMode
-            ? '${_selected.length} selected'
-            : 'All Documents'),
+        title: Text(
+          _selectionMode ? '${_selected.length} selected' : 'All Documents',
+        ),
         actions: [
           if (_selectionMode) ...[
             IconButton(
@@ -84,7 +86,9 @@ class _ComplianceDocumentsScreenState
                   : const Icon(Icons.archive_outlined),
               onPressed: _exporting || _selected.isEmpty
                   ? null
-                  : () => _exportSelectedZip(documentsAsync.valueOrNull ?? const []),
+                  : () => _exportSelectedZip(
+                      documentsAsync.valueOrNull ?? const [],
+                    ),
             ),
             IconButton(
               tooltip: 'Exit selection',
@@ -142,24 +146,29 @@ class _ComplianceDocumentsScreenState
                       },
                     ),
               isDense: true,
-                          ),
+            ),
           ),
           const SizedBox(height: 8),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _chip('All', _categoryFilter == null && _statusFilter == null, () {
-                  setState(() {
-                    _categoryFilter = null;
-                    _statusFilter = null;
-                  });
-                }),
+                _chip(
+                  'All',
+                  _categoryFilter == null && _statusFilter == null,
+                  () {
+                    setState(() {
+                      _categoryFilter = null;
+                      _statusFilter = null;
+                    });
+                  },
+                ),
                 for (final category in ComplianceCategory.values)
                   _chip(category.label, _categoryFilter == category, () {
                     setState(() {
-                      _categoryFilter =
-                          _categoryFilter == category ? null : category;
+                      _categoryFilter = _categoryFilter == category
+                          ? null
+                          : category;
                       _statusFilter = null;
                     });
                   }),
@@ -189,14 +198,27 @@ class _ComplianceDocumentsScreenState
                   tooltip: 'Sort',
                   onSelected: (value) => setState(() => _sortBy = value),
                   itemBuilder: (context) => const [
-                    PopupMenuItem(value: 'uploaded', child: Text('Sort: Date uploaded')),
-                    PopupMenuItem(value: 'name', child: Text('Sort: File name')),
-                    PopupMenuItem(value: 'expiry', child: Text('Sort: Expiry date')),
+                    PopupMenuItem(
+                      value: 'uploaded',
+                      child: Text('Sort: Date uploaded'),
+                    ),
+                    PopupMenuItem(
+                      value: 'name',
+                      child: Text('Sort: File name'),
+                    ),
+                    PopupMenuItem(
+                      value: 'expiry',
+                      child: Text('Sort: Expiry date'),
+                    ),
                   ],
                   child: Chip(
                     avatar: const Icon(Icons.sort, size: 16),
                     label: Text(
-                      'Sort: ${_sortBy == 'name' ? 'File name' : _sortBy == 'expiry' ? 'Expiry' : 'Uploaded'}',
+                      'Sort: ${_sortBy == 'name'
+                          ? 'File name'
+                          : _sortBy == 'expiry'
+                          ? 'Expiry'
+                          : 'Uploaded'}',
                       style: const TextStyle(fontSize: 12),
                     ),
                   ),
@@ -209,7 +231,12 @@ class _ComplianceDocumentsScreenState
     );
   }
 
-  Widget _chip(String label, bool selected, VoidCallback onTap, {Color? color}) {
+  Widget _chip(
+    String label,
+    bool selected,
+    VoidCallback onTap, {
+    Color? color,
+  }) {
     final effectiveColor = color ?? Theme.of(context).colorScheme.primary;
     return Padding(
       padding: const EdgeInsets.only(right: 6),
@@ -233,8 +260,7 @@ class _ComplianceDocumentsScreenState
     if (_categoryFilter != null) {
       list = list
           .where(
-            (d) =>
-                d['record_category']?.toString() == _categoryFilter!.value,
+            (d) => d['record_category']?.toString() == _categoryFilter!.value,
           )
           .toList();
     }
@@ -247,8 +273,12 @@ class _ComplianceDocumentsScreenState
     final search = _searchController.text.trim().toLowerCase();
     if (search.isNotEmpty) {
       list = list.where((d) {
-        return (d['file_name']?.toString() ?? '').toLowerCase().contains(search) ||
-            (d['record_name']?.toString() ?? '').toLowerCase().contains(search) ||
+        return (d['file_name']?.toString() ?? '').toLowerCase().contains(
+              search,
+            ) ||
+            (d['record_name']?.toString() ?? '').toLowerCase().contains(
+              search,
+            ) ||
             (d['record_type']?.toString() ?? '').toLowerCase().contains(search);
       }).toList();
     }
@@ -256,9 +286,9 @@ class _ComplianceDocumentsScreenState
       int result;
       switch (_sortBy) {
         case 'name':
-          result = (a['file_name']?.toString() ?? '')
-              .toLowerCase()
-              .compareTo((b['file_name']?.toString() ?? '').toLowerCase());
+          result = (a['file_name']?.toString() ?? '').toLowerCase().compareTo(
+            (b['file_name']?.toString() ?? '').toLowerCase(),
+          );
           break;
         case 'expiry':
           final aExpiry =
@@ -332,9 +362,7 @@ class _ComplianceDocumentsScreenState
         ).colorScheme.primaryContainer.withValues(alpha: 0.3),
         leading: _selectionMode
             ? Icon(
-                selected
-                    ? Icons.check_circle
-                    : Icons.radio_button_unchecked,
+                selected ? Icons.check_circle : Icons.radio_button_unchecked,
                 color: selected ? Theme.of(context).colorScheme.primary : null,
               )
             : Icon(documentTypeIcon(fileName), size: 30),
@@ -383,9 +411,7 @@ class _ComplianceDocumentsScreenState
               }
             });
           } else {
-            context.push(
-              '/compliance/document/$id/view?recordId=$recordId',
-            );
+            context.push('/compliance/document/$id/view?recordId=$recordId');
           }
         },
         onLongPress: () {
@@ -444,7 +470,8 @@ class _ComplianceDocumentsScreenState
         filePath: zipFile.path,
         fileName: 'compliance_documents_$stamp.zip',
         mimeType: 'application/zip',
-        text: 'Exported $count compliance document(s) from MediFlux Hospital Software',
+        text:
+            'Exported $count compliance document(s) from MediFlux Hospital Software',
       );
       setState(() => _selectionMode = false);
       _selected.clear();

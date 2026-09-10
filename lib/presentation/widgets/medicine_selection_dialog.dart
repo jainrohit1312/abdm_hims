@@ -251,7 +251,8 @@ class _MedicineSelectionDialogState
 
     setState(() {
       _sessionAddedCount++;
-      _lastAddedMessage = 'Added: $medicineName ($dosage • $_frequency • $duration)';
+      _lastAddedMessage =
+          'Added: $medicineName ($dosage • $_frequency • $duration)';
     });
 
     _successTimer?.cancel();
@@ -455,8 +456,7 @@ class _MedicineSelectionDialogState
               medicine['medicine_name']?.toString().toLowerCase() ?? '';
           final generic =
               medicine['generic_name']?.toString().toLowerCase() ?? '';
-          final brand =
-              medicine['brand_name']?.toString().toLowerCase() ?? '';
+          final brand = medicine['brand_name']?.toString().toLowerCase() ?? '';
           return name.contains(lowerQuery) ||
               generic.contains(lowerQuery) ||
               brand.contains(lowerQuery);
@@ -484,7 +484,7 @@ class _MedicineSelectionDialogState
                 );
               },
             ),
-                      ),
+          ),
         );
       },
       optionsViewBuilder: (context, onSelected, options) {
@@ -770,7 +770,7 @@ class _MedicineSelectionDialogState
                     decoration: InputDecoration(
                       labelText: 'Dosage',
                       hintText: '1-0-1',
-                                          ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -780,9 +780,7 @@ class _MedicineSelectionDialogState
                     initialValue: medicineDurationOptions.contains(_duration)
                         ? _duration
                         : 'Custom',
-                    decoration: InputDecoration(
-                      labelText: 'Duration',
-                                          ),
+                    decoration: InputDecoration(labelText: 'Duration'),
                     items: medicineDurationOptions
                         .map(
                           (duration) => DropdownMenuItem(
@@ -810,22 +808,18 @@ class _MedicineSelectionDialogState
                 decoration: InputDecoration(
                   labelText: 'Custom Duration',
                   hintText: 'e.g. 21 Days / 2 Weeks / 6 Months',
-                                  ),
+                ),
               ),
             ],
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
               key: ValueKey('dialog_route_$_route'),
               initialValue: _route,
-              decoration: InputDecoration(
-                labelText: 'Route',
-                              ),
+              decoration: InputDecoration(labelText: 'Route'),
               items: medicineRouteOptions
                   .map(
-                    (route) => DropdownMenuItem(
-                      value: route,
-                      child: Text(route),
-                    ),
+                    (route) =>
+                        DropdownMenuItem(value: route, child: Text(route)),
                   )
                   .toList(),
               onChanged: (value) {
@@ -841,7 +835,7 @@ class _MedicineSelectionDialogState
                 labelText: 'Instructions',
                 hintText: 'e.g. With water, After food',
                 alignLabelWithHint: true,
-                              ),
+              ),
             ),
           ],
         ),

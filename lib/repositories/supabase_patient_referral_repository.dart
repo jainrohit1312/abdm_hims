@@ -79,8 +79,10 @@ class SupabasePatientReferralRepository implements PatientReferralRepository {
     final row = await DatabaseService.fetchWithRetry(
       () => _client
           .from(ApiConstants.patientReferralsTable)
-          .insert(_referralPayload(referral, hospitalId: hospitalId)
-            ..['created_at'] = DateTime.now().toUtc().toIso8601String())
+          .insert(
+            _referralPayload(referral, hospitalId: hospitalId)
+              ..['created_at'] = DateTime.now().toUtc().toIso8601String(),
+          )
           .select()
           .single(),
     );

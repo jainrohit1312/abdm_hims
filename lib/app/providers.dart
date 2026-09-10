@@ -1289,7 +1289,10 @@ final opdSlipDetailsProvider =
 
       final doctorId = payment['doctor_id']?.toString();
       if (doctorId != null && doctorId.isNotEmpty) {
+        // New deployments store `doctors.id`; legacy rows may point at
+        // `users.id`. Try both so the slip always resolves the clean name.
         doctor = await dbService.getById(ApiConstants.doctorsTable, doctorId);
+        doctor ??= await dbService.getById(ApiConstants.usersTable, doctorId);
       }
 
       final departmentId = payment['department_id']?.toString();

@@ -146,7 +146,7 @@ class _WardTabViewState extends ConsumerState<_WardTabView>
                   decoration: InputDecoration(
                     hintText: 'Search patients in ward...',
                     prefixIcon: const Icon(Icons.search),
-                                      ),
+                  ),
                 ),
               ),
               const SizedBox(width: 12),

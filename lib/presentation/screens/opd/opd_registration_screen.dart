@@ -111,15 +111,11 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
   Future<void> _loadDoctors() async {
     final db = ref.read(databaseServiceProvider);
     final auth = ref.read(authStateProvider);
-    print('🟡 Fetching doctors for department ID: $_selectedDepartmentId');
     try {
       final docs = await db.getCachedDoctorsByDepartment(
         _selectedDepartmentId,
         hospitalId: auth.hospitalId,
       );
-      print('🟢 Doctors found: ${docs.length}');
-      print('🟢 Doctor details: $docs');
-      print('🟢 DB Response: $docs');
 
       if (mounted) {
         setState(() {
@@ -134,7 +130,8 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
         });
       }
     } catch (e) {
-      print('🔴 Error: $e');
+      // Doctor list load failure is non-blocking; the dropdown simply stays
+      // empty and the user can retry by re-selecting the department.
     }
   }
 
@@ -286,32 +283,25 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
     final slipNumber =
         'OPD-${(opdId.length >= 8 ? opdId.substring(0, 8) : opdId).toUpperCase()}';
 
-    final grossFee = double.tryParse(
-          slipRow['consultation_fee']?.toString() ?? '',
-        ) ??
-        0;
-    final netPayable = double.tryParse(
-          slipRow['payment_amount']?.toString() ?? '',
-        ) ??
-        0;
-    final paidAmount = double.tryParse(
-          slipRow['paid_amount']?.toString() ?? '',
-        ) ??
-        netPayable;
-    final balanceAmount = double.tryParse(
-          slipRow['balance_amount']?.toString() ?? '',
-        ) ??
+    final grossFee =
+        double.tryParse(slipRow['consultation_fee']?.toString() ?? '') ?? 0;
+    final netPayable =
+        double.tryParse(slipRow['payment_amount']?.toString() ?? '') ?? 0;
+    final paidAmount =
+        double.tryParse(slipRow['paid_amount']?.toString() ?? '') ?? netPayable;
+    final balanceAmount =
+        double.tryParse(slipRow['balance_amount']?.toString() ?? '') ??
         (netPayable - paidAmount);
 
     return <String, dynamic>{
-      'hospitalName': hospital?['name']?.toString() ?? 'HIMS Hospital',
-      'hospitalAddress':
-          hospital?['address']?.toString() ??
-          '123, Healthcare Avenue, New Delhi',
+      'hospital': hospital,
+      'hospitalName': hospital?['name']?.toString() ?? 'N/A',
+      'hospitalAddress': hospitalAddressFromRecord(hospital),
       'patientName': patientName.isEmpty
           ? (widget.patientName ?? 'Unknown Patient')
           : patientName,
       'uhid': patients['uhid']?.toString() ?? widget.uhid ?? 'N/A',
+      'doctorId': _selectedDoctorId,
       'doctorName': _selectedDoctorName.isEmpty ? 'N/A' : _selectedDoctorName,
       'department': departmentName,
       'consultationFee': grossFee,
@@ -324,6 +314,8 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
       'paymentStatus': 'Paid',
       'date': DateTime.now(),
       'slipNumber': slipNumber,
+      'tokenNumber': slipRow['token_number']?.toString(),
+      'isEmergency': slipRow['is_emergency'] == true,
     };
   }
 
@@ -394,10 +386,8 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
       final age = ageText.isNotEmpty ? int.tryParse(ageText) : null;
 
       final double grossFee = _consultationFee;
-      final double discount = double.tryParse(
-            _discountController.text.trim(),
-          ) ??
-          _discount;
+      final double discount =
+          double.tryParse(_discountController.text.trim()) ?? _discount;
       if (discount < 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -464,13 +454,15 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
       final visitTags = _tagsKey.currentState?.selectedTags ?? const <String>[];
       if (opdId.isNotEmpty && visitTags.isNotEmpty) {
         try {
-          await ref.read(personalizedTagServiceProvider).setEntityTags(
-            userId: createdById,
-            fieldKey: PersonalizedTagFields.opd,
-            entityType: PersonalizedTagEntityTypes.opdRegistration,
-            entityId: opdId,
-            names: visitTags,
-          );
+          await ref
+              .read(personalizedTagServiceProvider)
+              .setEntityTags(
+                userId: createdById,
+                fieldKey: PersonalizedTagFields.opd,
+                entityType: PersonalizedTagEntityTypes.opdRegistration,
+                entityId: opdId,
+                names: visitTags,
+              );
         } catch (e) {
           debugPrint('OPD tags save failed (non-blocking): $e');
         }
@@ -785,7 +777,6 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
                   decoration: const InputDecoration(labelText: 'Doctor'),
                   items: _doctors.map((doc) {
                     final String docId = doc['id'].toString();
-                    print('Adding Doctor: $docId - ${doc['name']}');
                     return DropdownMenuItem<String>(
                       value: docId,
                       child: Text(doc['name']),
@@ -887,7 +878,7 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
                 decoration: InputDecoration(
                   labelText: 'Payment Mode',
                   prefixIcon: const Icon(Icons.payments_outlined),
-                                  ),
+                ),
                 items: _paymentModes
                     .map(
                       (mode) =>

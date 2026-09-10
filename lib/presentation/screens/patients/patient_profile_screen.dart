@@ -806,7 +806,10 @@ class _IpdAdmissionCard extends StatelessWidget {
                   ('Admission Type', _orDash(admission['admission_type'])),
                   ('Doctor', _orDash(admission['doctor_name'])),
                   ('Department', _orDash(admission['department_name'])),
-                  ('Primary Diagnosis', _orDash(admission['primary_diagnosis'])),
+                  (
+                    'Primary Diagnosis',
+                    _orDash(admission['primary_diagnosis']),
+                  ),
                   (
                     'Length of Stay',
                     _lengthOfStay(

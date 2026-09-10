@@ -1,5 +1,6 @@
 import 'keyboard_inset_stub.dart'
-    if (dart.library.js_interop) 'keyboard_inset_web.dart' as impl;
+    if (dart.library.js_interop) 'keyboard_inset_web.dart'
+    as impl;
 
 /// Cross-platform keyboard inset helper.
 ///

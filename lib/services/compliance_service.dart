@@ -127,9 +127,9 @@ class ComplianceService {
         int result;
         switch (sortBy) {
           case 'name':
-            result = a.documentName
-                .toLowerCase()
-                .compareTo(b.documentName.toLowerCase());
+            result = a.documentName.toLowerCase().compareTo(
+              b.documentName.toLowerCase(),
+            );
             break;
           case 'created':
             result = (b.createdAt ?? DateTime(2000)).compareTo(
@@ -168,10 +168,9 @@ class ComplianceService {
             .inFilter('record_id', recordIds)
             .order('version', ascending: false),
       );
-      final docs =
-          response
-              .map((row) => ComplianceDocumentFile.fromJson(row))
-              .toList();
+      final docs = response
+          .map((row) => ComplianceDocumentFile.fromJson(row))
+          .toList();
       for (final record in records) {
         final mine = docs.where((d) => d.recordId == record.id).toList();
         record.documentCount = mine.length;
@@ -347,7 +346,9 @@ class ComplianceService {
       allDocs.sort((a, b) {
         final aCreated = DateTime.tryParse(a['created_at']?.toString() ?? '');
         final bCreated = DateTime.tryParse(b['created_at']?.toString() ?? '');
-        return (bCreated ?? DateTime(2000)).compareTo(aCreated ?? DateTime(2000));
+        return (bCreated ?? DateTime(2000)).compareTo(
+          aCreated ?? DateTime(2000),
+        );
       });
       return allDocs;
     } catch (e) {
@@ -389,17 +390,13 @@ class ComplianceService {
       throw Exception('File exceeds the 25 MB per-file limit');
     }
     if (!isAllowedExtension(fileName)) {
-      throw Exception(
-        'Only PDF, JPG, PNG, JPEG, DOC, DOCX files are allowed',
-      );
+      throw Exception('Only PDF, JPG, PNG, JPEG, DOC, DOCX files are allowed');
     }
 
     final existing = await getDocuments(recordId);
-    final nextVersion =
-        existing.isEmpty
-            ? 1
-            : existing.map((d) => d.version).reduce((a, b) => a > b ? a : b) +
-                1;
+    final nextVersion = existing.isEmpty
+        ? 1
+        : existing.map((d) => d.version).reduce((a, b) => a > b ? a : b) + 1;
 
     final safeName = _sanitizeFileName(fileName);
     final storagePath =
@@ -409,9 +406,11 @@ class ComplianceService {
     final fileUrl = await DatabaseService.fetchWithRetry(() async {
       await _client.storage
           .from(_bucket)
-          .uploadBinary(storagePath, bytes, fileOptions: const FileOptions(
-            upsert: true,
-          ));
+          .uploadBinary(
+            storagePath,
+            bytes,
+            fileOptions: const FileOptions(upsert: true),
+          );
       return _client.storage.from(_bucket).getPublicUrl(storagePath);
     });
 
@@ -467,7 +466,9 @@ class ComplianceService {
             .eq('id', documentId)
             .maybeSingle(),
       );
-      return response == null ? null : ComplianceDocumentFile.fromJson(response);
+      return response == null
+          ? null
+          : ComplianceDocumentFile.fromJson(response);
     } catch (e) {
       return null;
     }
@@ -716,9 +717,7 @@ class ComplianceService {
       final response = await DatabaseService.fetchWithRetry(
         () => query.order('created_at', ascending: false).limit(200),
       );
-      return response
-          .map((row) => ComplianceAuditEntry.fromJson(row))
-          .toList();
+      return response.map((row) => ComplianceAuditEntry.fromJson(row)).toList();
     } catch (e) {
       AppLogger.e('Error fetching compliance audit logs', e);
       return [];

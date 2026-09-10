@@ -341,7 +341,9 @@ class AbdmService {
 
   /// Legacy service-definition upload. Kept for backwards source compatibility
   /// only; the production path is now [linkFacilityHip] (HFR Multiple HRP).
-  @Deprecated('Use linkFacilityHip(); legacy addUpdateServices is no longer the production path.')
+  @Deprecated(
+    'Use linkFacilityHip(); legacy addUpdateServices is no longer the production path.',
+  )
   Future<Map<String, dynamic>> addOrUpdateAbdmServices({
     List<Map<String, dynamic>>? services,
   }) {
@@ -1095,7 +1097,9 @@ class AbdmService {
     }
     return _invokeEdge(
       'm3ConsentStatus',
-      body: {'payload': {'requestId': consentRequestId}},
+      body: {
+        'payload': {'requestId': consentRequestId},
+      },
     );
   }
 
@@ -1158,7 +1162,9 @@ class AbdmService {
     }
     return _invokeEdge(
       'm3HealthInformationRequest',
-      body: {'payload': {'consentId': consentId}},
+      body: {
+        'payload': {'consentId': consentId},
+      },
     );
   }
 

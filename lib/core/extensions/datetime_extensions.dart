@@ -6,11 +6,11 @@ extension DateTimeExtensions on DateTime {
   String get toDisplayDate => DateFormat('dd/MM/yyyy').format(this);
   String get toDisplayDateTime => DateFormat('dd/MM/yyyy hh:mm a').format(this);
   String get toTimeString => DateFormat('hh:mm a').format(this);
-  
+
   String get timeAgo {
     final now = DateTime.now();
     final difference = now.difference(this);
-    
+
     if (difference.inDays > 365) {
       return '${(difference.inDays / 365).floor()} years ago';
     } else if (difference.inDays > 30) {
@@ -33,6 +33,8 @@ extension DateTimeExtensions on DateTime {
 
   bool get isYesterday {
     final yesterday = DateTime.now().subtract(const Duration(days: 1));
-    return year == yesterday.year && month == yesterday.month && day == yesterday.day;
+    return year == yesterday.year &&
+        month == yesterday.month &&
+        day == yesterday.day;
   }
 }

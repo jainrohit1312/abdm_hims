@@ -135,10 +135,7 @@ class AppTheme {
     return InputDecorationTheme(
       filled: true,
       fillColor: scheme.surface,
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 14,
-        vertical: 13,
-      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
       labelStyle: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w500,
@@ -161,14 +158,8 @@ class AppTheme {
         fontWeight: FontWeight.w600,
         color: scheme.primary,
       ),
-      prefixIconConstraints: const BoxConstraints(
-        minWidth: 44,
-        minHeight: 44,
-      ),
-      suffixIconConstraints: const BoxConstraints(
-        minWidth: 44,
-        minHeight: 44,
-      ),
+      prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+      suffixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 44),
       errorMaxLines: 2,
       helperMaxLines: 2,
       border: border,
@@ -178,14 +169,14 @@ class AppTheme {
       focusedBorder: border.copyWith(
         borderSide: BorderSide(color: scheme.primary, width: 1.6),
       ),
-      errorBorder: border.copyWith(
-        borderSide: BorderSide(color: scheme.error),
-      ),
+      errorBorder: border.copyWith(borderSide: BorderSide(color: scheme.error)),
       focusedErrorBorder: border.copyWith(
         borderSide: BorderSide(color: scheme.error, width: 1.6),
       ),
       disabledBorder: border.copyWith(
-        borderSide: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+        borderSide: BorderSide(
+          color: scheme.outlineVariant.withValues(alpha: 0.5),
+        ),
       ),
     );
   }
@@ -199,16 +190,17 @@ class AppTheme {
 
   static ThemeData _buildTheme(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: primaryColor,
-      secondary: secondaryColor,
-      error: errorColor,
-      brightness: brightness,
-    ).copyWith(
-      // Soft app background so white/raised surfaces read as "cards".
-      surface: isDark ? const Color(0xFF111827) : Colors.white,
-      onSurface: isDark ? const Color(0xFFE5E7EB) : const Color(0xFF111827),
-    );
+    final colorScheme =
+        ColorScheme.fromSeed(
+          seedColor: primaryColor,
+          secondary: secondaryColor,
+          error: errorColor,
+          brightness: brightness,
+        ).copyWith(
+          // Soft app background so white/raised surfaces read as "cards".
+          surface: isDark ? const Color(0xFF111827) : Colors.white,
+          onSurface: isDark ? const Color(0xFFE5E7EB) : const Color(0xFF111827),
+        );
 
     final scaffoldBackground = isDark
         ? const Color(0xFF0B1220)
@@ -269,7 +261,9 @@ class AppTheme {
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(radiusMedium),
-          side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.55)),
+          side: BorderSide(
+            color: colorScheme.outlineVariant.withValues(alpha: 0.55),
+          ),
         ),
       ),
 
@@ -291,8 +285,12 @@ class AppTheme {
           ElevatedButton.styleFrom(
             backgroundColor: colorScheme.primary,
             foregroundColor: colorScheme.onPrimary,
-            disabledBackgroundColor: colorScheme.onSurface.withValues(alpha: 0.10),
-            disabledForegroundColor: colorScheme.onSurface.withValues(alpha: 0.35),
+            disabledBackgroundColor: colorScheme.onSurface.withValues(
+              alpha: 0.10,
+            ),
+            disabledForegroundColor: colorScheme.onSurface.withValues(
+              alpha: 0.35,
+            ),
           ),
         ),
       ),
@@ -316,7 +314,9 @@ class AppTheme {
         style: TextButton.styleFrom(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          textStyle: textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+          textStyle: textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
       iconButtonTheme: IconButtonThemeData(
@@ -339,7 +339,9 @@ class AppTheme {
         backgroundColor: colorScheme.surface,
         surfaceTintColor: Colors.transparent,
         elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radiusLarge)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radiusLarge),
+        ),
         titleTextStyle: textTheme.titleLarge?.copyWith(
           color: colorScheme.onSurface,
           fontWeight: FontWeight.w700,
@@ -353,7 +355,9 @@ class AppTheme {
         backgroundColor: colorScheme.surface,
         surfaceTintColor: Colors.transparent,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(radiusLarge)),
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(radiusLarge),
+          ),
         ),
         showDragHandle: true,
       ),
@@ -399,13 +403,19 @@ class AppTheme {
       // Chips & selection controls
       // ---------------------------------------------------------------
       chipTheme: ChipThemeData(
-        backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        backgroundColor: colorScheme.surfaceContainerHighest.withValues(
+          alpha: 0.5,
+        ),
         selectedColor: colorScheme.primaryContainer,
-        labelStyle: textTheme.labelMedium?.copyWith(color: colorScheme.onSurface),
+        labelStyle: textTheme.labelMedium?.copyWith(
+          color: colorScheme.onSurface,
+        ),
         secondaryLabelStyle: textTheme.labelMedium?.copyWith(
           color: colorScheme.onPrimaryContainer,
         ),
-        side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.6)),
+        side: BorderSide(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.6),
+        ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       ),
@@ -441,11 +451,15 @@ class AppTheme {
       datePickerTheme: DatePickerThemeData(
         backgroundColor: colorScheme.surface,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radiusLarge)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radiusLarge),
+        ),
       ),
       timePickerTheme: TimePickerThemeData(
         backgroundColor: colorScheme.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radiusLarge)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radiusLarge),
+        ),
       ),
 
       // ---------------------------------------------------------------

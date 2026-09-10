@@ -590,9 +590,7 @@ class _CampaignComposerDialogState
                                       if (v == true) {
                                         _selectedPatientIds.add(r.patientId);
                                       } else {
-                                        _selectedPatientIds.remove(
-                                          r.patientId,
-                                        );
+                                        _selectedPatientIds.remove(r.patientId);
                                       }
                                     }),
                                     title: Text(r.name),
@@ -723,7 +721,9 @@ class _CampaignComposerDialogState
 
     if (recipients.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No recipients resolved. Please try again.')),
+        const SnackBar(
+          content: Text('No recipients resolved. Please try again.'),
+        ),
       );
       return;
     }

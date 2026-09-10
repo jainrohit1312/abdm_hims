@@ -1138,55 +1138,61 @@ void main() {
       },
     );
 
-    test('throws "Please log in again." when there is no current session', () async {
-      final client = SupabaseClient(
-        'http://localhost',
-        'anon-key',
-        httpClient: MockClient((request) async {
-          fail('the Edge Function must not be called without a session');
-        }),
-      );
-      final service = AbdmService(
-        supabaseClient: client,
-        mockModeOverride: false,
-        currentSessionReader: () => null,
-      );
+    test(
+      'throws "Please log in again." when there is no current session',
+      () async {
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: MockClient((request) async {
+            fail('the Edge Function must not be called without a session');
+          }),
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: false,
+          currentSessionReader: () => null,
+        );
 
-      await expectLater(
-        service.linkFacilityHip(),
-        throwsA(
-          isA<AbdmException>()
-              .having((e) => e.code, 'code', 'NO_SESSION')
-              .having((e) => e.message, 'message', 'Please log in again.'),
-        ),
-      );
-    });
-
-    test('mock mode blocks the linkage without calling the Edge Function', () async {
-      final client = SupabaseClient(
-        'http://localhost',
-        'anon-key',
-        httpClient: MockClient((request) async {
-          fail('mock mode must not call the Edge Function');
-        }),
-      );
-      final service = AbdmService(
-        supabaseClient: client,
-        mockModeOverride: true,
-        currentSessionReader: () => ownerSession(),
-      );
-
-      await expectLater(
-        service.linkFacilityHip(),
-        throwsA(
-          isA<AbdmException>().having(
-            (e) => e.code,
-            'code',
-            'ABDM_MOCK_MODE',
+        await expectLater(
+          service.linkFacilityHip(),
+          throwsA(
+            isA<AbdmException>()
+                .having((e) => e.code, 'code', 'NO_SESSION')
+                .having((e) => e.message, 'message', 'Please log in again.'),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
+
+    test(
+      'mock mode blocks the linkage without calling the Edge Function',
+      () async {
+        final client = SupabaseClient(
+          'http://localhost',
+          'anon-key',
+          httpClient: MockClient((request) async {
+            fail('mock mode must not call the Edge Function');
+          }),
+        );
+        final service = AbdmService(
+          supabaseClient: client,
+          mockModeOverride: true,
+          currentSessionReader: () => ownerSession(),
+        );
+
+        await expectLater(
+          service.linkFacilityHip(),
+          throwsA(
+            isA<AbdmException>().having(
+              (e) => e.code,
+              'code',
+              'ABDM_MOCK_MODE',
+            ),
+          ),
+        );
+      },
+    );
   });
 
   group('client-side secret hygiene', () {

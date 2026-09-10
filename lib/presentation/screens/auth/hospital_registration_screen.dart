@@ -120,9 +120,11 @@ class _HospitalRegistrationScreenState
             file: _logoFile!,
           );
           final dbService = ref.read(databaseServiceProvider);
-          await dbService.update(ApiConstants.hospitalsTable, hospitalId as String, {
-            'logo_url': logoUrl,
-          });
+          await dbService.update(
+            ApiConstants.hospitalsTable,
+            hospitalId as String,
+            {'logo_url': logoUrl},
+          );
         } catch (e) {
           debugPrint('Logo upload skipped: $e');
         }
@@ -224,7 +226,8 @@ class _HospitalRegistrationScreenState
                       controller: _cityController,
                       textCapitalization: TextCapitalization.words,
                       decoration: const InputDecoration(labelText: 'City *'),
-                      validator: (value) => value == null || value.trim().isEmpty
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
                           ? 'City is required'
                           : null,
                     ),
@@ -232,7 +235,8 @@ class _HospitalRegistrationScreenState
                       controller: _stateController,
                       textCapitalization: TextCapitalization.words,
                       decoration: const InputDecoration(labelText: 'State *'),
-                      validator: (value) => value == null || value.trim().isEmpty
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
                           ? 'State is required'
                           : null,
                     ),
@@ -302,8 +306,7 @@ class _HospitalRegistrationScreenState
                     labelText: 'Registration Number (Govt. License) *',
                     prefixIcon: Icon(Icons.badge_outlined),
                   ),
-                  validator: (value) =>
-                      value == null || value.trim().isEmpty
+                  validator: (value) => value == null || value.trim().isEmpty
                       ? 'Registration number is required'
                       : null,
                 ),

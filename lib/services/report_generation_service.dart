@@ -76,22 +76,18 @@ class ReportGenerationService {
       AppLogger.w('Could not resolve generated_by user: $e');
     }
 
-    final created = await _db.create(
-      ApiConstants.reportsTable,
-      {
-        'report_type': type,
-        'title': titleForType(type),
-        'date_from': _dateOnly(from),
-        'date_to': _dateOnly(to),
-        'filters': {'from': _dateOnly(from), 'to': _dateOnly(to)},
-        'generated_by': generatedBy,
-        'data': const <Map<String, dynamic>>[],
-        'summary': const <String, dynamic>{},
-        'file_format': 'pdf',
-        'status': 'generating',
-      },
-      hospitalId: hospitalId,
-    );
+    final created = await _db.create(ApiConstants.reportsTable, {
+      'report_type': type,
+      'title': titleForType(type),
+      'date_from': _dateOnly(from),
+      'date_to': _dateOnly(to),
+      'filters': {'from': _dateOnly(from), 'to': _dateOnly(to)},
+      'generated_by': generatedBy,
+      'data': const <Map<String, dynamic>>[],
+      'summary': const <String, dynamic>{},
+      'file_format': 'pdf',
+      'status': 'generating',
+    }, hospitalId: hospitalId);
 
     final reportId = created['id']?.toString();
     if (reportId == null || reportId.isEmpty) {
@@ -100,30 +96,20 @@ class ReportGenerationService {
 
     try {
       final result = await _buildReport(type, hospitalId, from, to);
-      return await _db.update(
-        ApiConstants.reportsTable,
-        reportId,
-        {
-          'status': 'ready',
-          'data': result.data,
-          'summary': result.summary,
-        },
-        hospitalId: hospitalId,
-      );
+      return await _db.update(ApiConstants.reportsTable, reportId, {
+        'status': 'ready',
+        'data': result.data,
+        'summary': result.summary,
+      }, hospitalId: hospitalId);
     } catch (e) {
       AppLogger.e('Report generation failed for $type', e);
       final message = _failureMessage(type, e);
       try {
-        await _db.update(
-          ApiConstants.reportsTable,
-          reportId,
-          {
-            'status': 'failed',
-            'data': const <Map<String, dynamic>>[],
-            'summary': {'Error': message},
-          },
-          hospitalId: hospitalId,
-        );
+        await _db.update(ApiConstants.reportsTable, reportId, {
+          'status': 'failed',
+          'data': const <Map<String, dynamic>>[],
+          'summary': {'Error': message},
+        }, hospitalId: hospitalId);
       } catch (updateError) {
         AppLogger.e('Could not mark failed report', updateError);
       }
@@ -420,9 +406,7 @@ class ReportGenerationService {
     final doctorIds = <String>{};
 
     for (final order in orders) {
-      final status = (order['status']?.toString() ?? '')
-          .toLowerCase()
-          .trim();
+      final status = (order['status']?.toString() ?? '').toLowerCase().trim();
       if (status == 'completed') {
         completedOrders++;
       } else if (status == 'pending' || status == 'in_progress') {
@@ -947,9 +931,7 @@ class ReportGenerationService {
     final row = <String, dynamic>{'__total_row__': true};
     if (rows.isEmpty) return row;
 
-    final keys = rows.first.keys
-        .where((key) => !key.startsWith('__'))
-        .toList();
+    final keys = rows.first.keys.where((key) => !key.startsWith('__')).toList();
     for (final key in keys) {
       row[key] = '';
     }
@@ -1077,7 +1059,11 @@ class ReportGenerationService {
     counts[resolved] = (counts[resolved] ?? 0) + 1;
   }
 
-  static void _addAmount(Map<String, double> amounts, String key, double value) {
+  static void _addAmount(
+    Map<String, double> amounts,
+    String key,
+    double value,
+  ) {
     final resolved = key.trim().isEmpty ? 'Unknown' : key;
     amounts[resolved] = (amounts[resolved] ?? 0) + value;
   }

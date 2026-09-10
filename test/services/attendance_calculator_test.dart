@@ -120,18 +120,20 @@ void main() {
       expect(rows.single.workingMinutes, 240);
     });
 
-    test('missing final OUT: currently punched in, Present, 0 completed min',
-        () {
-      final rows = calculator.dailyAttendanceForDate(
-        date: DateTime(2026, 9, 1),
-        employees: [employee()],
-        punches: [punch('e1', 9, 0, AttendancePunchType.punchIn)],
-      );
+    test(
+      'missing final OUT: currently punched in, Present, 0 completed min',
+      () {
+        final rows = calculator.dailyAttendanceForDate(
+          date: DateTime(2026, 9, 1),
+          employees: [employee()],
+          punches: [punch('e1', 9, 0, AttendancePunchType.punchIn)],
+        );
 
-      expect(rows.single.status, AttendanceStatus.present);
-      expect(rows.single.isCurrentlyPunchedIn, isTrue);
-      expect(rows.single.workingMinutes, 0);
-    });
+        expect(rows.single.status, AttendanceStatus.present);
+        expect(rows.single.isCurrentlyPunchedIn, isTrue);
+        expect(rows.single.workingMinutes, 0);
+      },
+    );
 
     test('OUT without IN is ignored and day is Absent', () {
       final rows = calculator.dailyAttendanceForDate(
@@ -225,22 +227,24 @@ void main() {
   });
 
   group('monthly aggregation', () {
-    test('joined mid-month: eligibleDays = 16 (15..30 Sep), no pre-join absence',
-        () {
-      final joined = employee(joiningDate: DateTime(2026, 9, 15));
-      final monthly = calculator.monthlyAttendanceFor(
-        year: 2026,
-        month: 9,
-        employees: [joined],
-        punches: const [],
-      );
+    test(
+      'joined mid-month: eligibleDays = 16 (15..30 Sep), no pre-join absence',
+      () {
+        final joined = employee(joiningDate: DateTime(2026, 9, 15));
+        final monthly = calculator.monthlyAttendanceFor(
+          year: 2026,
+          month: 9,
+          employees: [joined],
+          punches: const [],
+        );
 
-      expect(monthly.single.eligibleDays, 16);
-      expect(monthly.single.absentDays, 16);
-      expect(monthly.single.presentDays, 0);
-      expect(monthly.single.halfDays, 0);
-      expect(monthly.single.attendanceUnits, 0);
-    });
+        expect(monthly.single.eligibleDays, 16);
+        expect(monthly.single.absentDays, 16);
+        expect(monthly.single.presentDays, 0);
+        expect(monthly.single.halfDays, 0);
+        expect(monthly.single.attendanceUnits, 0);
+      },
+    );
 
     test('relieved mid-month: eligibleDays = 20 (1..20 Sep)', () {
       final relieved = employee(
@@ -298,10 +302,8 @@ void main() {
         month: 9,
         employees: [emp],
         punches: [
-          punch('e1', 9, 0, AttendancePunchType.punchIn,
-              day: 31, month: 8),
-          punch('e1', 18, 0, AttendancePunchType.punchOut,
-              day: 31, month: 8),
+          punch('e1', 9, 0, AttendancePunchType.punchIn, day: 31, month: 8),
+          punch('e1', 18, 0, AttendancePunchType.punchOut, day: 31, month: 8),
         ],
       );
 

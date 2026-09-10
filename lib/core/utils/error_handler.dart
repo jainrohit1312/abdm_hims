@@ -5,11 +5,7 @@ class AppException implements Exception {
   final String? code;
   final dynamic originalError;
 
-  AppException({
-    required this.message,
-    this.code,
-    this.originalError,
-  });
+  AppException({required this.message, this.code, this.originalError});
 
   @override
   String toString() => 'AppException: $message (code: $code)';

@@ -60,10 +60,7 @@ class DiagnosticReportService {
                         fontWeight: pw.FontWeight.bold,
                       ),
                       if (hospitalAddress.trim().isNotEmpty)
-                        PDFFontHelper.text(
-                          hospitalAddress,
-                          fontSize: 10,
-                        ),
+                        PDFFontHelper.text(hospitalAddress, fontSize: 10),
                     ],
                   ),
                 ),
@@ -113,7 +110,13 @@ class DiagnosticReportService {
             ),
             pw.SizedBox(height: 6),
             pw.TableHelper.fromTextArray(
-              headers: const ['#', 'Test', 'Result Value', 'Reference Range', 'Unit'],
+              headers: const [
+                '#',
+                'Test',
+                'Result Value',
+                'Reference Range',
+                'Unit',
+              ],
               data: _buildTableRows(results),
               border: pw.TableBorder.all(color: PdfColors.grey500, width: 0.5),
               headerStyle: PDFFontHelper.textStyle(
@@ -121,7 +124,9 @@ class DiagnosticReportService {
                 color: PdfColors.white,
                 fontSize: 9,
               ),
-              headerDecoration: const pw.BoxDecoration(color: PdfColors.purple800),
+              headerDecoration: const pw.BoxDecoration(
+                color: PdfColors.purple800,
+              ),
               cellStyle: PDFFontHelper.bodyStyle(fontSize: 9),
               cellAlignment: pw.Alignment.topLeft,
               headerAlignment: pw.Alignment.centerLeft,
@@ -160,10 +165,7 @@ class DiagnosticReportService {
                     fontWeight: pw.FontWeight.bold,
                   ),
                   pw.SizedBox(height: 24),
-                  PDFFontHelper.text(
-                    'Lab Technician Signature',
-                    fontSize: 10,
-                  ),
+                  PDFFontHelper.text('Lab Technician Signature', fontSize: 10),
                 ],
               ),
             ),
@@ -239,10 +241,7 @@ class DiagnosticReportService {
                   ),
                 ),
                 pw.Expanded(
-                  child: PDFFontHelper.text(
-                    entry.value,
-                    fontSize: 10,
-                  ),
+                  child: PDFFontHelper.text(entry.value, fontSize: 10),
                 ),
               ],
             ),
@@ -251,7 +250,9 @@ class DiagnosticReportService {
     );
   }
 
-  static List<List<String>> _buildTableRows(List<Map<String, dynamic>> results) {
+  static List<List<String>> _buildTableRows(
+    List<Map<String, dynamic>> results,
+  ) {
     return [
       for (var i = 0; i < results.length; i++)
         [
@@ -321,10 +322,7 @@ class DiagnosticReportService {
               height: 160,
               alignment: pw.Alignment.centerLeft,
               child: imageData != null
-                  ? pw.Image(
-                      pw.MemoryImage(imageData),
-                      fit: pw.BoxFit.contain,
-                    )
+                  ? pw.Image(pw.MemoryImage(imageData), fit: pw.BoxFit.contain)
                   : PDFFontHelper.text(
                       'Image could not be loaded.',
                       fontSize: 9,
@@ -371,9 +369,7 @@ class DiagnosticReportService {
               color: PdfColors.grey700,
             ),
           ),
-          pw.Expanded(
-            child: PDFFontHelper.text(value, fontSize: 9),
-          ),
+          pw.Expanded(child: PDFFontHelper.text(value, fontSize: 9)),
         ],
       ),
     );

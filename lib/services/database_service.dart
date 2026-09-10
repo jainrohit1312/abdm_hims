@@ -2497,9 +2497,11 @@ class DatabaseService {
       final billNumber = _generateBillNumber('IPD');
       final subtotal = (totalAmount * 100).roundToDouble() / 100;
       final discount =
-          (math.min(math.max(0, discountAmount), subtotal) * 100).roundToDouble() /
+          (math.min(math.max(0, discountAmount), subtotal) * 100)
+              .roundToDouble() /
           100;
-      final net = math.max(0, (subtotal - discount) * 100).roundToDouble() / 100;
+      final net =
+          math.max(0, (subtotal - discount) * 100).roundToDouble() / 100;
       final paid = (paidAmount * 100).roundToDouble() / 100;
       final balanceAmount = ((net - paid) * 100).roundToDouble() / 100;
       final discountPercentage = subtotal > 0
@@ -2756,21 +2758,19 @@ class DatabaseService {
     final from = page * limit;
     final to = from + limit - 1;
     try {
-      final response = await fetchWithRetry(
-        () {
-          dynamic query = _client
-              .from(ApiConstants.billingHistoryView)
-              .select()
-              .eq('hospital_id', hospitalId);
-          if (sourceType != null && sourceType.isNotEmpty) {
-            query = query.eq('source_type', sourceType);
-          }
-          return query
-              .order('bill_date', ascending: false)
-              .order('created_at', ascending: false)
-              .range(from, to);
-        },
-      );
+      final response = await fetchWithRetry(() {
+        dynamic query = _client
+            .from(ApiConstants.billingHistoryView)
+            .select()
+            .eq('hospital_id', hospitalId);
+        if (sourceType != null && sourceType.isNotEmpty) {
+          query = query.eq('source_type', sourceType);
+        }
+        return query
+            .order('bill_date', ascending: false)
+            .order('created_at', ascending: false)
+            .range(from, to);
+      });
       final rows = List<Map<String, dynamic>>.from(response);
       return rows.map(_normalizeBillingHistoryRow).toList();
     } on PostgrestException catch (e) {
@@ -2900,8 +2900,7 @@ class DatabaseService {
       'source': isBillingBacked ? 'billing' : 'opd',
       'source_type': sourceType,
       'patient_id': row['patient_id'],
-      'patient_name':
-          row['patient_name']?.toString().isNotEmpty == true
+      'patient_name': row['patient_name']?.toString().isNotEmpty == true
           ? row['patient_name'].toString()
           : 'Unknown Patient',
       'uhid': row['uhid']?.toString() ?? 'N/A',
@@ -2920,7 +2919,9 @@ class DatabaseService {
       'balance_amount': _toDouble(row['balance_amount']),
       'payment_status': row['payment_status']?.toString() ?? 'unpaid',
       'payment_mode': row['payment_mode'],
-      'status': row['payment_status']?.toString() == 'paid' ? 'paid' : 'generated',
+      'status': row['payment_status']?.toString() == 'paid'
+          ? 'paid'
+          : 'generated',
     };
   }
 
@@ -4855,7 +4856,8 @@ class DatabaseService {
     final billNumber = _generateBillNumber('DIAG');
     final subtotal = (totalAmount * 100).roundToDouble() / 100;
     final discount =
-        (math.min(math.max(0, discountAmount), subtotal) * 100).roundToDouble() /
+        (math.min(math.max(0, discountAmount), subtotal) * 100)
+            .roundToDouble() /
         100;
     final net = math.max(0, (subtotal - discount) * 100).roundToDouble() / 100;
     final paid = (paidAmount * 100).roundToDouble() / 100;

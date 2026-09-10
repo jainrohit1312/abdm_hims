@@ -35,9 +35,7 @@ class _UserManagementScreenState extends ConsumerState<UserManagementScreen> {
     if (hospitalId == null || hospitalId.isEmpty) {
       return Scaffold(
         appBar: SmartAppBar(title: const Text('User Management')),
-        body: const Center(
-          child: Text('Hospital not assigned to this user.'),
-        ),
+        body: const Center(child: Text('Hospital not assigned to this user.')),
       );
     }
 
@@ -391,16 +389,12 @@ class _UserFormDialogState extends State<_UserFormDialog> {
   List<DropdownMenuItem<String>> _roleItems() {
     final items = <DropdownMenuItem<String>>[];
     if (!_roleOptions.any((option) => option.value == _role)) {
-      items.add(
-        DropdownMenuItem(value: _role, child: Text(_roleLabel(_role))),
-      );
+      items.add(DropdownMenuItem(value: _role, child: Text(_roleLabel(_role))));
     }
     items.addAll(
       _roleOptions.map(
-        (option) => DropdownMenuItem(
-          value: option.value,
-          child: Text(option.label),
-        ),
+        (option) =>
+            DropdownMenuItem(value: option.value, child: Text(option.label)),
       ),
     );
     return items;
@@ -493,9 +487,8 @@ class _UserFormDialogState extends State<_UserFormDialog> {
                             ? Icons.visibility_off
                             : Icons.visibility,
                       ),
-                      onPressed: () => setState(
-                        () => _obscurePassword = !_obscurePassword,
-                      ),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                     ),
                   ),
                   validator: (value) {
@@ -528,8 +521,7 @@ class _UserFormDialogState extends State<_UserFormDialog> {
                     labelText: 'Department (for Doctor)',
                   ),
                   items: _departmentItems(),
-                  onChanged: (value) =>
-                      setState(() => _departmentId = value),
+                  onChanged: (value) => setState(() => _departmentId = value),
                 ),
               ],
               const SizedBox(height: 12),

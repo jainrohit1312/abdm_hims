@@ -7,26 +7,164 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../../app/providers.dart';
+import '../../../core/utils/display_names.dart';
 import '../../../core/utils/pdf_font_helper.dart';
 import '../../widgets/smart_navigation.dart';
 
-/// Half-A4 portrait page: 148.5 mm wide x 210 mm high.
+/// A5 landscape / half-A4 page: 210 mm wide x 148 mm high.
 ///
-/// This is half of an A4 sheet cut vertically, so the slip prints upright in
-/// portrait orientation and uses one vertical half of the A4 sheet.
-final PdfPageFormat halfA4Portrait = PdfPageFormat(
-  148.5 * PdfPageFormat.mm,
+/// A4 is 210 x 297 mm, so half of an A4 sheet turned sideways is exactly
+/// 210 x 148 mm. The slip is generated on this exact page size so it prints
+/// on a half-A4 sheet without an A4-sized page or a second blank page.
+final PdfPageFormat opdSlipA5Landscape = PdfPageFormat(
   210 * PdfPageFormat.mm,
+  148 * PdfPageFormat.mm,
 );
+
+const double _slipMarginMm = 6;
+
+String _cleanAddressPart(dynamic value) {
+  return (value ?? '').toString().trim();
+}
+
+/// Builds a printable hospital address from the individual hospital columns.
+///
+/// Expected output format:
+/// `Navada, Mathura, Uttar Pradesh - 281001`
+///
+/// * Null/empty fields are ignored.
+/// * Fields already present in a previous component are not repeated (this
+///   avoids duplicate commas / duplicate words).
+/// * The PIN code is appended with a ` - ` separator only when available.
+String formatHospitalAddress({
+  dynamic address,
+  dynamic city,
+  dynamic state,
+  dynamic pincode,
+}) {
+  final parts = <String>[];
+
+  void addPart(String part) {
+    final normalized = part.trim();
+    if (normalized.isEmpty) return;
+    final alreadyPresent = parts.any(
+      (existing) =>
+          existing.toLowerCase() == normalized.toLowerCase() ||
+          existing.toLowerCase().contains(normalized.toLowerCase()) ||
+          normalized.toLowerCase().contains(existing.toLowerCase()),
+    );
+    if (!alreadyPresent) parts.add(normalized);
+  }
+
+  addPart(_cleanAddressPart(address));
+  addPart(_cleanAddressPart(city));
+  addPart(_cleanAddressPart(state));
+
+  final location = parts.join(', ');
+  final pin = _cleanAddressPart(pincode);
+  if (pin.isNotEmpty) {
+    return location.isEmpty ? pin : '$location - $pin';
+  }
+  return location;
+}
+
+/// Reads the hospital record and returns the complete printed address.
+String hospitalAddressFromRecord(Map<String, dynamic>? hospital) {
+  if (hospital == null) return '';
+  return formatHospitalAddress(
+    address: hospital['address'],
+    city: hospital['city'],
+    state: hospital['state'],
+    pincode: hospital['pincode'],
+  );
+}
+
+/// Reads phone/email from the hospital record for the contact line.
+String hospitalContactFromRecord(Map<String, dynamic>? hospital) {
+  if (hospital == null) return '';
+  final phone = _cleanAddressPart(hospital['phone']);
+  final email = _cleanAddressPart(hospital['email']);
+  return [phone, email].where((part) => part.isNotEmpty).join('  •  ');
+}
+
+Map<String, dynamic>? _asStringMap(dynamic value) {
+  if (value == null) return null;
+  if (value is! Map) return null;
+  return value.map((key, value) => MapEntry(key.toString(), value));
+}
+
+String _doctorNameFromRow(Map<String, dynamic>? doctor) {
+  if (doctor == null) return '';
+
+  final direct = cleanDoctorName(doctor['name'] ?? doctor['doctor_name']);
+  if (direct.isNotEmpty) return direct;
+
+  final first = cleanDoctorName(doctor['first_name']);
+  final last = cleanDoctorName(doctor['last_name']);
+  final combined = '$first $last'.trim();
+  return cleanDoctorName(combined);
+}
+
+/// Resolves the clean doctor name that is safe to print on the OPD slip.
+///
+/// Primary source is the doctor row fetched from the database (the `doctors`
+/// table uses a dedicated `name` column; the `users` fallback uses
+/// `first_name`/`last_name`). Route/stored `doctor_name` strings are only
+/// used as a fallback and are defensively cleaned so legacy `name - id`
+/// values never print an internal id.
+String resolveOpdSlipDoctorName(
+  Map<String, dynamic> doctor, {
+  String? storedName,
+  String? routeName,
+}) {
+  final fromRow = _doctorNameFromRow(doctor);
+  if (fromRow.isNotEmpty) return fromRow;
+
+  final fromRoute = cleanDoctorName(routeName);
+  if (fromRoute.isNotEmpty) return fromRoute;
+
+  final fromStored = cleanDoctorName(storedName);
+  if (fromStored.isNotEmpty) return fromStored;
+
+  return 'N/A';
+}
 
 /// OPD payment slip PDF generator + printer.
 ///
 /// Registration ke time payment collect hone ke baad is service se slip
 /// generate/print ki jaati hai.
 class OPDSlipPrintService {
+  /// Amount rows for the billing section of the printed slip.
+  ///
+  /// The discount row is only included when the discount is greater than
+  /// zero. Amounts are formatted with the Indian rupee symbol and Indian
+  /// digit grouping (`₹300`, `₹1,000`).
+  static List<List<dynamic>> buildBillingRows({
+    required double consultationFee,
+    required double discountAmount,
+    required double netPayable,
+    required double paidAmount,
+    required double balanceAmount,
+    required String paymentMode,
+    required String paymentStatus,
+  }) {
+    return [
+      ['Consultation Fee', PDFFontHelper.formatIndianCurrency(consultationFee)],
+      if (discountAmount > 0)
+        ['Discount', PDFFontHelper.formatIndianCurrency(discountAmount)],
+      ['Net Payable', PDFFontHelper.formatIndianCurrency(netPayable)],
+      ['Paid Amount', PDFFontHelper.formatIndianCurrency(paidAmount)],
+      if (balanceAmount > 0)
+        ['Balance', PDFFontHelper.formatIndianCurrency(balanceAmount)],
+      ['Payment Mode', paymentMode],
+      ['Payment Status', paymentStatus],
+    ];
+  }
+
   static Future<Uint8List> generateSlipPdf({
     required String hospitalName,
     required String hospitalAddress,
+    String hospitalContact = '',
     required String patientName,
     required String uhid,
     required String doctorName,
@@ -40,98 +178,235 @@ class OPDSlipPrintService {
     required String paymentStatus,
     required DateTime date,
     required String slipNumber,
+    String? tokenNumber,
+    bool isEmergency = false,
   }) async {
     await PDFFontHelper.loadFonts();
 
     final pdf = pw.Document();
 
     pdf.addPage(
-      pw.MultiPage(
-        pageFormat: halfA4Portrait,
+      pw.Page(
+        pageFormat: opdSlipA5Landscape,
         orientation: pw.PageOrientation.natural,
-        margin: const pw.EdgeInsets.all(20),
+        margin: const pw.EdgeInsets.all(_slipMarginMm * PdfPageFormat.mm),
         build: (pw.Context context) {
-          return [
-            pw.Header(
-              level: 0,
-              child: pw.Column(
-                children: [
-                  PDFFontHelper.text(
-                    hospitalName,
-                    fontSize: 20,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                  PDFFontHelper.text(hospitalAddress, fontSize: 10),
-                  pw.Divider(),
-                  PDFFontHelper.text(
-                    'OPD PAYMENT SLIP',
-                    fontSize: 16,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 6),
-            pw.TableHelper.fromTextArray(
-              headers: ['Particulars', 'Details'],
-              data: [
-                ['Slip No.', slipNumber],
-                ['Date', date.toIso8601String().split('T')[0]],
-                ['Patient Name', patientName],
-                ['UHID', uhid],
-                ['Department', department],
-                ['Doctor', doctorName],
-                [
-                  'Consultation Fee',
-                  PDFFontHelper.formatCurrency(consultationFee, decimals: 0),
-                ],
-                [
-                  'Discount',
-                  PDFFontHelper.formatCurrency(discountAmount, decimals: 0),
-                ],
-                [
-                  'Net Payable',
-                  PDFFontHelper.formatCurrency(netPayable, decimals: 0),
-                ],
-                [
-                  'Paid Amount',
-                  PDFFontHelper.formatCurrency(paidAmount, decimals: 0),
-                ],
-                if (balanceAmount > 0)
-                  [
-                    'Balance',
-                    PDFFontHelper.formatCurrency(balanceAmount, decimals: 0),
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              _buildHeader(hospitalName, hospitalAddress, hospitalContact),
+              pw.SizedBox(height: 2.5 * PdfPageFormat.mm),
+              _buildMetaRow(slipNumber, date, tokenNumber),
+              pw.SizedBox(height: 2.5 * PdfPageFormat.mm),
+              pw.Expanded(
+                child: pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Expanded(
+                      flex: 3,
+                      child: _buildSectionTable(
+                        title: 'Patient Details',
+                        labelWidth: 72,
+                        rows: [
+                          ['Patient Name', patientName],
+                          ['UHID', uhid],
+                          ['Department', department],
+                          ['Doctor', doctorName],
+                          [
+                            'Consultation Type',
+                            isEmergency
+                                ? 'Emergency Consultation'
+                                : 'OPD Consultation',
+                          ],
+                        ],
+                      ),
+                    ),
+                    pw.SizedBox(width: 3 * PdfPageFormat.mm),
+                    pw.Expanded(
+                      flex: 2,
+                      child: _buildSectionTable(
+                        title: 'Billing Details',
+                        labelWidth: 66,
+                        rightAlignValues: true,
+                        rows: buildBillingRows(
+                          consultationFee: consultationFee,
+                          discountAmount: discountAmount,
+                          netPayable: netPayable,
+                          paidAmount: paidAmount,
+                          balanceAmount: balanceAmount,
+                          paymentMode: paymentMode,
+                          paymentStatus: paymentStatus,
+                        ),
+                      ),
+                    ),
                   ],
-                ['Payment Mode', paymentMode],
-                ['Payment Status', paymentStatus],
-              ],
-              border: pw.TableBorder.all(color: PdfColors.grey400, width: 1),
-              headerStyle: PDFFontHelper.textStyle(
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColors.white,
+                ),
               ),
-              headerDecoration: const pw.BoxDecoration(
-                color: PdfColors.blue700,
-              ),
-              cellPadding: const pw.EdgeInsets.symmetric(
-                horizontal: 5,
-                vertical: 3,
-              ),
-            ),
-            pw.SizedBox(height: 14),
-            pw.Align(
-              alignment: pw.Alignment.centerRight,
-              child: PDFFontHelper.text(
-                'Authorized Signature',
-                fontSize: 12,
-              ),
-            ),
-          ];
+              pw.SizedBox(height: 2.5 * PdfPageFormat.mm),
+              _buildFooter(),
+            ],
+          );
         },
       ),
     );
 
     return pdf.save();
+  }
+
+  static pw.Widget _buildHeader(
+    String hospitalName,
+    String hospitalAddress,
+    String hospitalContact,
+  ) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
+      children: [
+        PDFFontHelper.text(
+          hospitalName,
+          fontSize: 19,
+          fontWeight: pw.FontWeight.bold,
+          textAlign: pw.TextAlign.center,
+        ),
+        if (hospitalAddress.isNotEmpty)
+          PDFFontHelper.text(
+            hospitalAddress,
+            fontSize: 10.5,
+            textAlign: pw.TextAlign.center,
+            maxLines: 2,
+            overflow: pw.TextOverflow.clip,
+          ),
+        if (hospitalContact.isNotEmpty)
+          PDFFontHelper.text(
+            hospitalContact,
+            fontSize: 9.5,
+            textAlign: pw.TextAlign.center,
+            maxLines: 1,
+            overflow: pw.TextOverflow.clip,
+          ),
+        pw.SizedBox(height: 1.5 * PdfPageFormat.mm),
+        pw.Divider(thickness: 1),
+        pw.SizedBox(height: 1.5 * PdfPageFormat.mm),
+        PDFFontHelper.text(
+          'OPD PAYMENT SLIP',
+          fontSize: 14,
+          fontWeight: pw.FontWeight.bold,
+          color: PdfColors.blue900,
+          textAlign: pw.TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  static pw.Widget _buildMetaRow(
+    String slipNumber,
+    DateTime date,
+    String? tokenNumber,
+  ) {
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        _buildMetaCell('Slip No.', slipNumber),
+        pw.SizedBox(width: 2 * PdfPageFormat.mm),
+        _buildMetaCell('Date', date.toIso8601String().split('T')[0]),
+        pw.SizedBox(width: 2 * PdfPageFormat.mm),
+        _buildMetaCell('Token', tokenNumber ?? 'N/A'),
+      ],
+    );
+  }
+
+  static pw.Widget _buildMetaCell(String label, String value) {
+    return pw.Expanded(
+      child: pw.Container(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: PdfColors.grey500, width: 0.6),
+          borderRadius: pw.BorderRadius.circular(2),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            PDFFontHelper.text(
+              label,
+              fontSize: 8,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.grey600,
+            ),
+            PDFFontHelper.text(
+              value,
+              fontSize: 10.5,
+              fontWeight: pw.FontWeight.bold,
+              maxLines: 1,
+              overflow: pw.TextOverflow.clip,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static pw.Widget _buildSectionTable({
+    required String title,
+    required List<List<dynamic>> rows,
+    double labelWidth = 80,
+    bool rightAlignValues = false,
+  }) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        PDFFontHelper.text(
+          title,
+          fontSize: 11,
+          fontWeight: pw.FontWeight.bold,
+          color: PdfColors.blue900,
+        ),
+        pw.SizedBox(height: 1.5 * PdfPageFormat.mm),
+        pw.TableHelper.fromTextArray(
+          headers: const ['Particulars', 'Details'],
+          data: rows,
+          border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.6),
+          headerStyle: PDFFontHelper.textStyle(
+            fontSize: 9,
+            fontWeight: pw.FontWeight.bold,
+            color: PdfColors.white,
+          ),
+          headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
+          cellStyle: PDFFontHelper.bodyStyle(fontSize: 10),
+          cellPadding: const pw.EdgeInsets.symmetric(
+            horizontal: 5,
+            vertical: 3,
+          ),
+          columnWidths: {
+            0: pw.FixedColumnWidth(labelWidth),
+            1: pw.FlexColumnWidth(1),
+          },
+          cellAlignments: rightAlignValues
+              ? <int, pw.AlignmentGeometry>{1: pw.Alignment.centerRight}
+              : null,
+        ),
+      ],
+    );
+  }
+
+  static pw.Widget _buildFooter() {
+    return pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: pw.CrossAxisAlignment.end,
+      children: [
+        PDFFontHelper.text(
+          'This is a computer-generated slip.',
+          fontSize: 8,
+          color: PdfColors.grey600,
+        ),
+        pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.end,
+          children: [
+            PDFFontHelper.text('Authorized Signature', fontSize: 10),
+            pw.SizedBox(height: 3 * PdfPageFormat.mm),
+            pw.Container(width: 90, height: 0.6, color: PdfColors.grey500),
+          ],
+        ),
+      ],
+    );
   }
 
   /// Opens the platform print dialog with the generated OPD slip PDF.
@@ -147,30 +422,58 @@ class OPDSlipPrintService {
       data['balanceAmount'] ?? (netPayable - paidAmount),
     );
 
+    final hospital = _asStringMap(data['hospital']);
+    final hospitalName = _cleanAddressPart(hospital?['name']);
+    final hospitalAddress = hospitalAddressFromRecord(hospital);
+    final hospitalContact = hospitalContactFromRecord(hospital);
+    final fallbackAddress = _cleanAddressPart(data['hospitalAddress']);
+
     final bytes = await generateSlipPdf(
-      hospitalName: data['hospitalName']?.toString() ?? 'HIMS Hospital',
-      hospitalAddress:
-          data['hospitalAddress']?.toString() ??
-          '123, Healthcare Avenue, New Delhi',
-      patientName: data['patientName']?.toString() ?? 'Unknown',
-      uhid: data['uhid']?.toString() ?? 'N/A',
-      doctorName: data['doctorName']?.toString() ?? 'N/A',
-      department: data['department']?.toString() ?? 'N/A',
+      hospitalName: hospitalName.isNotEmpty
+          ? hospitalName
+          : (_cleanAddressPart(data['hospitalName']).isNotEmpty
+                ? _cleanAddressPart(data['hospitalName'])
+                : 'N/A'),
+      hospitalAddress: hospitalAddress.isNotEmpty
+          ? hospitalAddress
+          : (fallbackAddress.isNotEmpty ? fallbackAddress : 'N/A'),
+      hospitalContact: hospitalContact,
+      patientName: _cleanAddressPart(data['patientName']).isNotEmpty
+          ? _cleanAddressPart(data['patientName'])
+          : 'N/A',
+      uhid: _cleanAddressPart(data['uhid']).isNotEmpty
+          ? _cleanAddressPart(data['uhid'])
+          : 'N/A',
+      doctorName: resolveOpdSlipDoctorName(
+        _asStringMap(data['doctor']) ?? const <String, dynamic>{},
+        storedName: data['doctorName']?.toString(),
+      ),
+      department: _cleanAddressPart(data['department']).isNotEmpty
+          ? _cleanAddressPart(data['department'])
+          : 'N/A',
       consultationFee: consultationFee,
       discountAmount: discountAmount,
       netPayable: netPayable,
       paidAmount: paidAmount,
       balanceAmount: balanceAmount,
-      paymentMode: data['paymentMode']?.toString() ?? 'Cash',
-      paymentStatus: data['paymentStatus']?.toString() ?? 'paid',
-      date: data['date'] ?? DateTime.now(),
-      slipNumber:
-          data['slipNumber']?.toString() ??
-          'OPD-${DateTime.now().millisecondsSinceEpoch}',
+      paymentMode: _cleanAddressPart(data['paymentMode']).isNotEmpty
+          ? _cleanAddressPart(data['paymentMode'])
+          : 'N/A',
+      paymentStatus: _cleanAddressPart(data['paymentStatus']).isNotEmpty
+          ? _cleanAddressPart(data['paymentStatus'])
+          : 'N/A',
+      date: data['date'] is DateTime
+          ? data['date'] as DateTime
+          : DateTime.now(),
+      slipNumber: _cleanAddressPart(data['slipNumber']).isNotEmpty
+          ? _cleanAddressPart(data['slipNumber'])
+          : 'OPD-${DateTime.now().millisecondsSinceEpoch}',
+      tokenNumber: data['tokenNumber']?.toString(),
+      isEmergency: data['isEmergency'] == true,
     );
 
     await Printing.layoutPdf(
-      format: halfA4Portrait,
+      format: opdSlipA5Landscape,
       onLayout: (PdfPageFormat format) async => bytes,
     );
   }
@@ -215,7 +518,10 @@ class OPDSlipPrintScreen extends ConsumerWidget {
               children: [
                 const Icon(Icons.error_outline, size: 48, color: Colors.red),
                 const SizedBox(height: 12),
-                Text('Failed to load slip: $error', textAlign: TextAlign.center),
+                Text(
+                  'Failed to load slip: $error',
+                  textAlign: TextAlign.center,
+                ),
                 const SizedBox(height: 12),
                 ElevatedButton(
                   onPressed: () =>
@@ -256,23 +562,25 @@ class OPDSlipPrintScreen extends ConsumerWidget {
           final consultationFee = _toDouble(payment['consultation_fee']);
           final netPayable = _toDouble(payment['payment_amount']);
           final discountAmount = consultationFee - netPayable;
-          final paidAmount = _toDouble(
-            payment['paid_amount'] ?? netPayable,
-          );
+          final paidAmount = _toDouble(payment['paid_amount'] ?? netPayable);
           final balanceAmount = _toDouble(
             payment['balance_amount'] ?? (netPayable - paidAmount),
           );
 
           final slipData = <String, dynamic>{
-            'hospitalName': hospital['name']?.toString() ?? 'HIMS Hospital',
-            'hospitalAddress':
-                hospital['address']?.toString() ??
-                '123, Healthcare Avenue, New Delhi',
-            'patientName': patientName.isEmpty ? 'Unknown Patient' : patientName,
+            'hospital': hospital,
+            'doctor': doctor,
+            'hospitalName': hospital['name']?.toString() ?? 'N/A',
+            'hospitalAddress': hospitalAddressFromRecord(hospital),
+            'hospitalContact': hospitalContactFromRecord(hospital),
+            'patientName': patientName.isEmpty
+                ? 'Unknown Patient'
+                : patientName,
             'uhid': patient['uhid']?.toString() ?? 'N/A',
-            'doctorName': _effectiveDoctorName(
+            'doctorName': resolveOpdSlipDoctorName(
               doctor,
-              payment['doctor_name']?.toString(),
+              storedName: payment['doctor_name']?.toString(),
+              routeName: doctorName,
             ),
             'department': department['name']?.toString() ?? 'N/A',
             'consultationFee': consultationFee,
@@ -283,12 +591,16 @@ class OPDSlipPrintScreen extends ConsumerWidget {
             'balanceAmount': balanceAmount,
             'paymentMode': _paymentModeLabel(payment['payment_mode']),
             'paymentStatus': _paymentStatusLabel(payment['payment_status']),
-            'date': DateTime.tryParse(
-                  payment['visit_date']?.toString() ?? '',
-                ) ??
+            'date':
+                DateTime.tryParse(payment['visit_date']?.toString() ?? '') ??
                 DateTime.now(),
             'slipNumber': slipNumber,
+            'tokenNumber': payment['token_number']?.toString(),
+            'isEmergency': payment['is_emergency'] == true,
           };
+
+          final hospitalAddress = slipData['hospitalAddress'] as String;
+          final hospitalContact = slipData['hospitalContact'] as String;
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
@@ -308,11 +620,20 @@ class OPDSlipPrintScreen extends ConsumerWidget {
                                 style: theme.textTheme.titleLarge?.copyWith(
                                   fontWeight: FontWeight.bold,
                                 ),
+                                textAlign: TextAlign.center,
                               ),
-                              Text(
-                                slipData['hospitalAddress'] as String,
-                                style: theme.textTheme.bodySmall,
-                              ),
+                              if (hospitalAddress.isNotEmpty)
+                                Text(
+                                  hospitalAddress,
+                                  style: theme.textTheme.bodySmall,
+                                  textAlign: TextAlign.center,
+                                ),
+                              if (hospitalContact.isNotEmpty)
+                                Text(
+                                  hospitalContact,
+                                  style: theme.textTheme.bodySmall,
+                                  textAlign: TextAlign.center,
+                                ),
                               const SizedBox(height: 8),
                               Text(
                                 'OPD PAYMENT SLIP',
@@ -333,40 +654,61 @@ class OPDSlipPrintScreen extends ConsumerWidget {
                               .toIso8601String()
                               .split('T')[0],
                         ),
-                        _infoRow(theme, 'Patient Name', slipData['patientName']),
+                        _infoRow(
+                          theme,
+                          'Token',
+                          slipData['tokenNumber']?.toString() ?? 'N/A',
+                        ),
+                        _infoRow(
+                          theme,
+                          'Patient Name',
+                          slipData['patientName'],
+                        ),
                         _infoRow(theme, 'UHID', slipData['uhid']),
                         _infoRow(theme, 'Department', slipData['department']),
                         _infoRow(theme, 'Doctor', slipData['doctorName']),
+                        _infoRow(
+                          theme,
+                          'Consultation Type',
+                          slipData['isEmergency'] == true
+                              ? 'Emergency Consultation'
+                              : 'OPD Consultation',
+                        ),
                         const Divider(height: 24),
                         _infoRow(
                           theme,
                           'Consultation Fee',
-                          '₹ ${consultationFee.toStringAsFixed(0)}',
+                          PDFFontHelper.formatIndianCurrency(consultationFee),
                         ),
-                        _infoRow(
-                          theme,
-                          'Discount',
-                          '₹ ${discountAmount.toStringAsFixed(0)}',
-                        ),
+                        if (discountAmount > 0)
+                          _infoRow(
+                            theme,
+                            'Discount',
+                            PDFFontHelper.formatIndianCurrency(discountAmount),
+                          ),
                         _infoRow(
                           theme,
                           'Net Payable',
-                          '₹ ${netPayable.toStringAsFixed(0)}',
+                          PDFFontHelper.formatIndianCurrency(netPayable),
                           valueColor: theme.colorScheme.primary,
                           bold: true,
                         ),
                         _infoRow(
                           theme,
                           'Paid Amount',
-                          '₹ ${paidAmount.toStringAsFixed(0)}',
+                          PDFFontHelper.formatIndianCurrency(paidAmount),
                         ),
                         if (balanceAmount > 0)
                           _infoRow(
                             theme,
                             'Balance',
-                            '₹ ${balanceAmount.toStringAsFixed(0)}',
+                            PDFFontHelper.formatIndianCurrency(balanceAmount),
                           ),
-                        _infoRow(theme, 'Payment Mode', slipData['paymentMode']),
+                        _infoRow(
+                          theme,
+                          'Payment Mode',
+                          slipData['paymentMode'],
+                        ),
                         _infoRow(
                           theme,
                           'Payment Status',
@@ -438,17 +780,6 @@ class OPDSlipPrintScreen extends ConsumerWidget {
         ],
       ),
     );
-  }
-
-  String _effectiveDoctorName(
-    Map<String, dynamic> doctor,
-    String? storedName,
-  ) {
-    final fromRoute = doctorName?.trim();
-    if (fromRoute != null && fromRoute.isNotEmpty) return fromRoute;
-    final fromRow = storedName?.trim();
-    if (fromRow != null && fromRow.isNotEmpty) return fromRow;
-    return doctor['name']?.toString() ?? 'N/A';
   }
 
   String _paymentModeLabel(dynamic value) {

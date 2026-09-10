@@ -57,7 +57,13 @@ class MarketingDashboardTab extends ConsumerWidget {
             AppGap.lg,
             _buildTopDoctors(context, summary),
             AppGap.lg,
-            _buildRecentVisits(context, summary, doctorNames, areaNames, employeeNames),
+            _buildRecentVisits(
+              context,
+              summary,
+              doctorNames,
+              areaNames,
+              employeeNames,
+            ),
           ],
         ),
       ),
@@ -289,15 +295,14 @@ class MarketingDashboardTab extends ConsumerWidget {
               child: ListTile(
                 leading: const Icon(Icons.directions_walk),
                 title: Text(
-                  doctorNames[visit.referralDoctorId]?.name ?? 'Referral Doctor',
+                  doctorNames[visit.referralDoctorId]?.name ??
+                      'Referral Doctor',
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      formatMarketingDateTime(visit.visitedAt),
-                    ),
+                    Text(formatMarketingDateTime(visit.visitedAt)),
                     Text(
                       [
                         employeeNames[visit.marketingEmployeeId] ?? '—',

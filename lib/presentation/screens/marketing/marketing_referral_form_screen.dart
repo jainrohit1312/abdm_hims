@@ -136,8 +136,7 @@ class _MarketingReferralFormScreenState
                           ),
                         ),
                     ],
-                    onChanged: (value) =>
-                        setState(() => _employeeId = value),
+                    onChanged: (value) => setState(() => _employeeId = value),
                   ),
                 ],
               ),
@@ -374,9 +373,7 @@ class _MarketingReferralFormScreenState
           .createReferral(hospitalId: hospitalId, referral: referral);
 
       ref.read(marketingRefreshProvider.notifier).state++;
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Referral saved!')),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('Referral saved!')));
       if (mounted) context.go('/marketing');
     } on MarketingRepositoryException catch (e) {
       messenger.showSnackBar(

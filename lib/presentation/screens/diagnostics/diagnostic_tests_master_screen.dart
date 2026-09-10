@@ -269,12 +269,12 @@ class _DiagnosticTestsMasterScreenState
                   'Code: ${test['test_code'] ?? '-'}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
-                _smallChip(_categoryLabels[category] ?? category, _categoryColor(category)),
+                _smallChip(
+                  _categoryLabels[category] ?? category,
+                  _categoryColor(category),
+                ),
                 if ((test['sample_type']?.toString() ?? '').isNotEmpty)
-                  _smallChip(
-                    test['sample_type'].toString(),
-                    Colors.blueGrey,
-                  ),
+                  _smallChip(test['sample_type'].toString(), Colors.blueGrey),
                 _smallChip(
                   isActive ? 'Active' : 'Inactive',
                   isActive ? Colors.green : Colors.grey,
@@ -307,7 +307,9 @@ class _DiagnosticTestsMasterScreenState
               value: 'toggle',
               child: ListTile(
                 leading: Icon(
-                  isActive ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                  isActive
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
                 ),
                 title: Text(isActive ? 'Deactivate' : 'Activate'),
                 contentPadding: EdgeInsets.zero,
@@ -337,7 +339,11 @@ class _DiagnosticTestsMasterScreenState
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          fontSize: 11,
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -428,19 +434,16 @@ class _TestFormDialogState extends State<_TestFormDialog> {
     await Future.delayed(const Duration(milliseconds: 100));
     if (!mounted) return;
 
-    Navigator.pop(
-      context,
-      {
-        'test_name': _nameController.text.trim(),
-        'test_code': _codeController.text.trim().toUpperCase(),
-        'category': _category,
-        'sample_type': _sampleTypeController.text.trim().isEmpty
-            ? null
-            : _sampleTypeController.text.trim(),
-        'price': double.tryParse(_priceController.text.trim()) ?? 0,
-        'is_active': _isActive,
-      },
-    );
+    Navigator.pop(context, {
+      'test_name': _nameController.text.trim(),
+      'test_code': _codeController.text.trim().toUpperCase(),
+      'category': _category,
+      'sample_type': _sampleTypeController.text.trim().isEmpty
+          ? null
+          : _sampleTypeController.text.trim(),
+      'price': double.tryParse(_priceController.text.trim()) ?? 0,
+      'is_active': _isActive,
+    });
   }
 
   @override

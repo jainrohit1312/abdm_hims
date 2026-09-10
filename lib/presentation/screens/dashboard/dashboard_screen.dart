@@ -157,36 +157,16 @@ class DashboardScreen extends ConsumerWidget {
         'New Patient',
         () => context.push('/patients/register'),
       ),
-      (
-        Icons.people,
-        'Patients',
-        () => context.push('/patients'),
-      ),
-      (
-        Icons.science,
-        'Diagnostics',
-        () => context.push('/diagnostics'),
-      ),
+      (Icons.people, 'Patients', () => context.push('/patients')),
+      (Icons.science, 'Diagnostics', () => context.push('/diagnostics')),
       (
         Icons.account_balance_wallet,
         'Vouchers',
         () => context.push('/vouchers'),
       ),
-      (
-        Icons.verified_user,
-        'Compliance',
-        () => context.push('/compliance'),
-      ),
-      (
-        Icons.fingerprint,
-        'ABDM',
-        () => context.push('/abha'),
-      ),
-      (
-        Icons.analytics,
-        'Reports',
-        () => context.push('/reports'),
-      ),
+      (Icons.verified_user, 'Compliance', () => context.push('/compliance')),
+      (Icons.fingerprint, 'ABDM', () => context.push('/abha')),
+      (Icons.analytics, 'Reports', () => context.push('/reports')),
     ];
 
     return Card(
@@ -248,9 +228,9 @@ class DashboardScreen extends ConsumerWidget {
             const SizedBox(height: 6),
             Text(
               label,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -592,9 +572,9 @@ class DashboardScreen extends ConsumerWidget {
             Text(
               label,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,

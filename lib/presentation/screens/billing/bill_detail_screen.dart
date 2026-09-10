@@ -234,10 +234,7 @@ class _BillDetailContent extends StatelessWidget {
     );
   }
 
-  Widget _buildItemsCard(
-    ThemeData theme,
-    List<Map<String, dynamic>> items,
-  ) {
+  Widget _buildItemsCard(ThemeData theme, List<Map<String, dynamic>> items) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -307,10 +304,7 @@ class _BillDetailContent extends StatelessWidget {
     );
   }
 
-  Widget _buildPaymentsCard(
-    ThemeData theme,
-    List<Map<String, dynamic>> logs,
-  ) {
+  Widget _buildPaymentsCard(ThemeData theme, List<Map<String, dynamic>> logs) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -393,10 +387,7 @@ class _BillDetailContent extends StatelessWidget {
     );
   }
 
-  Widget _buildAuditCard(
-    ThemeData theme,
-    List<Map<String, dynamic>> audits,
-  ) {
+  Widget _buildAuditCard(ThemeData theme, List<Map<String, dynamic>> audits) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -435,7 +426,12 @@ class _BillDetailContent extends StatelessWidget {
     );
   }
 
-  Widget _totalRow(ThemeData theme, String label, double value, {bool bold = false}) {
+  Widget _totalRow(
+    ThemeData theme,
+    String label,
+    double value, {
+    bool bold = false,
+  }) {
     final style = TextStyle(
       fontWeight: bold ? FontWeight.bold : FontWeight.normal,
       fontSize: bold ? 16 : 14,
@@ -562,8 +558,8 @@ class _BillDetailContent extends StatelessWidget {
     final user =
         (audit['users'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
-    final name =
-        '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'.trim();
+    final name = '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'
+        .trim();
     return name.isEmpty ? '' : '   •   By $name';
   }
 
@@ -571,8 +567,8 @@ class _BillDetailContent extends StatelessWidget {
     final user =
         (edit['users'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
-    final name =
-        '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'.trim();
+    final name = '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'
+        .trim();
     return name.isEmpty ? '' : '   •   By $name';
   }
 }
