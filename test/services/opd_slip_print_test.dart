@@ -1,10 +1,13 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:abdm_hims/core/utils/display_names.dart';
 import 'package:abdm_hims/core/utils/pdf_font_helper.dart';
 import 'package:abdm_hims/presentation/screens/opd/opd_slip_print.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -125,12 +128,153 @@ void main() {
     });
   });
 
+  group('normalizeTokenNumber', () {
+    test('returns a valid queue number', () {
+      expect(normalizeTokenNumber('42'), '42');
+      expect(normalizeTokenNumber(42), '42');
+      expect(normalizeTokenNumber(' 007 '), '007');
+    });
+
+    test('hides null, empty, placeholder and zero tokens', () {
+      expect(normalizeTokenNumber(null), isNull);
+      expect(normalizeTokenNumber(''), isNull);
+      expect(normalizeTokenNumber('N/A'), isNull);
+      expect(normalizeTokenNumber('NA'), isNull);
+      expect(normalizeTokenNumber('na'), isNull);
+      expect(normalizeTokenNumber('0'), isNull);
+      expect(normalizeTokenNumber('00'), isNull);
+      expect(normalizeTokenNumber('abc'), isNull);
+      expect(normalizeTokenNumber('12A'), isNull);
+    });
+  });
+
+  group('OPDSlipPrintService meta row', () {
+    final date = DateTime(2026, 9, 10);
+
+    test('Date is the rightmost header box when token is valid', () {
+      final cells = OPDSlipPrintService.buildMetaCells(
+        'OPD-ABC12345',
+        date,
+        '42',
+      );
+
+      expect(cells.map((c) => c.label).toList(), ['Slip No.', 'Token', 'Date']);
+      expect(cells.last.label, 'Date');
+      expect(cells.first.label, 'Slip No.');
+      expect(cells[1].value, '42');
+    });
+
+    test('Token is completely hidden when unavailable', () {
+      for (final token in <String?>[null, '', 'N/A', 'NA', '0', 'abc']) {
+        final cells = OPDSlipPrintService.buildMetaCells(
+          'OPD-ABC12345',
+          date,
+          token,
+        );
+
+        expect(
+          cells.map((c) => c.label).toList(),
+          ['Slip No.', 'Date'],
+          reason: 'token="$token" must hide the Token box',
+        );
+        expect(cells.last.label, 'Date');
+      }
+    });
+
+    test(
+      'visible boxes are equal flex and Slip/Date expand when Token hidden',
+      () {
+        final withToken =
+            OPDSlipPrintService.buildMetaRow('OPD-ABC12345', date, '42')
+                as pw.Row;
+        final tokenExpanded = withToken.children
+            .whereType<pw.Expanded>()
+            .toList();
+        expect(tokenExpanded, hasLength(3));
+        expect(tokenExpanded.map((e) => e.flex).toSet(), {1});
+
+        final withoutToken =
+            OPDSlipPrintService.buildMetaRow('OPD-ABC12345', date, null)
+                as pw.Row;
+        final noTokenExpanded = withoutToken.children
+            .whereType<pw.Expanded>()
+            .toList();
+        expect(noTokenExpanded, hasLength(2));
+        expect(noTokenExpanded.map((e) => e.flex).toSet(), {1});
+      },
+    );
+  });
+
+  group('OPDSlipPrintService sections layout', () {
+    final billingRows = OPDSlipPrintService.buildBillingRows(
+      consultationFee: 300,
+      discountAmount: 50,
+      paidAmount: 250,
+      balanceAmount: 0,
+      paymentMode: 'Cash',
+      paymentStatus: 'Paid',
+    );
+
+    test('Patient Details and Billing Details are equally wide', () {
+      final row =
+          OPDSlipPrintService.buildSectionsRow(
+                patientName: 'Rohit Kumar',
+                uhid: 'UHID-0001',
+                department: 'General Medicine',
+                doctorName: 'Dr. Om Chaudhary',
+                isEmergency: false,
+                billingRows: billingRows,
+              )
+              as pw.Row;
+
+      final sections = row.children.whereType<pw.Expanded>().toList();
+      expect(sections, hasLength(2));
+      expect(sections[0].flex, 1);
+      expect(sections[1].flex, 1);
+
+      final gap = row.children.whereType<pw.SizedBox>().single;
+      expect(gap.width, 3 * PdfPageFormat.mm);
+    });
+
+    test(
+      'Billing Details label column is wide enough for Consultation Fee',
+      () {
+        final table = OPDSlipPrintService.buildSectionTable(
+          rows: billingRows,
+          labelFlex: 48,
+          detailsFlex: 52,
+          rightAlignValues: true,
+        );
+
+        final widths = table.columnWidths;
+        expect(widths, isNotNull);
+        final label = widths![0]! as pw.FlexColumnWidth;
+        final details = widths[1]! as pw.FlexColumnWidth;
+        expect(label.flex, closeTo(48, 0.001));
+        expect(details.flex, closeTo(52, 0.001));
+
+        // 48% of the section width (97.5 mm) is ~46.8 mm / ~132 pt, which
+        // comfortably keeps `Consultation Fee`, `Paid Amount`, `Payment Mode`
+        // and `Payment Status` on a single line at 10 pt.
+        final rowLabels = billingRows
+            .map((row) => row.first.toString())
+            .toList();
+        for (final label in rowLabels) {
+          expect(label.contains('\n'), isFalse);
+        }
+        expect(rowLabels, contains('Consultation Fee'));
+        expect(rowLabels, contains('Paid Amount'));
+        expect(rowLabels, contains('Payment Mode'));
+        expect(rowLabels, contains('Payment Status'));
+      },
+    );
+  });
+
   group('OPDSlipPrintService.buildBillingRows', () {
-    test('hides discount row when discount is zero', () {
+    test('zero discount hides the discount row', () {
       final rows = OPDSlipPrintService.buildBillingRows(
         consultationFee: 300,
         discountAmount: 0,
-        netPayable: 300,
         paidAmount: 300,
         balanceAmount: 0,
         paymentMode: 'Cash',
@@ -138,17 +282,12 @@ void main() {
       );
 
       expect(rows.any((row) => row.first == 'Discount'), isFalse);
-      expect(
-        rows.any((row) => row[0] == 'Net Payable' && row[1] == '₹300'),
-        isTrue,
-      );
     });
 
-    test('shows discount row when discount is positive', () {
+    test('positive discount displays the discount row', () {
       final rows = OPDSlipPrintService.buildBillingRows(
         consultationFee: 300,
         discountAmount: 50,
-        netPayable: 250,
         paidAmount: 250,
         balanceAmount: 0,
         paymentMode: 'UPI',
@@ -159,44 +298,41 @@ void main() {
         rows.any((row) => row[0] == 'Discount' && row[1] == '₹50'),
         isTrue,
       );
-      expect(
-        rows.any((row) => row[0] == 'Net Payable' && row[1] == '₹250'),
-        isTrue,
-      );
     });
 
-    test('net payable remains accurate regardless of discount visibility', () {
-      final zeroDiscountRows = OPDSlipPrintService.buildBillingRows(
-        consultationFee: 300,
-        discountAmount: 0,
-        netPayable: 300,
-        paidAmount: 300,
-        balanceAmount: 0,
-        paymentMode: 'Cash',
-        paymentStatus: 'Paid',
-      );
-      final positiveDiscountRows = OPDSlipPrintService.buildBillingRows(
+    test('Net Payable is never printed', () {
+      final rows = OPDSlipPrintService.buildBillingRows(
         consultationFee: 300,
         discountAmount: 50,
-        netPayable: 250,
         paidAmount: 250,
         balanceAmount: 0,
         paymentMode: 'Cash',
         paymentStatus: 'Paid',
       );
 
-      expect(
-        zeroDiscountRows.any(
-          (row) => row[0] == 'Net Payable' && row[1] == '₹300',
-        ),
-        isTrue,
+      expect(rows.any((row) => row.first == 'Net Payable'), isFalse);
+    });
+
+    test('internal net-payable input does not alter printed billing rows', () {
+      // The printed rows only expose Consultation Fee, optional Discount,
+      // Paid Amount and payment metadata. Net payable remains an internal
+      // value passed separately to generateSlipPdf.
+      final rows = OPDSlipPrintService.buildBillingRows(
+        consultationFee: 300,
+        discountAmount: 50,
+        paidAmount: 250,
+        balanceAmount: 0,
+        paymentMode: 'Cash',
+        paymentStatus: 'Paid',
       );
-      expect(
-        positiveDiscountRows.any(
-          (row) => row[0] == 'Net Payable' && row[1] == '₹250',
-        ),
-        isTrue,
-      );
+
+      expect(rows, [
+        ['Consultation Fee', '₹300'],
+        ['Discount', '₹50'],
+        ['Paid Amount', '₹250'],
+        ['Payment Mode', 'Cash'],
+        ['Payment Status', 'Paid'],
+      ]);
     });
   });
 
@@ -207,7 +343,9 @@ void main() {
       String hospitalAddress = 'Navada, Mathura, Uttar Pradesh - 281001',
       String patientName = 'Rohit Kumar',
       String doctorName = 'Dr. Om Chaudhary',
+      String? tokenNumber = '42',
       bool longTexts = false,
+      bool compress = false,
     }) {
       return OPDSlipPrintService.generateSlipPdf(
         hospitalName: longTexts
@@ -233,8 +371,9 @@ void main() {
         paymentStatus: 'Paid',
         date: DateTime(2026, 9, 10),
         slipNumber: 'OPD-ABC12345',
-        tokenNumber: '42',
+        tokenNumber: tokenNumber,
         isEmergency: false,
+        compress: compress,
       );
     }
 
@@ -291,6 +430,80 @@ void main() {
         final heightMm = (box[3] - box[1]) * 25.4 / 72;
         expect(widthMm, closeTo(210, 0.1));
         expect(heightMm, closeTo(148, 0.1));
+      },
+    );
+
+    test(
+      'renders both sample cases without Net Payable and with one page',
+      () async {
+        final noTokenNoDiscount = await generatePdf(
+          tokenNumber: null,
+          discountAmount: 0,
+        );
+        final tokenAndDiscount = await generatePdf(
+          tokenNumber: '42',
+          discountAmount: 50,
+        );
+
+        expect(pageCount(noTokenNoDiscount), 1);
+        expect(pageCount(tokenAndDiscount), 1);
+
+        // The billing row builder is the single source of truth for the
+        // printed billing section, so Net Payable cannot appear in either PDF.
+        expect(
+          OPDSlipPrintService.buildBillingRows(
+            consultationFee: 300,
+            discountAmount: 0,
+            paidAmount: 300,
+            balanceAmount: 0,
+            paymentMode: 'Cash',
+            paymentStatus: 'Paid',
+          ).any((row) => row.first == 'Net Payable'),
+          isFalse,
+        );
+        expect(
+          OPDSlipPrintService.buildBillingRows(
+            consultationFee: 300,
+            discountAmount: 50,
+            paidAmount: 250,
+            balanceAmount: 0,
+            paymentMode: 'Cash',
+            paymentStatus: 'Paid',
+          ).any((row) => row.first == 'Net Payable'),
+          isFalse,
+        );
+      },
+    );
+
+    test(
+      'writes both sample PDFs to build/opd_slip_samples for inspection',
+      () async {
+        final noTokenNoDiscount = await generatePdf(
+          tokenNumber: null,
+          discountAmount: 0,
+        );
+        final tokenAndDiscount = await generatePdf(
+          tokenNumber: '42',
+          discountAmount: 50,
+        );
+
+        final dir = Directory('build/opd_slip_samples');
+        await dir.create(recursive: true);
+        await File(
+          '${dir.path}/opd_slip_no_token_no_discount.pdf',
+        ).writeAsBytes(noTokenNoDiscount, flush: true);
+        await File(
+          '${dir.path}/opd_slip_token_discount.pdf',
+        ).writeAsBytes(tokenAndDiscount, flush: true);
+
+        expect(
+          File('${dir.path}/opd_slip_no_token_no_discount.pdf').existsSync(),
+          isTrue,
+        );
+        expect(
+          File('${dir.path}/opd_slip_token_discount.pdf').existsSync(),
+          isTrue,
+        );
       },
     );
   });

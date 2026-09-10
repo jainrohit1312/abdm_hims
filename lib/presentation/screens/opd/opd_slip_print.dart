@@ -27,6 +27,25 @@ String _cleanAddressPart(dynamic value) {
   return (value ?? '').toString().trim();
 }
 
+final RegExp _tokenDigits = RegExp(r'^\d+$');
+
+/// Returns a printable OPD token number, or null when the value is not a
+/// genuine queue number.
+///
+/// Null, empty, `N/A`, `NA`, `0`, and non-numeric/invalid values all produce
+/// null so the Token box is completely hidden on the slip.
+String? normalizeTokenNumber(dynamic raw) {
+  if (raw == null) return null;
+  final token = raw.toString().trim();
+  if (token.isEmpty) return null;
+  final upper = token.toUpperCase();
+  if (upper == 'N/A' || upper == 'NA') return null;
+  if (!_tokenDigits.hasMatch(token)) return null;
+  final value = int.tryParse(token);
+  if (value == null || value <= 0) return null;
+  return token;
+}
+
 /// Builds a printable hospital address from the individual hospital columns.
 ///
 /// Expected output format:
@@ -129,6 +148,14 @@ String resolveOpdSlipDoctorName(
   return 'N/A';
 }
 
+/// A single visible box in the slip meta row.
+class OpdSlipMetaCell {
+  const OpdSlipMetaCell(this.label, this.value);
+
+  final String label;
+  final String value;
+}
+
 /// OPD payment slip PDF generator + printer.
 ///
 /// Registration ke time payment collect hone ke baad is service se slip
@@ -137,12 +164,13 @@ class OPDSlipPrintService {
   /// Amount rows for the billing section of the printed slip.
   ///
   /// The discount row is only included when the discount is greater than
-  /// zero. Amounts are formatted with the Indian rupee symbol and Indian
-  /// digit grouping (`₹300`, `₹1,000`).
+  /// zero. Net Payable is intentionally NOT rendered on the printed slip;
+  /// the amount continues to be calculated and stored internally by the
+  /// payment flow. Amounts are formatted with the Indian rupee symbol and
+  /// Indian digit grouping (`₹300`, `₹1,000`).
   static List<List<dynamic>> buildBillingRows({
     required double consultationFee,
     required double discountAmount,
-    required double netPayable,
     required double paidAmount,
     required double balanceAmount,
     required String paymentMode,
@@ -152,7 +180,6 @@ class OPDSlipPrintService {
       ['Consultation Fee', PDFFontHelper.formatIndianCurrency(consultationFee)],
       if (discountAmount > 0)
         ['Discount', PDFFontHelper.formatIndianCurrency(discountAmount)],
-      ['Net Payable', PDFFontHelper.formatIndianCurrency(netPayable)],
       ['Paid Amount', PDFFontHelper.formatIndianCurrency(paidAmount)],
       if (balanceAmount > 0)
         ['Balance', PDFFontHelper.formatIndianCurrency(balanceAmount)],
@@ -180,10 +207,21 @@ class OPDSlipPrintService {
     required String slipNumber,
     String? tokenNumber,
     bool isEmergency = false,
+    bool compress = true,
   }) async {
     await PDFFontHelper.loadFonts();
 
-    final pdf = pw.Document();
+    // `netPayable` stays part of the print contract and internal accounting;
+    // the printed slip intentionally omits the Net Payable row.
+    final pdf = pw.Document(compress: compress);
+    final billingRows = buildBillingRows(
+      consultationFee: consultationFee,
+      discountAmount: discountAmount,
+      paidAmount: paidAmount,
+      balanceAmount: balanceAmount,
+      paymentMode: paymentMode,
+      paymentStatus: paymentStatus,
+    );
 
     pdf.addPage(
       pw.Page(
@@ -196,50 +234,16 @@ class OPDSlipPrintService {
             children: [
               _buildHeader(hospitalName, hospitalAddress, hospitalContact),
               pw.SizedBox(height: 2.5 * PdfPageFormat.mm),
-              _buildMetaRow(slipNumber, date, tokenNumber),
+              buildMetaRow(slipNumber, date, tokenNumber),
               pw.SizedBox(height: 2.5 * PdfPageFormat.mm),
               pw.Expanded(
-                child: pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Expanded(
-                      flex: 3,
-                      child: _buildSectionTable(
-                        title: 'Patient Details',
-                        labelWidth: 72,
-                        rows: [
-                          ['Patient Name', patientName],
-                          ['UHID', uhid],
-                          ['Department', department],
-                          ['Doctor', doctorName],
-                          [
-                            'Consultation Type',
-                            isEmergency
-                                ? 'Emergency Consultation'
-                                : 'OPD Consultation',
-                          ],
-                        ],
-                      ),
-                    ),
-                    pw.SizedBox(width: 3 * PdfPageFormat.mm),
-                    pw.Expanded(
-                      flex: 2,
-                      child: _buildSectionTable(
-                        title: 'Billing Details',
-                        labelWidth: 66,
-                        rightAlignValues: true,
-                        rows: buildBillingRows(
-                          consultationFee: consultationFee,
-                          discountAmount: discountAmount,
-                          netPayable: netPayable,
-                          paidAmount: paidAmount,
-                          balanceAmount: balanceAmount,
-                          paymentMode: paymentMode,
-                          paymentStatus: paymentStatus,
-                        ),
-                      ),
-                    ),
-                  ],
+                child: buildSectionsRow(
+                  patientName: patientName,
+                  uhid: uhid,
+                  department: department,
+                  doctorName: doctorName,
+                  isEmergency: isEmergency,
+                  billingRows: billingRows,
                 ),
               ),
               pw.SizedBox(height: 2.5 * PdfPageFormat.mm),
@@ -297,26 +301,55 @@ class OPDSlipPrintService {
     );
   }
 
-  static pw.Widget _buildMetaRow(
+  /// Returns the ordered meta cells for the slip header row.
+  ///
+  /// * Slip No. is always first.
+  /// * Token is included only for a valid queue number.
+  /// * Date is always last (rightmost box).
+  static List<OpdSlipMetaCell> buildMetaCells(
     String slipNumber,
     DateTime date,
     String? tokenNumber,
   ) {
+    final token = normalizeTokenNumber(tokenNumber);
+    return [
+      OpdSlipMetaCell('Slip No.', slipNumber),
+      if (token != null) OpdSlipMetaCell('Token', token),
+      OpdSlipMetaCell('Date', date.toIso8601String().split('T')[0]),
+    ];
+  }
+
+  /// Builds the meta row: `Slip No. | Token | Date`.
+  ///
+  /// * Slip No. is always the leftmost box.
+  /// * Token is the middle box and is only visible for a valid queue number.
+  /// * Date is always the rightmost box.
+  /// * Every visible box is an equal-flex `Expanded` child, so when Token is
+  ///   hidden the Slip No. and Date boxes expand evenly to fill the row.
+  /// * Equal spacing (2 mm) is kept between visible boxes.
+  static pw.Widget buildMetaRow(
+    String slipNumber,
+    DateTime date,
+    String? tokenNumber,
+  ) {
+    final children = <pw.Widget>[];
+    for (final cell in buildMetaCells(slipNumber, date, tokenNumber)) {
+      if (children.isNotEmpty) {
+        children.add(pw.SizedBox(width: 2 * PdfPageFormat.mm));
+      }
+      children.add(_buildMetaCell(cell.label, cell.value));
+    }
+
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        _buildMetaCell('Slip No.', slipNumber),
-        pw.SizedBox(width: 2 * PdfPageFormat.mm),
-        _buildMetaCell('Date', date.toIso8601String().split('T')[0]),
-        pw.SizedBox(width: 2 * PdfPageFormat.mm),
-        _buildMetaCell('Token', tokenNumber ?? 'N/A'),
-      ],
+      children: children,
     );
   }
 
   static pw.Widget _buildMetaCell(String label, String value) {
     return pw.Expanded(
       child: pw.Container(
+        height: 11.5 * PdfPageFormat.mm,
         padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 3),
         decoration: pw.BoxDecoration(
           border: pw.Border.all(color: PdfColors.grey500, width: 0.6),
@@ -344,10 +377,60 @@ class OPDSlipPrintService {
     );
   }
 
+  /// Builds the two equal-width main sections:
+  /// `Patient Details | Billing Details`.
+  ///
+  /// Both sections are `Expanded(flex: 1)` children of a row with one fixed
+  /// centre gap, which is equivalent to:
+  /// `availableWidth = pageWidth - leftMargin - rightMargin - centreGap`
+  /// `eachSectionWidth = availableWidth / 2`.
+  static pw.Widget buildSectionsRow({
+    required String patientName,
+    required String uhid,
+    required String department,
+    required String doctorName,
+    required bool isEmergency,
+    required List<List<dynamic>> billingRows,
+  }) {
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Expanded(
+          child: _buildSectionTable(
+            title: 'Patient Details',
+            labelFlex: 48,
+            detailsFlex: 52,
+            rows: [
+              ['Patient Name', patientName],
+              ['UHID', uhid],
+              ['Department', department],
+              ['Doctor', doctorName],
+              [
+                'Consultation Type',
+                isEmergency ? 'Emergency Consultation' : 'OPD Consultation',
+              ],
+            ],
+          ),
+        ),
+        pw.SizedBox(width: 3 * PdfPageFormat.mm),
+        pw.Expanded(
+          child: _buildSectionTable(
+            title: 'Billing Details',
+            labelFlex: 48,
+            detailsFlex: 52,
+            rightAlignValues: true,
+            rows: billingRows,
+          ),
+        ),
+      ],
+    );
+  }
+
   static pw.Widget _buildSectionTable({
     required String title,
     required List<List<dynamic>> rows,
-    double labelWidth = 80,
+    required double labelFlex,
+    required double detailsFlex,
     bool rightAlignValues = false,
   }) {
     return pw.Column(
@@ -360,30 +443,47 @@ class OPDSlipPrintService {
           color: PdfColors.blue900,
         ),
         pw.SizedBox(height: 1.5 * PdfPageFormat.mm),
-        pw.TableHelper.fromTextArray(
-          headers: const ['Particulars', 'Details'],
-          data: rows,
-          border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.6),
-          headerStyle: PDFFontHelper.textStyle(
-            fontSize: 9,
-            fontWeight: pw.FontWeight.bold,
-            color: PdfColors.white,
-          ),
-          headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
-          cellStyle: PDFFontHelper.bodyStyle(fontSize: 10),
-          cellPadding: const pw.EdgeInsets.symmetric(
-            horizontal: 5,
-            vertical: 3,
-          ),
-          columnWidths: {
-            0: pw.FixedColumnWidth(labelWidth),
-            1: pw.FlexColumnWidth(1),
-          },
-          cellAlignments: rightAlignValues
-              ? <int, pw.AlignmentGeometry>{1: pw.Alignment.centerRight}
-              : null,
+        buildSectionTable(
+          rows: rows,
+          labelFlex: labelFlex,
+          detailsFlex: detailsFlex,
+          rightAlignValues: rightAlignValues,
         ),
       ],
+    );
+  }
+
+  /// Builds the inner two-column table for a section.
+  ///
+  /// Column widths use flex ratios (default 48:52 for billing) so labels like
+  /// `Consultation Fee`, `Paid Amount`, `Payment Mode` and `Payment Status`
+  /// stay on one line. Currency values are right-aligned in the Details
+  /// column.
+  static pw.Table buildSectionTable({
+    required List<List<dynamic>> rows,
+    required double labelFlex,
+    required double detailsFlex,
+    bool rightAlignValues = false,
+  }) {
+    return pw.TableHelper.fromTextArray(
+      headers: const ['Particulars', 'Details'],
+      data: rows,
+      border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.6),
+      headerStyle: PDFFontHelper.textStyle(
+        fontSize: 9,
+        fontWeight: pw.FontWeight.bold,
+        color: PdfColors.white,
+      ),
+      headerDecoration: const pw.BoxDecoration(color: PdfColors.blue700),
+      cellStyle: PDFFontHelper.bodyStyle(fontSize: 10),
+      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+      columnWidths: {
+        0: pw.FlexColumnWidth(labelFlex),
+        1: pw.FlexColumnWidth(detailsFlex),
+      },
+      cellAlignments: rightAlignValues
+          ? <int, pw.AlignmentGeometry>{1: pw.Alignment.centerRight}
+          : null,
     );
   }
 
@@ -468,7 +568,7 @@ class OPDSlipPrintService {
       slipNumber: _cleanAddressPart(data['slipNumber']).isNotEmpty
           ? _cleanAddressPart(data['slipNumber'])
           : 'OPD-${DateTime.now().millisecondsSinceEpoch}',
-      tokenNumber: data['tokenNumber']?.toString(),
+      tokenNumber: normalizeTokenNumber(data['tokenNumber']),
       isEmergency: data['isEmergency'] == true,
     );
 
@@ -595,7 +695,7 @@ class OPDSlipPrintScreen extends ConsumerWidget {
                 DateTime.tryParse(payment['visit_date']?.toString() ?? '') ??
                 DateTime.now(),
             'slipNumber': slipNumber,
-            'tokenNumber': payment['token_number']?.toString(),
+            'tokenNumber': normalizeTokenNumber(payment['token_number']),
             'isEmergency': payment['is_emergency'] == true,
           };
 
@@ -647,17 +747,14 @@ class OPDSlipPrintScreen extends ConsumerWidget {
                         ),
                         const Divider(height: 24),
                         _infoRow(theme, 'Slip No.', slipData['slipNumber']),
+                        if (slipData['tokenNumber'] != null)
+                          _infoRow(theme, 'Token', slipData['tokenNumber']),
                         _infoRow(
                           theme,
                           'Date',
                           (slipData['date'] as DateTime)
                               .toIso8601String()
                               .split('T')[0],
-                        ),
-                        _infoRow(
-                          theme,
-                          'Token',
-                          slipData['tokenNumber']?.toString() ?? 'N/A',
                         ),
                         _infoRow(
                           theme,
@@ -686,13 +783,6 @@ class OPDSlipPrintScreen extends ConsumerWidget {
                             'Discount',
                             PDFFontHelper.formatIndianCurrency(discountAmount),
                           ),
-                        _infoRow(
-                          theme,
-                          'Net Payable',
-                          PDFFontHelper.formatIndianCurrency(netPayable),
-                          valueColor: theme.colorScheme.primary,
-                          bold: true,
-                        ),
                         _infoRow(
                           theme,
                           'Paid Amount',
