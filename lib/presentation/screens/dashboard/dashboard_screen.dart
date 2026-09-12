@@ -8,7 +8,7 @@ import '../../widgets/app_page_content.dart';
 import '../../widgets/app_refresh_button.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/smart_navigation.dart';
-import '../../../services/background_sync.dart';
+import '../../../services/sync_engine.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -55,11 +55,13 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  /// Sync Status indicator — Background Sync Service ka live status dikhata
-  /// hai (Synced / Pending / Syncing / Offline).
+  /// Sync Status indicator — single coordinator ka live, honest status.
+  ///
+  /// "Up to date" (green) is only shown when a pull verified cloud freshness;
+  /// an offline device with zero pending records stays red/neutral instead of
+  /// claiming "all data is up to date".
   Widget _buildSyncStatusCard(BuildContext context, WidgetRef ref) {
-    final status = ref.watch(syncStatusProvider);
-    final pendingCount = ref.watch(pendingSyncCountProvider);
+    final info = ref.watch(syncEngineStatusProvider);
     final theme = Theme.of(context);
 
     final (
@@ -67,36 +69,78 @@ class DashboardScreen extends ConsumerWidget {
       Color color,
       String label,
       String subtitle,
-    ) = switch (status) {
-      SyncStatus.synced => (
+    ) = switch (info.health) {
+      SyncHealth.upToDate => (
         Icons.cloud_done_outlined,
         Colors.green,
-        'Synced',
-        'All data is up to date',
+        'Up to date',
+        info.lastReconciliationAt == null
+            ? 'Incremental sync caught up'
+            : 'Reconciled ${_shortTime(info.lastReconciliationAt!)}',
       ),
-      SyncStatus.pending => (
-        Icons.cloud_upload_outlined,
-        Colors.orange,
-        'Pending',
-        '$pendingCount record(s) waiting to sync',
-      ),
-      SyncStatus.syncing => (
+      SyncHealth.syncing => (
         Icons.sync,
         Colors.blue,
-        'Syncing...',
-        'Uploading local data to server',
+        'Syncing',
+        info.pendingUploadCount > 0
+            ? '${info.pendingUploadCount} pending'
+            : 'Contacting server',
       ),
-      SyncStatus.offline => (
+      SyncHealth.downloading => (
+        Icons.cloud_download_outlined,
+        Colors.blue,
+        'Downloading',
+        info.reconciliationComplete
+            ? 'Fetching baseline data'
+            : 'Reconciling full dataset',
+      ),
+      SyncHealth.awaitingUpload => (
+        Icons.cloud_upload_outlined,
+        Colors.orange,
+        'Saved locally',
+        '${info.pendingUploadCount} record(s) awaiting upload',
+      ),
+      SyncHealth.offline => (
         Icons.cloud_off_outlined,
-        Colors.grey,
+        Colors.red,
         'Offline',
-        'Sync will resume when online',
+        'No network — changes saved locally',
       ),
-      SyncStatus.idle => (
+      SyncHealth.cloudUnreachable => (
+        Icons.cloud_off_outlined,
+        Colors.red,
+        'Cloud unreachable',
+        'Network up, but server not responding',
+      ),
+      SyncHealth.syncFailed => (
+        Icons.error_outline,
+        Colors.red,
+        'Sync failed',
+        info.failureReason ?? 'Retry to continue',
+      ),
+      SyncHealth.conflict => (
+        Icons.warning_amber_outlined,
+        Colors.orange,
+        'Needs attention',
+        '${info.conflictCount} conflict(s) to resolve',
+      ),
+      SyncHealth.signInRequired => (
+        Icons.lock_outline,
+        Colors.orange,
+        'Sign-in required',
+        'Reauthenticate to resume sync',
+      ),
+      SyncHealth.setupRequired => (
+        Icons.settings_suggest_outlined,
+        Colors.orange,
+        'Sync setup incomplete',
+        'Server change-log migration not installed',
+      ),
+      SyncHealth.neutral => (
         Icons.cloud_queue_outlined,
         Colors.blueGrey,
-        'Ready',
-        'Background sync starting...',
+        'Not synced yet',
+        'Initial download incomplete',
       ),
     };
 
@@ -138,7 +182,8 @@ class DashboardScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            if (status == SyncStatus.syncing)
+            if (info.health == SyncHealth.syncing ||
+                info.health == SyncHealth.downloading)
               const SizedBox(
                 width: 18,
                 height: 18,
@@ -148,6 +193,12 @@ class DashboardScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  String _shortTime(DateTime dt) {
+    final local = dt.toLocal();
+    return '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}';
   }
 
   Widget _buildQuickActions(BuildContext context) {

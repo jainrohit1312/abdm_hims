@@ -56,11 +56,11 @@ class _AppBootstrapGateState extends ConsumerState<AppBootstrapGate> {
         );
       }
 
-      // Start the offline-first background sync engine (30-second timer) once
-      // we have a valid session AND hospital context. When logged out there is
+      // Start the single offline-first sync engine (30-second timer) once we
+      // have a valid session AND hospital context. When logged out there is
       // nothing to sync, so the timer/connectivity polling stays off.
       if (session != null && hospitalId != null && hospitalId.isNotEmpty) {
-        ref.read(backgroundSyncServiceProvider).start();
+        ref.read(syncEngineProvider).start();
       }
 
       // Register this device for FCM push notifications and subscribe it to
@@ -87,6 +87,13 @@ class _AppBootstrapGateState extends ConsumerState<AppBootstrapGate> {
           ref
               .read(databaseServiceProvider)
               .fetchAndCacheData(hospitalId: hospitalId),
+        );
+        // Durably mirror read-only master data (doctors, departments, hospital
+        // profile) for offline OPD + slip printing.
+        unawaited(
+          ref
+              .read(databaseServiceProvider)
+              .cacheMasterData(hospitalId: hospitalId),
         );
       }
 

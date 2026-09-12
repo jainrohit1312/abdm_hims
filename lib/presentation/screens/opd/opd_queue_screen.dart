@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../app/providers.dart';
-import '../../../core/constants/api_constants.dart';
 import '../../../core/utils/display_names.dart';
 import '../../../services/print_prescription.dart';
 import '../../widgets/app_refresh_button.dart';
@@ -208,10 +207,7 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
 
       Map<String, dynamic>? hospital;
       if (hospitalId != null && hospitalId.isNotEmpty) {
-        hospital = await dbService.getById(
-          ApiConstants.hospitalsTable,
-          hospitalId,
-        );
+        hospital = await dbService.getMirroredHospital(hospitalId);
       }
 
       final doctorId = entry['doctor_id']?.toString();
@@ -223,13 +219,17 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
           : (cleanDoctorName(storedDoctorName).isNotEmpty
                 ? cleanDoctorName(storedDoctorName)
                 : 'N/A');
-      var departmentName = 'N/A';
-      if (departmentId != null && departmentId.isNotEmpty) {
-        final dept = await dbService.getById(
-          ApiConstants.departmentsTable,
-          departmentId,
+      var departmentName = entry['department_name']?.toString() ?? 'N/A';
+      if (departmentName.isEmpty) {
+        final departments = await dbService.getMirroredDepartments(
+          hospitalId: hospitalId,
         );
-        departmentName = dept?['name']?.toString() ?? 'N/A';
+        for (final dept in departments) {
+          if (dept['id']?.toString() == departmentId) {
+            departmentName = dept['name']?.toString() ?? 'N/A';
+            break;
+          }
+        }
       }
 
       final slipNumber =
@@ -340,27 +340,16 @@ class _OPDQueueScreenState extends ConsumerState<OPDQueueScreen> {
     try {
       final dbService = ref.read(databaseServiceProvider);
 
-      // doctor_id column har deployment mein exist nahi karta; agar kisi row
-      // mein ho to doctors aur users dono tables try karo. Doctor row ka
-      // dedicated `name` column preferred hai — stored `doctor_name` string
-      // sirf fallback ke roop mein use hota hai.
-      final doctor = await dbService.getById(
-        ApiConstants.doctorsTable,
-        doctorId,
-      );
-      final doctorName = cleanDoctorName(doctor?['name']);
-      if (doctorName.isNotEmpty) return doctorName;
-
-      final user = await dbService.getById(ApiConstants.usersTable, doctorId);
-      if (user != null) {
-        final name = cleanDoctorName(
-          [
-            user['first_name'],
-            user['last_name'],
-          ].where((n) => n != null && n.toString().isNotEmpty).join(' '),
-        );
-        if (name.isNotEmpty) return name;
+      // Local-first: resolve from the durable doctors mirror. `doctor_name`
+      // stored on the OPD row is the fallback (handled by the caller).
+      final doctors = await dbService.getMirroredDoctors();
+      for (final doctor in doctors) {
+        if (doctor['id']?.toString() == doctorId) {
+          final name = cleanDoctorName(doctor['name']);
+          if (name.isNotEmpty) return name;
+        }
       }
+      return '';
     } catch (_) {
       // Doctor name optional hai; slip baaki data ke saath print ho jayegi.
     }

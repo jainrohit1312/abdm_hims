@@ -1281,7 +1281,12 @@ class _PatientRegistrationScreenState
         patientData['abha_linked'] = true;
       }
 
-      final result = await dbService.registerPatient(patientData);
+      // Local-first: commit to the durable local store + outbox immediately;
+      // the sync engine uploads it later (no cloud round-trip / timeout here).
+      final result = await dbService.registerPatientLocal(
+        patientData,
+        hospitalId: authState.hospitalId ?? '',
+      );
 
       if (!mounted) return;
 

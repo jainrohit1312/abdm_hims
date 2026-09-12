@@ -346,10 +346,13 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
       final dbService = ref.read(databaseServiceProvider);
       final authState = ref.read(authStateProvider);
 
-      final createdById = await dbService.getCurrentUsersTableId();
+      // Resolve the public users.id FK. Never substitutes the auth UUID; if
+      // the offline identity mapping is missing this throws an actionable
+      // provisioning error (caught below and shown to the user).
+      final createdById = await dbService.requireCurrentUserPublicId();
       if (!mounted) return;
 
-      if (createdById == null) {
+      if (createdById.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -440,10 +443,16 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
       // Smart workflow: doctor ki prescription_mode ke hisaab se OPD status
       // `pending` ya `completed` set hota hai aur payment columns
       // (payment_amount / payment_status unpaid) save hote hain.
-      final created = await dbService.createOPDRegistration(
+      // Local-first: durable local commit + outbox; no cloud round-trip.
+      final selectedDoctor = _doctors.firstWhere(
+        (d) => d['id'].toString() == _selectedDoctorId,
+        orElse: () => {},
+      );
+      final prescriptionMode = selectedDoctor['prescription_mode'] == true;
+      final created = await dbService.createOPDRegistrationLocal(
         opdData,
-        hospitalId: authState.hospitalId,
-        doctorId: _selectedDoctorId,
+        hospitalId: authState.hospitalId ?? '',
+        prescriptionMode: prescriptionMode,
         discountAmount: discount,
       );
 
@@ -469,9 +478,9 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
       }
 
       // Registration ke time payment collect -> slip generate -> paid.
-      // Returned row mein patients ka naam/uhid embedded hota hai jo slip
-      // print karne ke kaam aata hai.
-      final slipRow = await dbService.generateOPDSlip(
+      // Local-first: billing + items + payment are materialised locally and
+      // queued; the slip row carries the embedded patient for printing.
+      final slipRow = await dbService.generateOPDSlipLocal(
         patientId: widget.patientId!,
         paymentAmount: finalFee,
         paymentMode: _paymentModeValue,
@@ -479,14 +488,19 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
         discountAmount: discount,
       );
 
-      // WhatsApp opt-in consent ko patient master par bhi mirror karo.
+      // WhatsApp opt-in consent ko patient master par bhi mirror karo
+      // (best-effort; offline par fail hone par bhi OPD/slip proceed kare).
       if (widget.patientId != null && widget.patientId!.isNotEmpty) {
-        await dbService.update(
-          ApiConstants.patientsTable,
-          widget.patientId!,
-          {'whatsapp_opt_in': _whatsappOptIn},
-          hospitalId: authState.hospitalId,
-        );
+        try {
+          await dbService.update(
+            ApiConstants.patientsTable,
+            widget.patientId!,
+            {'whatsapp_opt_in': _whatsappOptIn},
+            hospitalId: authState.hospitalId,
+          );
+        } catch (e) {
+          debugPrint('WhatsApp opt-in mirror failed (non-blocking): $e');
+        }
       }
 
       if (!mounted) return;

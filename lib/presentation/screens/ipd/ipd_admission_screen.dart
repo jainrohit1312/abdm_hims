@@ -942,6 +942,47 @@ class _IPDAdmissionScreenState extends ConsumerState<IPDAdmissionScreen> {
     }
   }
 
+  /// Runs a synchronization pass, then refreshes the online patient selectors
+  /// so a newly cloud-confirmed patient becomes selectable.
+  ///
+  /// Never admits automatically: the user must review the refreshed selector
+  /// and press Admit again, which re-runs the online bed-availability check.
+  Future<void> _syncPatientForOnlineAdmission({
+    required DatabaseService dbService,
+    required String? hospitalId,
+  }) async {
+    await ref.read(syncEngineProvider).syncNow();
+
+    // Refresh the patient lists the online selector can be built from.
+    ref.invalidate(patientListProvider);
+    ref.invalidate(combinedPatientSearchProvider);
+    ref.invalidate(patientsCacheProvider);
+    if (hospitalId != null && hospitalId.isNotEmpty) {
+      // Bed availability is re-read through the existing online workflow.
+      ref.invalidate(hospitalBedsProvider(hospitalId));
+    }
+
+    if (!mounted || widget.patientId == null || widget.patientId!.isEmpty) {
+      return;
+    }
+
+    final status = await dbService.patientCloudStatus(widget.patientId!);
+    if (!mounted) return;
+    final synced = status == PatientCloudStatus.synced;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          synced
+              ? 'Patient synchronized. You can now complete the online IPD '
+                    'admission.'
+              : 'Patient is still not synchronized. Check the sync status and '
+                    'retry.',
+        ),
+        backgroundColor: synced ? Colors.green : Colors.orange,
+      ),
+    );
+  }
+
   Future<void> _submitAdmission() async {
     if (_formKey.currentState?.validate() != true) return;
     if (_selectedDoctorId == null || _selectedDoctorId!.isEmpty) {
@@ -965,6 +1006,52 @@ class _IPDAdmissionScreenState extends ConsumerState<IPDAdmissionScreen> {
     try {
       final dbService = ref.read(databaseServiceProvider);
       final authState = ref.read(authStateProvider);
+
+      // Offline-created patient guard: IPD admission is online-only, so the
+      // patient must already be on the cloud. Never create a duplicate patient
+      // or submit an admission against a missing cloud patient.
+      if (widget.patientId != null && widget.patientId!.isNotEmpty) {
+        final cloudStatus = await dbService.patientCloudStatus(
+          widget.patientId!,
+        );
+        if (cloudStatus != PatientCloudStatus.synced) {
+          if (!mounted) return;
+          final (message, canRetry) = switch (cloudStatus) {
+            PatientCloudStatus.offline => (
+              'IPD admission cannot be completed until connectivity and '
+                  'patient synchronization succeed.',
+              false,
+            ),
+            PatientCloudStatus.cloudUnreachable => (
+              'Patient saved locally, but the cloud is unreachable. '
+                  'Retry synchronization before IPD admission.',
+              true,
+            ),
+            _ => (
+              'Patient saved locally. Sync this patient before online IPD '
+                  'admission.',
+              true,
+            ),
+          };
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(message),
+              backgroundColor: Colors.orange,
+              action: canRetry
+                  ? SnackBarAction(
+                      label: 'Sync now',
+                      onPressed: () => _syncPatientForOnlineAdmission(
+                        dbService: dbService,
+                        hospitalId: authState.hospitalId,
+                      ),
+                    )
+                  : null,
+            ),
+          );
+          setState(() => _isLoading = false);
+          return;
+        }
+      }
 
       final admissionData = <String, dynamic>{
         'hospital_id': authState.hospitalId,

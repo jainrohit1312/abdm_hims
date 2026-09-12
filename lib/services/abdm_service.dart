@@ -1074,7 +1074,7 @@ class AbdmService {
           'purpose': purpose,
           'dataFrom': dataFrom.toUtc().toIso8601String(),
           'dataTo': dataTo.toUtc().toIso8601String(),
-          'hiTypes': ?hiTypes,
+          'hiTypes': hiTypes,
         },
       },
     );
@@ -1117,7 +1117,7 @@ class AbdmService {
         'timestamp': _nowIso(),
         'hiuId': 'MOCK_HIU_ID',
         'consentId': consentId,
-        'keyMaterial': ?keyMaterial,
+        'keyMaterial': keyMaterial,
       };
 
       await _mockDelay();

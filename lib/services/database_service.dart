@@ -1,12 +1,71 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:crypto/crypto.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/constants/api_constants.dart';
 import '../core/utils/logger.dart';
 import 'cache_service.dart';
 import 'local_db.dart';
+import 'outbox.dart';
+
+/// Raised when a local-first write needs the public `users.id` FK but the
+/// offline identity mapping has not yet been provisioned. Callers must surface
+/// an actionable provisioning message instead of creating un-syncable rows.
+class OfflineProvisioningException implements Exception {
+  const OfflineProvisioningException();
+
+  @override
+  String toString() =>
+      'Offline identity is not provisioned. Connect to the '
+      'internet and sign in once so this device can map your user record '
+      'before creating offline records.';
+}
+
+/// Availability of a locally-created patient on the cloud, for online
+/// workflows such as IPD admission.
+enum PatientCloudStatus {
+  /// The patient is on the cloud (or was never a pending local record).
+  synced,
+
+  /// Saved locally and not yet uploaded; network + cloud are reachable, so a
+  /// sync can proceed.
+  pendingLocal,
+
+  /// No network — sync cannot proceed until connectivity returns.
+  offline,
+
+  /// Network up but Supabase unreachable — the sync issue should be shown.
+  cloudUnreachable,
+}
+
+/// Result of a dataset reconciliation pass.
+enum ReconcileOutcome {
+  /// The dataset was fully reconciled (all pages read and applied).
+  complete,
+
+  /// The reconciliation hit its per-run page budget; a later run will resume.
+  partial,
+
+  /// The reconciliation failed (identity scope missing / network).
+  failed,
+}
+
+/// Result of a change-log pull pass.
+enum PullOutcome {
+  /// Change-log was read and applied (freshness verified).
+  complete,
+
+  /// The server-side change-log migration is not installed. The client must
+  /// surface "sync setup incomplete" — it must NOT claim "up to date".
+  setupIncomplete,
+
+  /// The change-log could not be read (network/other transient failure).
+  failed,
+}
 
 class DatabaseService {
   final SupabaseClient _client;
@@ -4183,6 +4242,75 @@ class DatabaseService {
     return _client.auth.currentUser?.id;
   }
 
+  // ---------------------------------------------------------------------------
+  // Offline identity mapping (public `users.id`, never the auth UUID)
+  // ---------------------------------------------------------------------------
+
+  static const String _kIdentityPublicUserId = 'identity:public_user_id';
+  static const String _kIdentityHospitalId = 'identity:hospital_id';
+  static const String _kIdentityRole = 'identity:role';
+
+  /// Persists the authenticated user's public `users.id` and its scope into
+  /// the local operational DB. Called during authorized online provisioning
+  /// (login / bootstrap). Survives logout so pending operations keep their
+  /// originating identity.
+  Future<void> persistIdentityMapping({
+    required String publicUserId,
+    required String hospitalId,
+    String? role,
+  }) async {
+    await _localDb.init();
+    await _localDb.setMetadata(_kIdentityPublicUserId, publicUserId);
+    if (hospitalId.isNotEmpty) {
+      await _localDb.setMetadata(_kIdentityHospitalId, hospitalId);
+    }
+    if (role != null && role.isNotEmpty) {
+      await _localDb.setMetadata(_kIdentityRole, role);
+    }
+  }
+
+  /// Returns the persisted public `users.id`, or null when not provisioned.
+  Future<String?> getPersistedPublicUserId() =>
+      _localDb.getMetadata(_kIdentityPublicUserId);
+
+  /// Returns the persisted hospital scope of the identity mapping.
+  Future<String?> getPersistedIdentityHospitalId() =>
+      _localDb.getMetadata(_kIdentityHospitalId);
+
+  /// Resolves the public `users.id` for the current user, preferring the
+  /// persisted mapping (offline-safe) and only falling back to an online
+  /// lookup when the mapping is absent.
+  ///
+  /// Throws [OfflineProvisioningException] when the mapping is unavailable and
+  /// the device is offline — the caller must show an actionable provisioning
+  /// error rather than creating records that could never synchronize.
+  Future<String> resolveCurrentUserPublicId() async {
+    await _localDb.init();
+
+    final persisted = await getPersistedPublicUserId();
+    if (persisted != null && persisted.isNotEmpty) return persisted;
+
+    // Mapping absent: try to resolve it now (requires network + public record).
+    if (await probeSupabase()) {
+      final record = await getCurrentUserRecord();
+      final publicId = record?['id']?.toString();
+      if (publicId != null && publicId.isNotEmpty) {
+        await persistIdentityMapping(
+          publicUserId: publicId,
+          hospitalId: record?['hospital_id']?.toString() ?? '',
+          role: record?['role']?.toString(),
+        );
+        return publicId;
+      }
+    }
+
+    throw const OfflineProvisioningException();
+  }
+
+  /// Resolves the public `users.id` strictly — no auth-UUID substitution. When
+  /// offline and not yet provisioned this throws; callers must handle it.
+  Future<String> requireCurrentUserPublicId() => resolveCurrentUserPublicId();
+
   // Dashboard Statistics
   Future<Map<String, dynamic>> getDashboardStats(String hospitalId) async {
     try {
@@ -5582,6 +5710,1336 @@ class DatabaseService {
     }
 
     await _localDb.markSynced(table: record.table, offlineId: record.offlineId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sync engine primitives (single coordinator — see `sync_engine.dart`)
+  // ---------------------------------------------------------------------------
+
+  /// Stable, per-install device identifier. Not secret; used only to tag
+  /// outbox operations and diagnose multi-device behaviour.
+  Future<String> deviceId() async {
+    const key = 'hims_device_id';
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      var id = prefs.getString(key);
+      if (id == null || id.isEmpty) {
+        id = generateUuid();
+        await prefs.setString(key, id);
+      }
+      return id;
+    } catch (_) {
+      return 'device-${generateUuid()}';
+    }
+  }
+
+  /// True when a physical network link exists (not a Supabase reachability
+  /// guarantee — see [probeSupabase]).
+  Future<bool> hasNetwork() async {
+    try {
+      final result = await _connectivity.checkConnectivity();
+      return result != ConnectivityResult.none;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// True when the Supabase backend is reachable AND authenticated.
+  ///
+  /// This is the "cloud freshness" gate: an offline device with no pending
+  /// changes must still show "offline/cloud unreachable", never "up to date".
+  Future<bool> probeSupabase() async {
+    if (!await hasNetwork()) return false;
+    try {
+      await fetchWithRetry(
+        () => _client.from(ApiConstants.hospitalsTable).select('id').limit(1),
+      );
+      return true;
+    } catch (e) {
+      AppLogger.w('Supabase probe failed: $e');
+      return false;
+    }
+  }
+
+  /// Synthetic outbox entity for the atomic OPD payment operation.
+  ///
+  /// The four cloud accounting rows (visit payment transition, bill, bill
+  /// item, payment log) are NOT uploaded individually: they are sent as one
+  /// operation to `public.hims_apply_opd_payment`, which commits them in a
+  /// single server transaction with a durable idempotency receipt.
+  static const String opdPaymentOperationEntity = 'rpc:opd_payment';
+
+  /// Uploads a single outbox entry idempotently.
+  ///
+  /// Idempotency is enforced by the stable primary key `id` (a locally
+  /// generated UUID preserved through sync). A replayed CREATE is verified —
+  /// never assumed — by checking the exact record on a unique-key collision.
+  Future<OutboxUploadResult> syncOutboxEntry(OutboxEntry entry) async {
+    if (entry.entity == opdPaymentOperationEntity) {
+      return _uploadOpdPaymentOperation(entry);
+    }
+    try {
+      switch (entry.operationType) {
+        case SyncOperationType.create:
+          return await _uploadCreate(entry);
+        case SyncOperationType.update:
+          return await _uploadUpdate(entry);
+        case SyncOperationType.delete:
+          // Deleting by the stable id is idempotent (no-op when absent).
+          await fetchWithRetry(
+            () => _client.from(entry.entity).delete().eq('id', entry.recordId),
+          );
+          return OutboxUploadResult.acknowledged;
+      }
+    } on PostgrestException catch (e) {
+      if (e.code == '23505') {
+        // A unique collision that escaped create/update handling is a genuine
+        // conflict on UHID / bill_number / etc., not a replay.
+        return OutboxUploadResult.conflict;
+      }
+      if (_isAuthOrValidationError(e)) {
+        AppLogger.e('Outbox rejected ${entry.entity}/${entry.recordId}', e);
+        return OutboxUploadResult.rejected;
+      }
+      AppLogger.w('Outbox transient failure ${entry.entity}: $e');
+      return OutboxUploadResult.retryableFailure;
+    } catch (e) {
+      AppLogger.w('Outbox network failure ${entry.entity}: $e');
+      return OutboxUploadResult.retryableFailure;
+    }
+  }
+
+  /// Creates a row. On a unique-key violation it verifies whether the
+  /// collision is a replay of THIS operation (same record + hospital) or a
+  /// genuine conflict on another unique field (UHID, bill_number, ...).
+  Future<OutboxUploadResult> _uploadCreate(OutboxEntry entry) async {
+    final payload = Map<String, dynamic>.from(entry.payload)
+      ..remove('is_synced')
+      ..remove('sync_status');
+    try {
+      await fetchWithRetry(() => _client.from(entry.entity).insert(payload));
+      return OutboxUploadResult.acknowledged;
+    } on PostgrestException catch (e) {
+      if (e.code != '23505') rethrow;
+
+      final existing = await _client
+          .from(entry.entity)
+          .select()
+          .eq('id', entry.recordId)
+          .maybeSingle();
+
+      if (existing != null &&
+          _sameRecord(existing, entry) &&
+          _sameAccountingEffect(existing, entry.payload)) {
+        // Server committed, client lost the response: idempotent replay. The
+        // accounting/immutable payload is verified, not assumed.
+        return OutboxUploadResult.alreadyCommitted;
+      }
+
+      // Collision on UHID / bill_number / another unique field, a different
+      // hospital, or a different payload for the same id. Preserve both sides.
+      await _localDb.saveConflict(
+        SyncConflict(
+          entity: entry.entity,
+          recordId: entry.recordId,
+          localPayload: entry.payload,
+          remotePayload: existing ?? const {},
+          baseVersion: entry.baseVersion ?? 0,
+          detectedAt: DateTime.now(),
+        ),
+      );
+      return OutboxUploadResult.conflict;
+    }
+  }
+
+  /// True when the accounting/immutable fields of the intended payload match
+  /// what is actually on the server, so a retry never accepts a different
+  /// payload as "already committed".
+  bool _sameAccountingEffect(
+    Map<String, dynamic> serverRow,
+    Map<String, dynamic> intendedPayload,
+  ) {
+    return accountingHash(serverRow) == accountingHash(intendedPayload);
+  }
+
+  /// Stable hash over the business/accounting fields only (server-managed
+  /// columns and local-only flags are excluded). Used to prove a retry is the
+  /// exact intended operation, not a same-id-different-payload write.
+  String accountingHash(Map<String, dynamic> payload) {
+    const excluded = {
+      'id',
+      'offline_id',
+      'sync_status',
+      'is_synced',
+      'created_at',
+      'updated_at',
+      'sync_version',
+      'deleted_at',
+      'completed_at',
+    };
+    final canonical = <String, dynamic>{};
+    payload.forEach((k, v) {
+      if (excluded.contains(k)) return;
+      canonical[k] = v;
+    });
+    final keys = canonical.keys.toList()..sort();
+    final sorted = <String, dynamic>{for (final k in keys) k: canonical[k]};
+    return sha256.convert(utf8.encode(jsonEncode(sorted))).toString();
+  }
+
+  /// Updates a row using an atomic server-side condition (never a client-side
+  /// check followed by an unconditional write).
+  ///
+  /// * The Phase 1 OPD payment transition is a compare-and-swap on
+  ///   `payment_status` (`unpaid` -> `paid`), which is idempotent.
+  /// * Other mutable edits use a `sync_version` base-version check (requires
+  ///   the offline-sync migration).
+  Future<OutboxUploadResult> _uploadUpdate(OutboxEntry entry) async {
+    final payload = Map<String, dynamic>.from(entry.payload)
+      ..remove('is_synced')
+      ..remove('sync_status');
+
+    final isPaymentTransition = payload['payment_status'] == 'paid';
+
+    final updated = await fetchWithRetry(() {
+      dynamic q = _client
+          .from(entry.entity)
+          .update(payload)
+          .eq('id', entry.recordId);
+      if (isPaymentTransition) {
+        q = q.eq('payment_status', 'unpaid');
+      } else if (entry.baseVersion != null) {
+        q = q.eq('sync_version', entry.baseVersion);
+      }
+      return q.select('id');
+    });
+
+    if (updated.isNotEmpty) return OutboxUploadResult.acknowledged;
+
+    // 0 rows: already applied, or a concurrent edit on another device.
+    final existing = await _client
+        .from(entry.entity)
+        .select()
+        .eq('id', entry.recordId)
+        .maybeSingle();
+    if (existing != null && _sameRecord(existing, entry)) {
+      return OutboxUploadResult.alreadyCommitted;
+    }
+    return OutboxUploadResult.conflict;
+  }
+
+  /// Sends the whole OPD payment accounting operation to the server-side
+  /// transactional endpoint (`public.hims_apply_opd_payment`).
+  ///
+  /// Nothing is uploaded row-by-row: the visit's payment transition, the bill,
+  /// its line item, the payment log and the audit trail commit together on the
+  /// server, with a durable receipt that makes this call idempotent. The
+  /// server derives the hospital and the acting user from the authenticated
+  /// session, validates every referenced record, and returns the original
+  /// result for a same-id/same-payload retry.
+  Future<OutboxUploadResult> _uploadOpdPaymentOperation(
+    OutboxEntry entry,
+  ) async {
+    final p = entry.payload;
+    try {
+      final raw = await fetchWithRetry(
+        () => _client.rpc(
+          'hims_apply_opd_payment',
+          params: {
+            'p_operation_id': entry.operationId,
+            'p_device_id': entry.deviceId,
+            'p_opd_registration_id': p['opd_registration_id'],
+            'p_patient_id': p['patient_id'],
+            'p_consultation_fee': p['consultation_fee'],
+            'p_discount_amount': p['discount_amount'],
+            'p_payment_amount': p['payment_amount'],
+            'p_payment_mode': p['payment_mode'],
+            'p_bill_id': p['bill_id'],
+            'p_bill_offline_id': p['bill_offline_id'],
+            'p_bill_number': p['bill_number'],
+            'p_bill_item_id': p['bill_item_id'],
+            'p_payment_log_id': p['payment_log_id'],
+          },
+        ),
+      );
+
+      final status = rpcResultStatus(raw);
+      if (status == 'applied' || status == 'replayed') {
+        return status == 'replayed'
+            ? OutboxUploadResult.alreadyCommitted
+            : OutboxUploadResult.acknowledged;
+      }
+      // A committed but unreadable result must never be treated as success.
+      return OutboxUploadResult.retryableFailure;
+    } on PostgrestException catch (e) {
+      final message = '${e.message} ${e.details ?? ''}';
+      if (message.contains('hims_opd_payment_conflict')) {
+        // Same operation id, different payload — or a second collection for a
+        // visit that already has one. Never retried blindly.
+        AppLogger.e('OPD payment conflict ${entry.operationId}', e);
+        return OutboxUploadResult.conflict;
+      }
+      if (message.contains('hims_opd_payment_forbidden') ||
+          message.contains('hims_opd_payment_invalid')) {
+        AppLogger.e('OPD payment rejected ${entry.operationId}', e);
+        return OutboxUploadResult.rejected;
+      }
+      if (message.contains('hims_opd_payment_retry')) {
+        // The visit has not reached the cloud yet: the visit's own outbox
+        // entry must upload first. Retryable, and no partial writes exist.
+        AppLogger.w('OPD payment not applicable yet ${entry.operationId}');
+        return OutboxUploadResult.retryableFailure;
+      }
+      AppLogger.w('OPD payment transient failure: $e');
+      return OutboxUploadResult.retryableFailure;
+    } catch (e) {
+      AppLogger.w('OPD payment network failure ${entry.operationId}: $e');
+      return OutboxUploadResult.retryableFailure;
+    }
+  }
+
+  /// Normalises the RPC return value (a JSONB object, or its JSON string
+  /// depending on the client library) into its `status` field.
+  static String rpcResultStatus(dynamic raw) {
+    dynamic value = raw;
+    if (value is String) {
+      try {
+        value = jsonDecode(value);
+      } catch (_) {
+        return '';
+      }
+    }
+    if (value is List && value.isNotEmpty) value = value.first;
+    if (value is Map) {
+      // A nested `{data: {...}}` shape is returned by some PostgREST versions.
+      final nested = value['data'];
+      if (value['status'] == null && nested is Map) value = nested;
+      return value['status']?.toString() ?? '';
+    }
+    return '';
+  }
+
+  /// The local business rows covered by [entry]. Used to mark them synced
+  /// together with the outbox acknowledgement.
+  List<LocalRecordRef> acknowledgedLocalRecords(OutboxEntry entry) {
+    if (entry.entity == opdPaymentOperationEntity) {
+      final opdOfflineId = entry.payload['opd_offline_id']?.toString();
+      final billOfflineId = entry.payload['bill_offline_id']?.toString();
+      return [
+        if (opdOfflineId != null && opdOfflineId.isNotEmpty)
+          LocalRecordRef(
+            table: LocalTables.opdRegistrations,
+            offlineId: opdOfflineId,
+          ),
+        if (billOfflineId != null && billOfflineId.isNotEmpty)
+          LocalRecordRef(table: LocalTables.billing, offlineId: billOfflineId),
+      ];
+    }
+    if (LocalTables.contains(entry.entity)) {
+      return [
+        LocalRecordRef(table: entry.entity, offlineId: entry.operationId),
+      ];
+    }
+    return const [];
+  }
+
+  /// True when [row] is the same business record as [entry] (same id and, when
+  /// both sides carry one, the same hospital).
+  bool _sameRecord(Map<String, dynamic> row, OutboxEntry entry) {
+    if (row['id']?.toString() != entry.recordId) return false;
+    final rowHospital = row['hospital_id']?.toString() ?? '';
+    if (entry.hospitalId.isNotEmpty &&
+        rowHospital.isNotEmpty &&
+        rowHospital != entry.hospitalId) {
+      return false;
+    }
+    return true;
+  }
+
+  bool _isAuthOrValidationError(PostgrestException e) {
+    final code = e.code ?? '';
+    // `23503` (foreign_key_violation) is deliberately NOT a validation error:
+    // in an offline-first queue it almost always means the parent row has not
+    // been uploaded yet, so the entry must stay RETRYABLE instead of being
+    // rejected forever.
+    return code.startsWith('22') || // data exception (bad input)
+        (code.startsWith('23') && code != '23505' && code != '23503') ||
+        code == '42501' || // insufficient privilege
+        code == 'PGRST301' || // row-level security violation
+        (e.message.toLowerCase().contains('permission') ||
+            e.message.toLowerCase().contains('row-level security'));
+  }
+
+  static const int _pullBatchSize = 500;
+
+  /// Re-read window (in change_ids) for the change-log pull. Sized far beyond
+  /// the number of changes an OPD transaction can be out-of-order by, so a
+  /// change that allocated an earlier change_id but committed after a later
+  /// one is re-read on the next pull instead of being missed. This is the
+  /// bound on "late commit" recovery — justified by OPD write volume, not an
+  /// arbitrary timeout.
+  static const int _pullOverlap = 500;
+
+  /// True when the server-side change-log (offline-sync migration) exists.
+  Future<bool> syncSetupComplete() async {
+    try {
+      await fetchWithRetry(
+        () => _client.from('hims_change_log').select('change_id').limit(1),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Pulls changes from the `hims_change_log` for the current hospital.
+  ///
+  /// Protocol (tenant-scoped, gap-tolerant, no permanent misses for OPD
+  /// volume):
+  ///
+  /// * The client only reads its own hospital's rows (`hospital_id = :me`),
+  ///   so cross-tenant changes are invisible and their change_ids are simply
+  ///   absent — they never stall progress.
+  /// * Sequence gaps from rolled-back transactions are likewise absent and
+  ///   skipped: the cursor advances to the maximum `change_id` SEEN, not to a
+  ///   "next contiguous" value.
+  /// * To catch a change whose transaction allocated an earlier change_id but
+  ///   committed after a later one was already pulled, each pull re-reads the
+  ///   last `_pullOverlap` change_ids and dedupes by record, applying only the
+  ///   latest. The overlap is sized far beyond the number of changes an OPD
+  ///   transaction can be out-of-order by, so a late-committing change is
+  ///   re-read on the next pull instead of being missed.
+  ///
+  /// Applying is idempotent (upsert by record id), so a crash between apply
+  /// and cursor-advance is safe. Non-conflicting rows merge; a row that
+  /// conflicts with a pending local edit is preserved as a conflict.
+  Future<PullOutcome> pullChanges() async {
+    await _localDb.init();
+
+    if (!await syncSetupComplete()) {
+      return PullOutcome.setupIncomplete;
+    }
+
+    final hospitalId = await getPersistedIdentityHospitalId();
+    if (hospitalId == null || hospitalId.isEmpty) {
+      // Without an identity scope we cannot safely read the change log.
+      return PullOutcome.setupIncomplete;
+    }
+
+    final cursor = await _localDb.getSyncCursor('change_log');
+    final lastChangeId = int.tryParse(cursor?.value ?? '') ?? 0;
+    final fromChangeId = lastChangeId > _pullOverlap
+        ? lastChangeId - _pullOverlap
+        : 0;
+
+    try {
+      final rows = await fetchWithRetry(
+        () => _client
+            .from('hims_change_log')
+            .select(
+              'change_id, entity, record_id, operation, hospital_id, new_data',
+            )
+            .eq('hospital_id', hospitalId)
+            .gt('change_id', fromChangeId)
+            .order('change_id', ascending: true)
+            .limit(_pullBatchSize),
+      );
+
+      if (rows.isEmpty) {
+        await _markCoreProvisioned();
+        return PullOutcome.complete;
+      }
+
+      // Dedupe by (entity, record_id) keeping the highest change_id, so an
+      // older re-read never overwrites a newer state.
+      final latest = <String, Map<String, dynamic>>{};
+      var maxSeen = lastChangeId;
+      for (final row in rows) {
+        final entity = row['entity']?.toString() ?? '';
+        final recordId = row['record_id']?.toString() ?? '';
+        final changeId = (row['change_id'] as num).toInt();
+        if (changeId > maxSeen) maxSeen = changeId;
+        if (entity.isEmpty || recordId.isEmpty) continue;
+        final key = '$entity::$recordId';
+        final prev = latest[key];
+        if (prev == null || changeId > (prev['change_id'] as num).toInt()) {
+          latest[key] = row;
+        }
+      }
+
+      for (final change in latest.values) {
+        await _applyChange(change);
+      }
+
+      if (maxSeen > lastChangeId) {
+        await _localDb.setSyncCursor(
+          SyncCursor(
+            dataset: 'change_log',
+            value: maxSeen.toString(),
+            updatedAt: DateTime.now(),
+          ),
+        );
+      }
+
+      await _markCoreProvisioned();
+      return PullOutcome.complete;
+    } catch (e) {
+      AppLogger.w('Change-log pull failed: $e');
+      return PullOutcome.failed;
+    }
+  }
+
+  Future<void> _markCoreProvisioned() async {
+    for (final table in LocalTables.all) {
+      await _markProvisioned(table);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dataset reconciliation (eventual-consistency recovery, independent of the
+  // incremental change-log cursor)
+  // ---------------------------------------------------------------------------
+
+  /// Tables reconciled by a full, paginated, tenant-scoped scan.
+  ///
+  /// Scope is deliberately the authorized **offline OPD dataset only**:
+  /// patients, OPD visits, their bills, and the bills' child rows (line items
+  /// and payment history). IPD is NOT downloaded for offline use — the only
+  /// IPD requirement is that a synchronized offline patient can be admitted
+  /// online, which is served by the patient dataset itself.
+  static const List<String> _reconcileTables = [
+    LocalTables.patients,
+    LocalTables.opdRegistrations,
+    LocalTables.billing,
+    ApiConstants.billingItemsTable,
+    ApiConstants.paymentLogsTable,
+  ];
+
+  static const int _reconcilePageSize = 200;
+  static const int _reconcileMaxPages = 50; // bound per run; later runs resume
+
+  bool _isChildReconcileTable(String table) =>
+      table == ApiConstants.billingItemsTable ||
+      table == ApiConstants.paymentLogsTable;
+
+  /// Reconciles one dataset by paginating the authorized hospital's rows in
+  /// the BUSINESS table (not the change log), so it is independent of the
+  /// incremental cursor and includes records created before change-log
+  /// installation. Soft-deleted rows (still present with `deleted_at`) are
+  /// applied as deletes — nothing is inferred from a partial download.
+  Future<ReconcileOutcome> reconcileDataset(String table) async {
+    await _localDb.init();
+
+    final hospitalId = await getPersistedIdentityHospitalId();
+    if (hospitalId == null || hospitalId.isEmpty) {
+      return ReconcileOutcome.failed;
+    }
+
+    final isChild = _isChildReconcileTable(table);
+    final childRows = <Map<String, dynamic>>[];
+    var page = 0;
+    var finished = false;
+
+    try {
+      while (page < _reconcileMaxPages) {
+        final rows = await fetchWithRetry(
+          () => _client
+              .from(table)
+              .select()
+              .eq('hospital_id', hospitalId)
+              .order('created_at', ascending: false)
+              .range(
+                page * _reconcilePageSize,
+                (page + 1) * _reconcilePageSize - 1,
+              ),
+        );
+        if (rows.isEmpty) {
+          finished = true;
+          break;
+        }
+
+        if (isChild) {
+          childRows.addAll(rows);
+        } else {
+          for (final row in rows) {
+            await _mergeReconciledRow(table, row);
+          }
+        }
+
+        if (rows.length < _reconcilePageSize) {
+          finished = true;
+          break;
+        }
+        page++;
+      }
+
+      if (isChild) {
+        // Merge (never replace): a bounded reconcile window must not wipe
+        // older child history, and soft-deleted children must disappear.
+        for (final row in childRows) {
+          final childId = row['id']?.toString() ?? '';
+          if (childId.isEmpty) continue;
+          if (row['deleted_at'] != null) {
+            await _localDb.deleteMirrorRow(table, childId);
+          } else {
+            await _localDb.upsertMirrorRow(table, row);
+          }
+        }
+      }
+
+      await _localDb.setMetadata(
+        'reconcile:complete:$table',
+        finished ? '1' : '0',
+      );
+      await _localDb.setMetadata(
+        'reconcile:at:$table',
+        DateTime.now().toUtc().toIso8601String(),
+      );
+
+      return finished ? ReconcileOutcome.complete : ReconcileOutcome.partial;
+    } catch (e) {
+      AppLogger.w('Reconciliation failed for $table: $e');
+      return ReconcileOutcome.failed;
+    }
+  }
+
+  /// Reconciles every OPD dataset. Returns true when all completed.
+  Future<bool> reconcileAll() async {
+    var allComplete = true;
+    for (final table in _reconcileTables) {
+      final outcome = await reconcileDataset(table);
+      if (outcome != ReconcileOutcome.complete) allComplete = false;
+    }
+    return allComplete;
+  }
+
+  Future<void> _mergeReconciledRow(
+    String table,
+    Map<String, dynamic> row,
+  ) async {
+    await _applyChange({
+      'entity': table,
+      'record_id': row['id']?.toString() ?? '',
+      'operation': row['deleted_at'] != null ? 'delete' : 'insert',
+      'hospital_id': row['hospital_id']?.toString() ?? '',
+      'new_data': row,
+    });
+  }
+
+  /// True for the OPD billing child datasets that live in the read-only mirror
+  /// (the bill is the tenant-scoped root; its line items and payment history
+  /// are pulled as child rows so another authorized client sees the complete
+  /// bill, not just its header).
+  bool _isChildDataset(String entity) =>
+      entity == ApiConstants.billingItemsTable ||
+      entity == ApiConstants.paymentLogsTable;
+
+  Future<void> _applyChange(Map<String, dynamic> change) async {
+    final entity = change['entity']?.toString() ?? '';
+    final recordId = change['record_id']?.toString() ?? '';
+    final operation = change['operation']?.toString() ?? '';
+
+    // Billing line items / payment history: mirrored, not stored as
+    // operational rows (they are never edited offline).
+    if (_isChildDataset(entity)) {
+      if (operation == 'delete') {
+        await _localDb.deleteMirrorRow(entity, recordId);
+        return;
+      }
+      final childData = change['new_data'];
+      if (childData is! Map) return;
+      final childRow = Map<String, dynamic>.from(childData);
+      if (childRow['deleted_at'] != null) {
+        await _localDb.deleteMirrorRow(entity, recordId);
+        return;
+      }
+      await _localDb.upsertMirrorRow(entity, childRow);
+      return;
+    }
+
+    if (!LocalTables.contains(entity)) return;
+
+    if (operation == 'delete') {
+      await _localDb.deleteRecord(table: entity, offlineId: recordId);
+      return;
+    }
+
+    final newData = change['new_data'];
+    if (newData is! Map) return;
+    final data = Map<String, dynamic>.from(newData);
+    final offlineId =
+        (data['offline_id'] ?? data['id'])?.toString() ?? recordId;
+
+    // If this record has a pending local edit, preserve both sides instead of
+    // overwriting; the cursor still advances past this change.
+    final pendingRows = await _localDb.getRecords(
+      table: entity,
+      pendingOnly: true,
+    );
+    Map<String, dynamic>? pendingMatch;
+    for (final r in pendingRows) {
+      final key = r['offline_id']?.toString() ?? r['id']?.toString() ?? '';
+      if (key == offlineId || r['id']?.toString() == recordId) {
+        pendingMatch = r;
+        break;
+      }
+    }
+    if (pendingMatch != null) {
+      await _localDb.saveConflict(
+        SyncConflict(
+          entity: entity,
+          recordId: recordId,
+          localPayload: pendingMatch,
+          remotePayload: data,
+          baseVersion: 0,
+          detectedAt: DateTime.now(),
+        ),
+      );
+      return;
+    }
+
+    await _localDb.saveRecord(
+      table: entity,
+      offlineId: offlineId,
+      data: data,
+      isSynced: true,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Local-first OPD workflow (durable local commit + outbox)
+  // ---------------------------------------------------------------------------
+
+  /// Collision-safe, human-readable identifier: keeps the existing visible
+  /// prefix + timestamp, and appends a short random suffix so two devices (or
+  /// two registrations in the same second) cannot mint the same id.
+  String generateCollisionSafeId(String prefix) {
+    const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    final rnd = math.Random.secure();
+    final suffix = List.generate(
+      4,
+      (_) => alphabet[rnd.nextInt(alphabet.length)],
+    ).join();
+    final now = DateTime.now();
+    String pad(int v) => v.toString().padLeft(2, '0');
+    final ts =
+        '${now.year}${pad(now.month)}${pad(now.day)}'
+        '${pad(now.hour)}${pad(now.minute)}${pad(now.second)}';
+    return '$prefix$ts$suffix';
+  }
+
+  /// Saves a new patient locally and queues a durable outbox upload. Returns
+  /// the payload with a stable local `id` + `offline_id` for child rows.
+  Future<Map<String, dynamic>> registerPatientLocal(
+    Map<String, dynamic> patientData, {
+    required String hospitalId,
+  }) async {
+    await _localDb.init();
+
+    final opId = generateUuid();
+    final recordId = generateUuid();
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    final payload = _tenantPayload(
+      patientData,
+      hospitalId,
+      table: ApiConstants.patientsTable,
+    );
+    payload['id'] = recordId;
+    payload['offline_id'] = opId;
+    payload['sync_status'] = 'pending';
+    payload['created_at'] ??= now;
+    payload['updated_at'] ??= now;
+
+    final device = await deviceId();
+    await _localDb.saveRecordWithOutbox(
+      table: LocalTables.patients,
+      offlineId: opId,
+      data: payload,
+      outbox: OutboxEntry(
+        operationId: opId,
+        hospitalId: hospitalId,
+        deviceId: device,
+        entity: ApiConstants.patientsTable,
+        recordId: recordId,
+        operationType: SyncOperationType.create,
+        payload: payload,
+        createdAt: DateTime.now(),
+      ),
+    );
+    return payload;
+  }
+
+  /// Saves an OPD registration locally (with a locally allocated queue token)
+  /// and queues its outbox upload. No network round-trip is performed.
+  Future<Map<String, dynamic>> createOPDRegistrationLocal(
+    Map<String, dynamic> opdData, {
+    required String hospitalId,
+    required bool prescriptionMode,
+    double discountAmount = 0,
+  }) async {
+    await _localDb.init();
+
+    final fee = _toDouble(opdData['consultation_fee']);
+    final discount = math.max(0, discountAmount);
+    if (discount > fee) {
+      throw ArgumentError('Discount cannot exceed the consultation fee.');
+    }
+    final netPayable = ((fee - discount) * 100).roundToDouble() / 100;
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    final opId = generateUuid();
+    final recordId = generateUuid();
+    final token = await _nextQueueTokenLocal(hospitalId);
+
+    final payload = _tenantPayload(
+      opdData,
+      hospitalId,
+      table: ApiConstants.opdRegistrationsTable,
+    );
+    payload['id'] = recordId;
+    payload['offline_id'] = opId;
+    payload['sync_status'] = 'pending';
+    payload['token_number'] = token;
+    payload['status'] = prescriptionMode ? 'pending' : 'completed';
+    payload['payment_amount'] = netPayable;
+    payload['paid_amount'] = 0;
+    payload['balance_amount'] = netPayable;
+    payload['payment_status'] = 'unpaid';
+    if (!prescriptionMode) payload['completed_at'] = now;
+    payload['created_at'] ??= now;
+    payload['updated_at'] ??= now;
+
+    final device = await deviceId();
+    await _localDb.saveRecordWithOutbox(
+      table: LocalTables.opdRegistrations,
+      offlineId: opId,
+      data: payload,
+      outbox: OutboxEntry(
+        operationId: opId,
+        hospitalId: hospitalId,
+        deviceId: device,
+        entity: ApiConstants.opdRegistrationsTable,
+        recordId: recordId,
+        operationType: SyncOperationType.create,
+        payload: payload,
+        dependencyGroup: 'opd-$recordId',
+        createdAt: DateTime.now(),
+      ),
+    );
+    return payload;
+  }
+
+  /// Locally materialises an OPD payment into the billing tables and updates
+  /// the OPD row's payment columns — all durably, with parent/child outbox
+  /// ordering. Returns the OPD row with the patient name/UHID embedded for
+  /// slip printing (no network needed).
+  Future<Map<String, dynamic>> generateOPDSlipLocal({
+    required String patientId,
+    required double paymentAmount,
+    required String paymentMode,
+    required String opdRegistrationId,
+    double discountAmount = 0,
+  }) async {
+    await _localDb.init();
+
+    final opdRows = await _localDb.getRecords(
+      table: LocalTables.opdRegistrations,
+    );
+    Map<String, dynamic>? opd;
+    for (final r in opdRows) {
+      if (r['id']?.toString() == opdRegistrationId) {
+        opd = r;
+        break;
+      }
+    }
+    if (opd == null) {
+      throw Exception('No OPD registration found for this patient.');
+    }
+
+    final patientRows = await _localDb.getRecords(table: LocalTables.patients);
+    Map<String, dynamic>? patient;
+    for (final r in patientRows) {
+      if (r['id']?.toString() == patientId) {
+        patient = r;
+        break;
+      }
+    }
+
+    final amount = (paymentAmount * 100).roundToDouble() / 100;
+    final mode = paymentMode.toLowerCase();
+
+    // Resolve the public users.id FK for created_by/updated_by (never the
+    // auth UUID). Throws an actionable provisioning error when unavailable.
+    final userId = await resolveCurrentUserPublicId();
+
+    final now = DateTime.now().toUtc().toIso8601String();
+    final device = await deviceId();
+    final hospitalId = opd['hospital_id']?.toString() ?? '';
+
+    final total = _toDouble(opd['consultation_fee']);
+    final discount =
+        (math.min(math.max(0, discountAmount), total) * 100).roundToDouble() /
+        100;
+    final net = math.max(0, (total - discount) * 100).roundToDouble() / 100;
+    if (amount < 0 || amount > net) {
+      throw ArgumentError(
+        'Payment amount $amount is outside 0..$net (net payable).',
+      );
+    }
+    final balance = math.max(0, (net - amount) * 100).roundToDouble() / 100;
+
+    // Derived exactly the way the server derives it, so the local row and the
+    // committed cloud row can never disagree.
+    final paymentStatus = amount >= net
+        ? 'paid'
+        : (amount > 0 ? 'partially_paid' : 'unpaid');
+    final billStatus = paymentStatus == 'paid' ? 'paid' : 'generated';
+
+    // 1) Updated OPD row (payment transition).
+    final opdOfflineId = opd['offline_id']?.toString() ?? opd['id'].toString();
+    final updatedOpd = Map<String, dynamic>.from(opd)
+      ..['payment_amount'] = net
+      ..['payment_mode'] = mode
+      ..['payment_status'] = paymentStatus
+      ..['paid_amount'] = amount
+      ..['balance_amount'] = balance
+      ..['updated_at'] = now;
+
+    // 2) Billing row, attributed to the public users.id.
+    final billId = generateUuid();
+    final billOfflineId = generateUuid();
+    final billNumber = generateCollisionSafeId('OPD');
+    final billDate =
+        opd['visit_date']?.toString() ??
+        DateTime.now().toIso8601String().split('T')[0];
+    final billPayload = <String, dynamic>{
+      'id': billId,
+      'offline_id': billOfflineId,
+      'sync_status': 'pending',
+      'hospital_id': opd['hospital_id'],
+      'patient_id': patientId,
+      'opd_registration_id': opdRegistrationId,
+      'source_type': 'opd',
+      'bill_number': billNumber,
+      'bill_date': billDate,
+      'bill_type': 'opd',
+      'visit_type': 'opd',
+      'subtotal': total,
+      'total_amount': total,
+      'discount_amount': discount,
+      'discount_percentage': total > 0
+          ? ((discount / total) * 100 * 100).roundToDouble() / 100
+          : 0.0,
+      'net_amount': net,
+      'paid_amount': amount,
+      'balance_amount': balance,
+      'payment_status': paymentStatus,
+      'payment_mode': mode,
+      'payment_date': amount > 0 ? now : null,
+      'status': billStatus,
+      'created_by': userId,
+      'updated_by': userId,
+      'created_at': now,
+      'updated_at': now,
+    };
+
+    // 3) The bill's line item and its payment log. Both keep stable local ids
+    //    so the server can prove a retry is the same operation.
+    final itemId = generateUuid();
+    final paymentLogId = amount > 0 ? generateUuid() : null;
+
+    // One atomic local transaction: the visit's payment transition and its bill
+    // commit locally together with ONE outbox entry holding the whole
+    // accounting operation. The constituent rows are never uploaded
+    // independently — the server applies them in a single transaction.
+    await _localDb.applyTransaction(
+      LocalTransaction(
+        records: [
+          LocalRecordWrite(
+            table: LocalTables.opdRegistrations,
+            offlineId: opdOfflineId,
+            data: updatedOpd,
+          ),
+          LocalRecordWrite(
+            table: LocalTables.billing,
+            offlineId: billOfflineId,
+            data: billPayload,
+          ),
+        ],
+        outbox: [
+          OutboxEntry(
+            // The operation id is the server-side idempotency key and is
+            // preserved across every retry.
+            operationId: generateUuid(),
+            hospitalId: hospitalId,
+            deviceId: device,
+            entity: opdPaymentOperationEntity,
+            recordId: billId,
+            operationType: SyncOperationType.create,
+            dependencyGroup: 'opd-$opdRegistrationId',
+            payload: {
+              'opd_registration_id': opdRegistrationId,
+              'opd_offline_id': opdOfflineId,
+              'patient_id': patientId,
+              'consultation_fee': total,
+              'discount_amount': discount,
+              'payment_amount': amount,
+              'payment_mode': mode,
+              'bill_id': billId,
+              'bill_offline_id': billOfflineId,
+              'bill_number': billNumber,
+              'bill_item_id': itemId,
+              'payment_log_id': paymentLogId,
+            },
+            createdAt: DateTime.now(),
+          ),
+        ],
+      ),
+    );
+
+    // Return the OPD row with the patient embedded (matches the online shape
+    // the slip screen expects).
+    return <String, dynamic>{
+      ...updatedOpd,
+      'patients': patient == null
+          ? null
+          : {
+              'first_name': patient['first_name'],
+              'last_name': patient['last_name'],
+              'uhid': patient['uhid'],
+            },
+    };
+  }
+
+  /// Allocates the next queue token for [hospitalId] for today, based only on
+  /// locally stored OPD rows (no network). Single-device safe; cross-device
+  /// token collision is a shared-authority concern (see audit §3.4).
+  Future<int> _nextQueueTokenLocal(String hospitalId) async {
+    final rows = await _localDb.getRecords(table: LocalTables.opdRegistrations);
+    final today = DateTime.now().toIso8601String().split('T')[0];
+    var maxToken = 0;
+    for (final row in rows) {
+      final h = row['hospital_id']?.toString();
+      final d = row['visit_date']?.toString();
+      if (h != hospitalId || d != today) continue;
+      final token = int.tryParse(row['token_number']?.toString() ?? '');
+      if (token != null && token > maxToken) maxToken = token;
+    }
+    return maxToken + 1;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Local-first reads (render local immediately; network failure never blocks)
+  // ---------------------------------------------------------------------------
+
+  /// Duarily mirrors the read-only master data (doctors, departments, hospital
+  /// profile) needed for offline OPD and slip printing. Called during baseline
+  /// provisioning; survives cache expiry and app restart.
+  Future<void> cacheMasterData({String? hospitalId}) async {
+    await _localDb.init();
+    await _cache.init();
+
+    final results = await Future.wait([
+      _fetchForCache(() => fetchDoctors(hospitalId: hospitalId)),
+      _fetchForCache(() => fetchDepartments(hospitalId: hospitalId)),
+    ]);
+
+    if (results[0] != null) {
+      await _localDb.saveMirror(LocalTables.doctors, results[0]!);
+      await _markProvisioned(LocalTables.doctors);
+      await _cache.put(CacheKeys.doctors, results[0]!, hospitalId: hospitalId);
+    }
+    if (results[1] != null) {
+      await _localDb.saveMirror(LocalTables.departments, results[1]!);
+      await _markProvisioned(LocalTables.departments);
+      await _cache.put(
+        CacheKeys.departments,
+        results[1]!,
+        hospitalId: hospitalId,
+      );
+    }
+
+    if (hospitalId != null && hospitalId.isNotEmpty) {
+      try {
+        final hospital = await getById(ApiConstants.hospitalsTable, hospitalId);
+        if (hospital != null) {
+          await _localDb.saveMirror(LocalTables.hospitals, [hospital]);
+          await _markProvisioned(LocalTables.hospitals);
+        }
+      } catch (e) {
+        AppLogger.w('Could not mirror hospital profile: $e');
+      }
+    }
+  }
+
+  /// True when a local dataset has been provisioned at least once.
+  Future<bool> isDatasetProvisioned(String table) async {
+    final flag = await _localDb.getMetadata('provisioned:$table');
+    return flag == '1';
+  }
+
+  Future<void> _markProvisioned(String table) =>
+      _localDb.setMetadata('provisioned:$table', '1');
+
+  /// Mirrored doctors (durable, hospital-scoped).
+  Future<List<Map<String, dynamic>>> getMirroredDoctors({
+    String? hospitalId,
+  }) async {
+    final rows = await _localDb.getMirror(LocalTables.doctors);
+    if (hospitalId == null || hospitalId.isEmpty) return rows;
+    return rows
+        .where((d) => d['hospital_id']?.toString() == hospitalId)
+        .toList();
+  }
+
+  /// Mirrored departments (durable, hospital-scoped).
+  Future<List<Map<String, dynamic>>> getMirroredDepartments({
+    String? hospitalId,
+  }) async {
+    final rows = await _localDb.getMirror(LocalTables.departments);
+    if (hospitalId == null || hospitalId.isEmpty) return rows;
+    return rows
+        .where((d) => d['hospital_id']?.toString() == hospitalId)
+        .toList();
+  }
+
+  /// Mirrored hospital profile (or null when not downloaded).
+  Future<Map<String, dynamic>?> getMirroredHospital(String hospitalId) async {
+    final rows = await _localDb.getMirror(LocalTables.hospitals);
+    for (final r in rows) {
+      if (r['id']?.toString() == hospitalId) return r;
+    }
+    return null;
+  }
+
+  /// Whether a patient created locally has reached the cloud, and if not, why.
+  /// Online workflows (IPD admission) must refuse to run while this is not
+  /// [PatientCloudStatus.synced].
+  Future<PatientCloudStatus> patientCloudStatus(String patientId) async {
+    await _localDb.init();
+    final pending = await _localDb.getRecords(
+      table: LocalTables.patients,
+      pendingOnly: true,
+    );
+    final isPending = pending.any((p) => p['id']?.toString() == patientId);
+    if (!isPending) return PatientCloudStatus.synced;
+
+    if (!await hasNetwork()) return PatientCloudStatus.offline;
+    if (!await probeSupabase()) return PatientCloudStatus.cloudUnreachable;
+    return PatientCloudStatus.pendingLocal;
+  }
+
+  /// Local patient search mirroring `searchPatients` semantics: UHID / first /
+  /// last name / mobile ILIKE match, hospital-scoped, newest first, limit 20.
+  Future<List<Map<String, dynamic>>> searchPatientsLocal(
+    String query, {
+    String? hospitalId,
+  }) async {
+    await _localDb.init();
+    final all = await _localDb.getRecords(table: LocalTables.patients);
+    final q = query.trim().toLowerCase();
+    final matches = all.where((p) {
+      if (hospitalId != null &&
+          hospitalId.isNotEmpty &&
+          p['hospital_id']?.toString() != hospitalId) {
+        return false;
+      }
+      final uhid = p['uhid']?.toString().toLowerCase() ?? '';
+      final first = p['first_name']?.toString().toLowerCase() ?? '';
+      final last = p['last_name']?.toString().toLowerCase() ?? '';
+      final mobile = p['mobile_number']?.toString().toLowerCase() ?? '';
+      return uhid.contains(q) ||
+          first.contains(q) ||
+          last.contains(q) ||
+          mobile.contains(q);
+    }).toList();
+    matches.sort(
+      (a, b) => (b['created_at']?.toString() ?? '').compareTo(
+        a['created_at']?.toString() ?? '',
+      ),
+    );
+    return matches.take(20).toList();
+  }
+
+  /// Local-first combined search: patient master + OPD/IPD visit context.
+  Future<List<Map<String, dynamic>>> searchPatientsAcrossVisitsLocal(
+    String query, {
+    String? hospitalId,
+  }) async {
+    final patients = await searchPatientsLocal(query, hospitalId: hospitalId);
+    if (patients.isEmpty) return const [];
+
+    final opdRows = await _localDb.getRecords(
+      table: LocalTables.opdRegistrations,
+    );
+    final ipdRows = await _localDb.getRecords(table: LocalTables.ipdAdmissions);
+
+    final opdByPatient = <String, List<Map<String, dynamic>>>{};
+    for (final row in opdRows) {
+      final pid = row['patient_id']?.toString();
+      if (pid != null) (opdByPatient[pid] ??= []).add(row);
+    }
+    final ipdByPatient = <String, List<Map<String, dynamic>>>{};
+    for (final row in ipdRows) {
+      final pid = row['patient_id']?.toString();
+      if (pid != null) (ipdByPatient[pid] ??= []).add(row);
+    }
+
+    return [
+      for (final patient in patients)
+        {
+          ...patient,
+          'opd_visits': opdByPatient[patient['id']] ?? const [],
+          'ipd_admissions': ipdByPatient[patient['id']] ?? const [],
+        },
+    ];
+  }
+
+  /// Local patient list page (browse all patients, hospital-scoped, newest
+  /// first). Mirrors `getPatients` semantics.
+  Future<List<Map<String, dynamic>>> getPatientsLocal({
+    required int page,
+    required int limit,
+    required String hospitalId,
+  }) async {
+    await _localDb.init();
+    final rows = (await _localDb.getRecords(
+      table: LocalTables.patients,
+    )).where((r) => r['hospital_id']?.toString() == hospitalId).toList();
+    rows.sort(
+      (a, b) => (b['created_at']?.toString() ?? '').compareTo(
+        a['created_at']?.toString() ?? '',
+      ),
+    );
+    final start = page * limit;
+    if (start >= rows.length) return const [];
+    final end = math.min(start + limit, rows.length);
+    return rows.sublist(start, end);
+  }
+
+  /// Local OPD queue page: hospital-scoped, newest first, patient name/UHID
+  /// embedded, server-equivalent pagination.
+  Future<List<Map<String, dynamic>>> getOPDQueueLocal({
+    required int page,
+    required int limit,
+    required String hospitalId,
+  }) async {
+    await _localDb.init();
+    final opd = await _localDb.getRecords(table: LocalTables.opdRegistrations);
+    final patients = await _localDb.getRecords(table: LocalTables.patients);
+    final patientById = <String, Map<String, dynamic>>{};
+    for (final p in patients) {
+      final id = p['id']?.toString();
+      if (id != null) patientById[id] = p;
+    }
+
+    final rows = opd
+        .where((r) => r['hospital_id']?.toString() == hospitalId)
+        .toList();
+    rows.sort(
+      (a, b) => (b['created_at']?.toString() ?? '').compareTo(
+        a['created_at']?.toString() ?? '',
+      ),
+    );
+
+    final start = page * limit;
+    if (start >= rows.length) return const [];
+    final end = math.min(start + limit, rows.length);
+    return [
+      for (final row in rows.sublist(start, end))
+        {...row, 'patients': patientById[row['patient_id']?.toString()]},
+    ];
+  }
+
+  /// Local OPD payment details (slip data): the OPD row with the patient
+  /// name/UHID embedded. Reprint-safe — reads only.
+  Future<Map<String, dynamic>?> getOPDPaymentDetailsLocal(
+    String opdRegistrationId,
+  ) async {
+    await _localDb.init();
+    final opdRows = await _localDb.getRecords(
+      table: LocalTables.opdRegistrations,
+    );
+    Map<String, dynamic>? opd;
+    for (final r in opdRows) {
+      if (r['id']?.toString() == opdRegistrationId) {
+        opd = r;
+        break;
+      }
+    }
+    if (opd == null) return null;
+
+    final patients = await _localDb.getRecords(table: LocalTables.patients);
+    Map<String, dynamic>? patient;
+    for (final p in patients) {
+      if (p['id']?.toString() == opd['patient_id']?.toString()) {
+        patient = p;
+        break;
+      }
+    }
+    return <String, dynamic>{
+      ...opd,
+      'patients': patient == null
+          ? null
+          : {
+              'first_name': patient['first_name'],
+              'last_name': patient['last_name'],
+              'uhid': patient['uhid'],
+              'mobile_number': patient['mobile_number'],
+            },
+    };
+  }
+
+  /// Local billing history page (mirrors the unified billing list semantics:
+  /// billing rows + raw OPD rows not yet materialised, hospital-scoped,
+  /// sorted newest first, paginated).
+  Future<List<Map<String, dynamic>>> getBillingHistoryPageLocal({
+    required String hospitalId,
+    String? sourceType,
+    required int page,
+    required int limit,
+  }) async {
+    await _localDb.init();
+    final normalized = <Map<String, dynamic>>[];
+
+    final billingRows = await _localDb.getRecords(table: LocalTables.billing);
+    final materialisedOpdIds = <String>{};
+    for (final row in billingRows) {
+      if (row['hospital_id']?.toString() != hospitalId) continue;
+      if (sourceType != null &&
+          sourceType.isNotEmpty &&
+          _billingSourceType(row) != sourceType) {
+        continue;
+      }
+      final opdId = row['opd_registration_id']?.toString();
+      if (opdId != null && opdId.isNotEmpty) materialisedOpdIds.add(opdId);
+      normalized.add(_normalizeBillingRow(row));
+    }
+
+    final includeRawOpd = sourceType == null || sourceType == 'opd';
+    if (includeRawOpd) {
+      final opdRows = await _localDb.getRecords(
+        table: LocalTables.opdRegistrations,
+      );
+      for (final row in opdRows) {
+        if (row['hospital_id']?.toString() != hospitalId) continue;
+        final id = row['id']?.toString();
+        if (id == null || materialisedOpdIds.contains(id)) continue;
+        normalized.add(_normalizeOpdBill(row));
+      }
+    }
+
+    normalized.sort((a, b) {
+      final aDate = _parseDate(a['bill_date'] ?? a['created_at']);
+      final bDate = _parseDate(b['bill_date'] ?? b['created_at']);
+      return (bDate ?? DateTime(1970)).compareTo(aDate ?? DateTime(1970));
+    });
+
+    final start = page * limit;
+    if (start >= normalized.length) return const [];
+    final end = math.min(start + limit, normalized.length);
+    return normalized.sublist(start, end);
   }
 
   /// Cache-first read.

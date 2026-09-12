@@ -28,7 +28,6 @@ import '../services/attendance_calculator.dart';
 import '../services/salary_calculator.dart';
 import '../services/abdm_service.dart';
 import '../services/auth_service.dart';
-import '../services/background_sync.dart';
 import '../services/cache_service.dart';
 import '../services/compliance_service.dart';
 import '../services/counseling_recording_service.dart';
@@ -40,6 +39,7 @@ import '../services/personalized_tag_service.dart';
 import '../services/push_notification_service.dart';
 import '../services/report_generation_service.dart';
 import '../services/storage_service.dart';
+import '../services/sync_engine.dart';
 
 // Theme Provider
 final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.light);
@@ -88,40 +88,22 @@ final storageServiceProvider = Provider<StorageService>((ref) {
 });
 
 // ---------------------------------------------------------------------------
-// Offline-First Sync Engine
+// Offline-First Sync Engine (single coordinator)
 // ---------------------------------------------------------------------------
 
-/// Background sync engine (30-second timer). Start it from `AppBootstrapGate`
-/// once authentication is restored so synced rows carry a valid session.
-final backgroundSyncServiceProvider =
-    ChangeNotifierProvider<BackgroundSyncService>((ref) {
-      // NOTE: ChangeNotifierProvider already disposes the notifier on provider
-      // disposal — adding a manual `ref.onDispose(service.dispose)` here would
-      // dispose the same ChangeNotifier twice.
-      final service = BackgroundSyncService(
-        dbService: ref.watch(databaseServiceProvider),
-        localDb: ref.watch(localDatabaseProvider),
-      );
-      return service;
-    });
-
-/// Backwards-compatible alias — `app_bootstrap_gate.dart` and older callers
-/// ab bhi `syncServiceProvider` use kar sakte hain.
-final syncServiceProvider = backgroundSyncServiceProvider;
-
-/// Dashboard "Sync Status" indicator ke liye current status.
-final syncStatusProvider = Provider<SyncStatus>((ref) {
-  return ref.watch(backgroundSyncServiceProvider).syncStatus;
+/// Single coordinated sync engine — one timer, one queue, outbox upload +
+/// cursor pull. Start it from `AppBootstrapGate` once authentication and the
+/// hospital context are restored.
+final syncEngineProvider = ChangeNotifierProvider<SyncEngine>((ref) {
+  return SyncEngine(
+    dbService: ref.watch(databaseServiceProvider),
+    localDb: ref.watch(localDatabaseProvider),
+  );
 });
 
-/// True jab saare local records Supabase tak sync ho chuke hain.
-final isSyncedProvider = Provider<bool>((ref) {
-  return ref.watch(backgroundSyncServiceProvider).isSynced;
-});
-
-/// Number of local records still waiting to be synced to Supabase.
-final pendingSyncCountProvider = Provider<int>((ref) {
-  return ref.watch(backgroundSyncServiceProvider).pendingCount;
+/// Current sync health snapshot (honest: never green without a verified pull).
+final syncEngineStatusProvider = Provider<SyncStatusInfo>((ref) {
+  return ref.watch(syncEngineProvider).status;
 });
 
 // ---------------------------------------------------------------------------
@@ -708,7 +690,7 @@ class PatientListNotifier extends PaginationListNotifier<Map<String, dynamic>> {
     int limit,
     String hospitalId,
   ) {
-    return db.getPatients(page: page, limit: limit, hospitalId: hospitalId);
+    return db.getPatientsLocal(page: page, limit: limit, hospitalId: hospitalId);
   }
 }
 
@@ -757,7 +739,7 @@ final combinedPatientSearchProvider =
       CombinedPatientSearchParams
     >((ref, params) {
       final dbService = ref.read(databaseServiceProvider);
-      return dbService.searchPatientsAcrossVisits(
+      return dbService.searchPatientsAcrossVisitsLocal(
         params.query,
         hospitalId: params.hospitalId,
       );
@@ -1185,7 +1167,7 @@ class OPDQueueNotifier extends PaginationListNotifier<Map<String, dynamic>> {
     int limit,
     String hospitalId,
   ) {
-    return db.getOPDQueue(page: page, limit: limit, hospitalId: hospitalId);
+    return db.getOPDQueueLocal(page: page, limit: limit, hospitalId: hospitalId);
   }
 }
 
@@ -1260,18 +1242,21 @@ final opdPaymentDetailsProvider =
       opdRegistrationId,
     ) async {
       final dbService = ref.read(databaseServiceProvider);
-      return dbService.getOPDPaymentDetails(opdRegistrationId);
+      return dbService.getOPDPaymentDetailsLocal(opdRegistrationId);
     });
 
-/// Slip screen ke liye combined details:
-/// payment + hospital + doctor + department.
+/// Slip screen ke liye combined details (local-first; reprint-safe — reads
+/// only): payment + hospital + doctor + department. Resolves from the durable
+/// local mirror so printing works after cache expiry / restart / offline.
 final opdSlipDetailsProvider =
     FutureProvider.family<Map<String, dynamic>?, String>((
       ref,
       opdRegistrationId,
     ) async {
       final dbService = ref.read(databaseServiceProvider);
-      final payment = await dbService.getOPDPaymentDetails(opdRegistrationId);
+      final payment = await dbService.getOPDPaymentDetailsLocal(
+        opdRegistrationId,
+      );
       if (payment == null) return null;
 
       final hospitalId = ref.read(authStateProvider).hospitalId;
@@ -1281,26 +1266,27 @@ final opdSlipDetailsProvider =
       Map<String, dynamic>? department;
 
       if (hospitalId != null && hospitalId.isNotEmpty) {
-        hospital = await dbService.getById(
-          ApiConstants.hospitalsTable,
-          hospitalId,
-        );
+        hospital = await dbService.getMirroredHospital(hospitalId);
       }
 
       final doctorId = payment['doctor_id']?.toString();
-      if (doctorId != null && doctorId.isNotEmpty) {
-        // New deployments store `doctors.id`; legacy rows may point at
-        // `users.id`. Try both so the slip always resolves the clean name.
-        doctor = await dbService.getById(ApiConstants.doctorsTable, doctorId);
-        doctor ??= await dbService.getById(ApiConstants.usersTable, doctorId);
+      final doctors = await dbService.getMirroredDoctors(hospitalId: hospitalId);
+      for (final d in doctors) {
+        if (d['id']?.toString() == doctorId) {
+          doctor = d;
+          break;
+        }
       }
 
       final departmentId = payment['department_id']?.toString();
-      if (departmentId != null && departmentId.isNotEmpty) {
-        department = await dbService.getById(
-          ApiConstants.departmentsTable,
-          departmentId,
-        );
+      final departments = await dbService.getMirroredDepartments(
+        hospitalId: hospitalId,
+      );
+      for (final d in departments) {
+        if (d['id']?.toString() == departmentId) {
+          department = d;
+          break;
+        }
       }
 
       return {
@@ -1519,6 +1505,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
+  /// Persists the authenticated user's public `users.id` + scope into the
+  /// local operational DB so local-first writers use the correct FK even when
+  /// offline or after an app restart. Never substitutes the auth UUID.
+  Future<void> _persistIdentity(Map<String, dynamic> record) async {
+    final publicUserId = record['id']?.toString();
+    final hospitalId = record['hospital_id']?.toString();
+    if (publicUserId == null || publicUserId.isEmpty) return;
+    await _dbService.persistIdentityMapping(
+      publicUserId: publicUserId,
+      hospitalId: hospitalId ?? '',
+      role: record['role']?.toString(),
+    );
+  }
+
   Future<void> checkAuthStatus() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
@@ -1601,6 +1601,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
 
       await _authService.cacheUserRecord(userRecord);
+      await _persistIdentity(userRecord);
       _applyUserRecord(userRecord, authUserId: session.user.id);
       await _refreshSubscriptionBlocked(hospitalId);
     } catch (e) {
@@ -1659,6 +1660,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
       // Offline restore ke liye public user record cache kar lo.
       await _authService.cacheUserRecord(userRecord);
+      await _persistIdentity(userRecord);
       _applyUserRecord(userRecord);
       final hospitalId = userRecord['hospital_id'] as String?;
       if (hospitalId != null && hospitalId.isNotEmpty) {
@@ -2059,7 +2061,7 @@ class BillingListNotifier extends PaginationListNotifier<Map<String, dynamic>> {
     int limit,
     String hospitalId,
   ) {
-    return db.getBillingHistoryPage(
+    return db.getBillingHistoryPageLocal(
       hospitalId: hospitalId,
       sourceType: sourceType,
       page: page,
