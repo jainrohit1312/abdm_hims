@@ -7146,6 +7146,21 @@ class DatabaseService {
     await _localDb.init();
     final normalized = <Map<String, dynamic>>[];
 
+    // Local rows never carry an embedded patient: offline writes, the
+    // reconcile scan and the change-log pull all store the bare row. The
+    // patient is therefore joined here (exactly as `getOPDQueueLocal` does),
+    // otherwise every bill renders as "Unknown Patient" / "UHID: N/A".
+    final patients = await _localDb.getRecords(table: LocalTables.patients);
+    final patientById = <String, Map<String, dynamic>>{};
+    for (final p in patients) {
+      final id = p['id']?.toString();
+      if (id != null) patientById[id] = p;
+    }
+    Map<String, dynamic> embedPatient(Map<String, dynamic> row) => {
+      ...row,
+      'patients': patientById[row['patient_id']?.toString()],
+    };
+
     final billingRows = await _localDb.getRecords(table: LocalTables.billing);
     final materialisedOpdIds = <String>{};
     for (final row in billingRows) {
@@ -7157,7 +7172,7 @@ class DatabaseService {
       }
       final opdId = row['opd_registration_id']?.toString();
       if (opdId != null && opdId.isNotEmpty) materialisedOpdIds.add(opdId);
-      normalized.add(_normalizeBillingRow(row));
+      normalized.add(_normalizeBillingRow(embedPatient(row)));
     }
 
     final includeRawOpd = sourceType == null || sourceType == 'opd';
@@ -7169,7 +7184,7 @@ class DatabaseService {
         if (row['hospital_id']?.toString() != hospitalId) continue;
         final id = row['id']?.toString();
         if (id == null || materialisedOpdIds.contains(id)) continue;
-        normalized.add(_normalizeOpdBill(row));
+        normalized.add(_normalizeOpdBill(embedPatient(row)));
       }
     }
 
@@ -7193,6 +7208,9 @@ class DatabaseService {
   /// 3. If the local cache is empty, the Supabase fetch runs first and its
   ///    result is stored locally before being returned.
   /// 4. If Supabase is unreachable, the local rows are returned as a fallback.
+  ///
+  /// [filters] are applied to the local rows too, so a filtered read (for
+  /// example one admission's bills) never returns unrelated cached rows.
   Future<List<Map<String, dynamic>>> fetchDataCached({
     required String table,
     Map<String, dynamic>? filters,
@@ -7203,7 +7221,10 @@ class DatabaseService {
   }) async {
     await _localDb.init();
 
-    final local = await _localDb.getRecords(table: table);
+    final local = _applyLocalFilters(
+      await _localDb.getRecords(table: table),
+      filters,
+    );
     if (local.isNotEmpty) {
       // Show local data now; update the cache when Supabase responds.
       unawaited(
@@ -7228,7 +7249,11 @@ class DatabaseService {
         ascending: ascending,
         limit: limit,
       );
-      await _localDb.replaceRecords(table: table, records: remote);
+      await _storeFetchedRows(
+        table: table,
+        records: remote,
+        filters: filters,
+      );
       return remote;
     } catch (e) {
       AppLogger.e('Error fetching cached data for $table', e);
@@ -7236,8 +7261,72 @@ class DatabaseService {
     }
   }
 
-  /// Fetches fresh rows from Supabase and replaces the local cache for
+  /// Rows whose values equal every entry of [filters] (no filters = all rows).
+  static List<Map<String, dynamic>> _applyLocalFilters(
+    List<Map<String, dynamic>> rows,
+    Map<String, dynamic>? filters,
+  ) {
+    if (filters == null || filters.isEmpty) return rows;
+    return rows.where((row) {
+      for (final entry in filters.entries) {
+        if (row[entry.key]?.toString() != entry.value?.toString()) return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  /// Writes a fetched result into the local cache.
+  ///
+  /// An unfiltered fetch is the whole dataset, so it replaces the cache. A
+  /// **filtered** fetch is only a subset of a shared table (for example one
+  /// admission's bills out of every bill), so it is merged row by row:
+  /// replacing would silently delete every other locally known row — which
+  /// includes offline-created records the server has not seen yet.
+  Future<void> _storeFetchedRows({
+    required String table,
+    required List<Map<String, dynamic>> records,
+    Map<String, dynamic>? filters,
+  }) async {
+    if (filters == null || filters.isEmpty || !LocalTables.contains(table)) {
+      await _localDb.replaceRecords(table: table, records: records);
+      return;
+    }
+
+    // Never clobber a row that still has unsynced local writes; the sync
+    // engine owns conflict resolution for those.
+    final pendingKeys = <String>{};
+    for (final row in await _localDb.getRecords(
+      table: table,
+      pendingOnly: true,
+    )) {
+      for (final key in [row['offline_id'], row['id']]) {
+        final value = key?.toString();
+        if (value != null && value.isNotEmpty) pendingKeys.add(value);
+      }
+    }
+
+    for (final row in records) {
+      final offlineId = (row['offline_id'] ?? row['id'])?.toString();
+      if (offlineId == null || offlineId.isEmpty) continue;
+      if (pendingKeys.contains(offlineId)) continue;
+      final data = Map<String, dynamic>.from(row);
+      data['offline_id'] ??= offlineId;
+      data['sync_status'] ??= 'synced';
+      data['is_synced'] = true;
+      await _localDb.saveRecord(
+        table: table,
+        offlineId: offlineId,
+        data: data,
+        isSynced: true,
+      );
+    }
+  }
+
+  /// Fetches fresh rows from Supabase and refreshes the local cache for
   /// [table]. Errors are swallowed — the previous cache stays intact.
+  ///
+  /// A filtered fetch only updates the rows it returned (see
+  /// [_storeFetchedRows]); it never clears the rest of the table.
   Future<void> refreshCachedData({
     required String table,
     Map<String, dynamic>? filters,
@@ -7255,7 +7344,7 @@ class DatabaseService {
         ascending: ascending,
         limit: limit,
       );
-      await _localDb.replaceRecords(table: table, records: remote);
+      await _storeFetchedRows(table: table, records: remote, filters: filters);
     } catch (e) {
       AppLogger.e('Background cache refresh failed for $table', e);
     }

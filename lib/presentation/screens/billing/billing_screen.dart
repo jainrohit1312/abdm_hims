@@ -496,6 +496,16 @@ class _BillCard extends ConsumerWidget {
 /// Lazily loads the payment logs of one bill only when the user expands the
 /// "Transaction History" tile. The provider result stays cached by Riverpod
 /// for subsequent expansions of the same bill.
+///
+/// The [ExpansionTile] MUST carry its own unique [PageStorageKey] (see
+/// [_TransactionHistorySectionState.build]): this tile sits inside a
+/// `ListView` that shares the tab's `PageStorageKey`, and the list stores its
+/// scroll offset (a `double`) in that same PageStorage slot. Without a key of
+/// its own, `ExpansionTile` reads that `double` back with `as bool?` and the
+/// screen crashes with
+/// `type 'double' is not a subtype of type 'bool?' in type cast` as soon as
+/// the list is scrolled — which a release build paints as a blank grey
+/// `RenderErrorBox` over the whole list area.
 class _TransactionHistorySection extends ConsumerStatefulWidget {
   const _TransactionHistorySection({required this.billId});
 
@@ -517,6 +527,11 @@ class _TransactionHistorySectionState
     return Theme(
       data: theme.copyWith(dividerColor: Colors.transparent),
       child: ExpansionTile(
+        // Unique per bill: Flutter requires a unique PageStorageKey for an
+        // ExpansionTile inside a scrolling widget (see the class docs), and
+        // here it is also what keeps the tile's expansion state out of the
+        // scroll position's PageStorage slot. Removing it crashes the list.
+        key: PageStorageKey<String>('bill_transactions_${widget.billId}'),
         tilePadding: EdgeInsets.zero,
         childrenPadding: const EdgeInsets.only(bottom: 4),
         title: Text(
@@ -526,10 +541,25 @@ class _TransactionHistorySectionState
           ),
         ),
         expandedCrossAxisAlignment: CrossAxisAlignment.start,
-        onExpansionChanged: (expanded) => setState(() => _expanded = expanded),
+        onExpansionChanged: _onExpansionChanged,
         children: _expanded ? [_buildLogs(theme)] : const [],
       ),
     );
+  }
+
+  /// Lazily materialises the payment-log section on the first expansion.
+  ///
+  /// The rebuild is deliberately deferred to a post-frame callback:
+  /// [ExpansionTile] also restores its expanded state from [PageStorage]
+  /// inside its own `initState` and reports that through `onExpansionChanged`
+  /// *during the build phase*, where a direct `setState` would throw
+  /// `setState() or markNeedsBuild() called during build`.
+  void _onExpansionChanged(bool expanded) {
+    if (!expanded || _expanded) return;
+    _expanded = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   Widget _buildLogs(ThemeData theme) {

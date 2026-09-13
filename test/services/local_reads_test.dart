@@ -162,4 +162,43 @@ void main() {
       expect(ids.where((i) => i == 'o1').length, 0);
     },
   );
+
+  test('getBillingHistoryPageLocal joins the local patient onto every bill', () async {
+    // Neither offline writes, the reconcile scan nor the change-log pull store
+    // an embedded patient, so the read has to join `patients` itself —
+    // otherwise every bill shows "Unknown Patient" / "UHID: N/A".
+    records[LocalTables.patients] = [patient('p1', 'Alice', 'UHID-1')];
+    records[LocalTables.billing] = [
+      {
+        'id': 'b1',
+        'hospital_id': 'h1',
+        'patient_id': 'p1',
+        'opd_registration_id': 'o1',
+        'source_type': 'opd',
+        'bill_number': 'OPD-1',
+        'bill_date': '2026-09-12',
+        'total_amount': 300,
+        'paid_amount': 300,
+        'balance_amount': 0,
+        'payment_status': 'paid',
+        'created_at': '2026-09-12T10:00:00.000Z',
+      },
+    ];
+    records[LocalTables.opdRegistrations] = [
+      opd('o2', 'p1', '2026-09-12T11:00:00.000Z'), // raw, not materialised
+    ];
+
+    final page = await service.getBillingHistoryPageLocal(
+      hospitalId: 'h1',
+      sourceType: null,
+      page: 0,
+      limit: 10,
+    );
+
+    expect(page, hasLength(2));
+    for (final row in page) {
+      expect(row['patient_name'], 'Alice');
+      expect(row['uhid'], 'UHID-1');
+    }
+  });
 }
