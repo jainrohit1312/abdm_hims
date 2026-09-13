@@ -4361,6 +4361,142 @@ class DatabaseService {
   }
 
   // ---------------------------------------------------------------------------
+  // Dashboard "Today" metrics (hospital-scoped, honest failure)
+  //
+  // These back `DashboardMetricsService`. They deliberately THROW on failure so
+  // the dashboard can render an explicit "unavailable" state instead of the
+  // fake zero that the legacy `getDashboardStats` above returns.
+  // ---------------------------------------------------------------------------
+
+  /// Counts today's valid IPD admissions for a hospital.
+  ///
+  /// Matches the DATE-only `admission_date` column, excludes soft-deleted rows
+  /// and cancelled admissions.
+  Future<int> countIpdAdmissionsOn(
+    DateTime day, {
+    required String hospitalId,
+  }) async {
+    final response = await fetchWithRetry(
+      () => _client
+          .from(ApiConstants.ipdAdmissionsTable)
+          .select('id')
+          .eq('hospital_id', hospitalId)
+          .eq('admission_date', _dateOnlyIso(day))
+          .isFilter('deleted_at', null)
+          .neq('status', 'cancelled')
+          .count(CountOption.exact),
+    );
+    return response.count;
+  }
+
+  /// Counts the beds that are allocatable for a hospital.
+  ///
+  /// Uses the same rule the ward screen and `getWardStats` use: an active bed
+  /// whose `status` is `available`.
+  Future<int> countAvailableBeds(String hospitalId) async {
+    final response = await fetchWithRetry(
+      () => _client
+          .from(ApiConstants.bedsTable)
+          .select('id')
+          .eq('hospital_id', hospitalId)
+          .eq('is_active', true)
+          .eq('status', 'available')
+          .count(CountOption.exact),
+    );
+    return response.count;
+  }
+
+  /// Money actually collected in `[start, end)` from the unified payment ledger
+  /// (`payment_logs.amount_paid`), hospital-scoped and timestamp-based.
+  ///
+  /// This is the ONE authoritative collection ledger — the atomic OPD payment
+  /// RPC and every billing path (`generateOPDSlip`, `generateIPDBill`,
+  /// `createManualBill`, `_recordDiagnosticBilling`, `recordPayment`) write to
+  /// it. Billed charges (`billing.net_amount`) and the lifetime
+  /// `billing.paid_amount` mirror are intentionally NOT used, so the same money
+  /// is never counted twice. Soft-deleted logs and logs belonging to
+  /// soft-deleted / refunded / waived bills are excluded.
+  Future<double> sumCollectionsBetween(
+    DateTime start,
+    DateTime end, {
+    required String hospitalId,
+  }) async {
+    final rows = await fetchWithRetry(
+      () => _client
+          .from(ApiConstants.paymentLogsTable)
+          .select('amount_paid, bill_id')
+          .eq('hospital_id', hospitalId)
+          .gte('payment_date', start.toUtc().toIso8601String())
+          .lt('payment_date', end.toUtc().toIso8601String())
+          .isFilter('deleted_at', null),
+    );
+
+    final logs = List<Map<String, dynamic>>.from(rows);
+    if (logs.isEmpty) return 0;
+
+    final billIds = <String>{
+      for (final log in logs)
+        if ((log['bill_id']?.toString() ?? '').isNotEmpty)
+          log['bill_id'].toString(),
+    };
+
+    // Resolve parent-bill state in one round-trip so refunded/waived or
+    // soft-deleted bills never contribute a collection.
+    var excludedBills = const <String>{};
+    if (billIds.isNotEmpty) {
+      final bills = await fetchWithRetry(
+        () => _client
+            .from(ApiConstants.billingTable)
+            .select('id, payment_status, deleted_at')
+            .inFilter('id', billIds.toList()),
+      );
+      excludedBills = excludedCollectionBills(
+        List<Map<String, dynamic>>.from(bills),
+      );
+    }
+
+    return totalCollected(logs, excludedBillIds: excludedBills);
+  }
+
+  /// Sums the `amount_paid` of payment logs, skipping any whose parent bill is
+  /// excluded. Pure + static so the collection rule is unit-testable without a
+  /// live database, and so it can never drift from the query above.
+  static double totalCollected(
+    List<Map<String, dynamic>> logs, {
+    Set<String> excludedBillIds = const {},
+  }) {
+    var total = 0.0;
+    for (final log in logs) {
+      if (excludedBillIds.contains(log['bill_id']?.toString())) continue;
+      total += double.tryParse(log['amount_paid']?.toString() ?? '') ?? 0;
+    }
+    return (total * 100).roundToDouble() / 100;
+  }
+
+  /// Bills that must never contribute a collection: soft-deleted, refunded or
+  /// waived. Static + pure for unit testing.
+  static Set<String> excludedCollectionBills(
+    List<Map<String, dynamic>> bills,
+  ) {
+    final excluded = <String>{};
+    for (final bill in bills) {
+      final status = bill['payment_status']?.toString().toLowerCase();
+      if (bill['deleted_at'] != null ||
+          status == 'refunded' ||
+          status == 'waived') {
+        excluded.add(bill['id'].toString());
+      }
+    }
+    return excluded;
+  }
+
+  /// Zero-padded `YYYY-MM-DD` for a date-only column compare.
+  String _dateOnlyIso(DateTime day) =>
+      '${day.year.toString().padLeft(4, '0')}-'
+      '${day.month.toString().padLeft(2, '0')}-'
+      '${day.day.toString().padLeft(2, '0')}';
+
+  // ---------------------------------------------------------------------------
   // Voucher / Expense Module
   // ---------------------------------------------------------------------------
 

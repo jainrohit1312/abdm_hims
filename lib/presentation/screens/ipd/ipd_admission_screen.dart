@@ -1155,6 +1155,9 @@ class _IPDAdmissionScreenState extends ConsumerState<IPDAdmissionScreen> {
         ref.invalidate(hospitalBedsProvider(hospitalId));
       }
 
+      // Dashboard "Today's Overview" — IPD Today aur Beds Available refresh.
+      refreshDashboardMetrics(ref);
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('IPD Admission successful!')),
       );

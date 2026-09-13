@@ -12,6 +12,7 @@ import '../../app/providers.dart';
 /// * [opdQueueProvider]
 /// * [hospitalBedsProvider] (beds)
 /// * [voucherStatsProvider] (dashboard stats)
+/// * [dashboardMetricsProvider] (OPD / IPD / beds / collections today)
 ///
 /// [onRefresh] ek screen-specific callback hai (jaise `setState` ya extra
 /// provider invalidations) jo in core invalidations ke turant baad chalta hai.
@@ -61,6 +62,9 @@ class AppRefreshButton extends ConsumerWidget {
       ref.invalidate(hospitalBedsProvider(hospitalId));
       ref.invalidate(voucherStatsProvider(hospitalId));
     }
+
+    // Dashboard "Today's Overview" cards (single shared refresh tick).
+    refreshDashboardMetrics(ref);
 
     // Screen-specific refresh (e.g. `setState` ya extra invalidations).
     onRefresh?.call();

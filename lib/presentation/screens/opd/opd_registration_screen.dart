@@ -535,6 +535,9 @@ class _OPDRegistrationScreenState extends ConsumerState<OPDRegistrationScreen> {
         }
       }
 
+      // Dashboard "Today's Overview" — naya OPD visit turant count ho.
+      refreshDashboardMetrics(ref);
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(

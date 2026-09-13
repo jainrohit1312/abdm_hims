@@ -556,6 +556,9 @@ class _IPDDischargeScreenState extends ConsumerState<IPDDischargeScreen> {
         ref.invalidate(hospitalBedsProvider(hospitalId));
       }
 
+      // Dashboard "Today's Overview" — freed bed / discharge refresh.
+      refreshDashboardMetrics(ref);
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Patient discharged successfully!')),

@@ -8,6 +8,7 @@ import '../../widgets/app_page_content.dart';
 import '../../widgets/app_refresh_button.dart';
 import '../../widgets/app_ui.dart';
 import '../../widgets/smart_navigation.dart';
+import '../../../services/dashboard_metrics_service.dart';
 import '../../../services/sync_engine.dart';
 
 class DashboardScreen extends ConsumerWidget {
@@ -19,6 +20,9 @@ class DashboardScreen extends ConsumerWidget {
     final voucherStatsAsync = hospitalId == null
         ? null
         : ref.watch(voucherStatsProvider(hospitalId));
+    final metricsAsync = hospitalId == null || hospitalId.isEmpty
+        ? null
+        : ref.watch(dashboardMetricsProvider(hospitalId));
 
     return Scaffold(
       appBar: SmartAppBar(
@@ -44,7 +48,7 @@ class DashboardScreen extends ConsumerWidget {
             const SizedBox(height: 16),
             _buildQuickActions(context),
             const SizedBox(height: 24),
-            _buildStatisticsCards(context),
+            _buildStatisticsCards(context, metricsAsync),
             const SizedBox(height: 24),
             _buildExpenseCards(context, voucherStatsAsync),
             const SizedBox(height: 24),
@@ -292,8 +296,23 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildStatisticsCards(BuildContext context) {
+  /// "Today's Overview" cards — backed by [dashboardMetricsProvider].
+  ///
+  /// Each card carries its own state: a spinner while loading, the real value
+  /// when available, and an explicit "Unavailable" (never a fabricated zero)
+  /// when the metric could not be produced. A stale value is shown with the
+  /// time it was observed.
+  Widget _buildStatisticsCards(
+    BuildContext context,
+    AsyncValue<DashboardMetrics>? metricsAsync,
+  ) {
     final theme = Theme.of(context);
+    final metrics = metricsAsync?.valueOrNull;
+    // Spinner only on the FIRST load; a background refresh keeps the previous
+    // values visible instead of flashing empty.
+    final isLoading =
+        metricsAsync != null && metricsAsync.isLoading && !metricsAsync.hasValue;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -307,22 +326,26 @@ class DashboardScreen extends ConsumerWidget {
         Row(
           children: [
             Expanded(
-              child: _statCard(
+              child: _metricCard(
                 theme,
                 Icons.people,
                 'OPD Today',
-                '0',
                 Colors.blue,
+                isLoading: isLoading,
+                metric: metrics?.opdToday,
+                format: _formatCount,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _statCard(
+              child: _metricCard(
                 theme,
                 Icons.local_hotel,
                 'IPD Today',
-                '0',
                 Colors.green,
+                isLoading: isLoading,
+                metric: metrics?.ipdToday,
+                format: _formatCount,
               ),
             ),
           ],
@@ -331,27 +354,107 @@ class DashboardScreen extends ConsumerWidget {
         Row(
           children: [
             Expanded(
-              child: _statCard(
+              child: _metricCard(
                 theme,
                 Icons.bed,
                 'Beds Available',
-                '0',
                 Colors.orange,
+                isLoading: isLoading,
+                metric: metrics?.bedsAvailable,
+                format: _formatCount,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _statCard(
+              child: _metricCard(
                 theme,
                 Icons.currency_rupee,
-                'Revenue Today',
-                '₹0',
+                // "Collections" (money actually received today from the
+                // unified payment ledger), not billed charges — so the label
+                // never implies total billed revenue.
+                'Collections Today',
                 Colors.purple,
+                isLoading: isLoading,
+                metric: metrics?.collectionsToday,
+                format: (value) => _formatCurrency(value.toDouble()),
               ),
             ),
           ],
         ),
       ],
+    );
+  }
+
+  String _formatCount(num value) => value.round().toString();
+
+  /// One overview card whose value area reflects the metric's real state.
+  Widget _metricCard(
+    ThemeData theme,
+    IconData icon,
+    String label,
+    Color color, {
+    required bool isLoading,
+    required MetricValue? metric,
+    required String Function(num value) format,
+  }) {
+    final Widget valueChild;
+    if (isLoading) {
+      valueChild = const Padding(
+        padding: EdgeInsets.symmetric(vertical: 4),
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    } else if (metric == null || !metric.isAvailable) {
+      valueChild = Text(
+        'Unavailable',
+        style: theme.textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.bold,
+          color: theme.colorScheme.error,
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      );
+    } else {
+      valueChild = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            format(metric.value!),
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          if (metric.isStale && metric.asOf != null)
+            Text(
+              'as of ${_shortTime(metric.asOf!)}',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+        ],
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 8),
+            valueChild,
+            const SizedBox(height: 4),
+            Text(label, style: theme.textTheme.bodySmall),
+          ],
+        ),
+      ),
     );
   }
 

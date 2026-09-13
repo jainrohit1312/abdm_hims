@@ -31,6 +31,7 @@ import '../services/auth_service.dart';
 import '../services/cache_service.dart';
 import '../services/compliance_service.dart';
 import '../services/counseling_recording_service.dart';
+import '../services/dashboard_metrics_service.dart';
 import '../services/database_service.dart';
 import '../services/geofence_service.dart';
 import '../services/local_db.dart';
@@ -1998,6 +1999,61 @@ final voucherStatsProvider =
     ) async {
       final dbService = ref.read(databaseServiceProvider);
       return dbService.getVoucherStats(hospitalId);
+    });
+
+// ---------------------------------------------------------------------------
+// Dashboard "Today's Overview" metrics (OPD / IPD / Beds / Collections)
+// ---------------------------------------------------------------------------
+
+/// Shared refresh tick for [dashboardMetricsProvider].
+///
+/// Bumped by the global refresh button and by registration / admission /
+/// payment screens. One shared signal (instead of every screen invalidating the
+/// family itself) means there is exactly one refresh path and no duplicate
+/// subscriptions.
+final dashboardMetricsRefreshProvider = StateProvider<int>((ref) => 0);
+
+final dashboardMetricsServiceProvider = Provider<DashboardMetricsService>((
+  ref,
+) {
+  return DashboardMetricsService(
+    dbService: ref.watch(databaseServiceProvider),
+    localDb: ref.watch(localDatabaseProvider),
+  );
+});
+
+/// Forces a dashboard-metrics refresh from any widget.
+void refreshDashboardMetrics(WidgetRef ref) {
+  ref.read(dashboardMetricsRefreshProvider.notifier).state++;
+}
+
+/// Today's overview metrics for the authenticated hospital.
+///
+/// Recomputes when the sync engine finishes a pass (its `lastSyncedAt` /
+/// `lastReconciliationAt` change) and when [dashboardMetricsRefreshProvider] is
+/// bumped after a local write. Keyed by hospital so a hospital switch can never
+/// show another hospital's values.
+final dashboardMetricsProvider =
+    FutureProvider.family<DashboardMetrics, String>((ref, hospitalId) async {
+      ref.watch(
+        syncEngineStatusProvider.select(
+          (s) => (s.lastSyncedAt, s.lastReconciliationAt),
+        ),
+      );
+      ref.watch(dashboardMetricsRefreshProvider);
+
+      if (hospitalId.isEmpty) {
+        return const DashboardMetrics(
+          opdToday: MetricValue.unavailable('No hospital assigned'),
+          ipdToday: MetricValue.unavailable('No hospital assigned'),
+          bedsAvailable: MetricValue.unavailable('No hospital assigned'),
+          collectionsToday: MetricValue.unavailable('No hospital assigned'),
+        );
+      }
+
+      return ref
+          .read(dashboardMetricsServiceProvider)
+          .load(hospitalId: hospitalId);
     });
 
 /// Approver name + approval limit for a hospital (null = not configured).

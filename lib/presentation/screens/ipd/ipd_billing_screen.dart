@@ -423,6 +423,9 @@ class _IPDBillingScreenState extends ConsumerState<IPDBillingScreen> {
         }
       }
 
+      // Dashboard "Today's Overview" — IPD collection turant count ho.
+      refreshDashboardMetrics(ref);
+
       if (!mounted) return;
       _showMessage('Bill generated successfully!');
       await _printBill(bill);
