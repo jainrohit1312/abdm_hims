@@ -116,33 +116,47 @@ class SyncEngine extends ChangeNotifier {
   Timer? _timer;
   Timer? _reconcileTimer;
   bool _disposed = false;
-  bool _isSyncing = false;
-  bool _isReconciling = false;
+
+  /// In-flight passes. A second caller awaits the running pass instead of
+  /// starting a competing one, so a timer pass and a manual refresh can never
+  /// upload the same outbox entries or reconcile the same dataset twice.
+  Future<void>? _syncFuture;
+  Future<void>? _reconcileFuture;
+  Future<void>? _refreshFuture;
+
+  /// Bumped by [reset] so a pass that was already running when the session
+  /// changed can never publish stale status afterwards.
+  int _epoch = 0;
+
+  /// Outcome of the most recent change-log pull, used to recompute health after
+  /// reconciliation without repeating the pull.
+  PullOutcome? _lastPullOutcome;
+
+  /// Whether the last sync pass reached the server AND completed without a
+  /// fatal error. A manual refresh only reconciles/finalizes when this is true.
+  bool _lastSyncReachedServer = false;
+
+  /// Whether the most recent reconciliation attempt failed outright.
+  bool _reconciliationFailed = false;
 
   SyncStatusInfo _status = const SyncStatusInfo(health: SyncHealth.neutral);
 
   SyncStatusInfo get status => _status;
   SyncHealth get health => _status.health;
 
-  /// Starts the incremental sync timer and the separate reconciliation timer.
+  /// Starts the incremental sync timer and the separate reconciliation timer,
+  /// then kicks off one coordinated initial pass immediately so the dashboard
+  /// leaves "Not synced yet" without waiting for the first timer tick.
   /// Safe to call multiple times.
   void start() {
-    if (_timer == null && !_disposed) {
-      _timer = Timer.periodic(interval, (_) => syncNow());
-      Future.delayed(const Duration(seconds: 3), () {
-        if (!_disposed) syncNow();
-      });
-    }
-    if (_reconcileTimer == null && !_disposed) {
-      _reconcileTimer = Timer.periodic(
-        reconcileInterval,
-        (_) => reconcileNow(),
-      );
-      // First reconciliation shortly after startup (background, bounded).
-      Future.delayed(const Duration(seconds: 5), () {
-        if (!_disposed) reconcileNow();
-      });
-    }
+    if (_disposed) return;
+    final wasStopped = _timer == null;
+    _timer ??= Timer.periodic(interval, (_) => syncNow());
+    _reconcileTimer ??= Timer.periodic(
+      reconcileInterval,
+      (_) => reconcileNow(),
+    );
+    if (wasStopped) unawaited(refreshNow());
   }
 
   void stop() {
@@ -152,23 +166,78 @@ class SyncEngine extends ChangeNotifier {
     _reconcileTimer = null;
   }
 
+  /// Stops the timers and returns the visible health to neutral.
+  ///
+  /// Called on logout and on hospital change so the dashboard never keeps a
+  /// previous session's health. Any pass already running is invalidated (its
+  /// epoch no longer matches) so it cannot publish status after the reset.
+  void reset() {
+    if (_disposed) return;
+    _epoch++;
+    stop();
+    _syncFuture = null;
+    _reconcileFuture = null;
+    _refreshFuture = null;
+    _lastPullOutcome = null;
+    _lastSyncReachedServer = false;
+    _reconciliationFailed = false;
+    _setStatus(const SyncStatusInfo(health: SyncHealth.neutral));
+  }
+
   /// One bounded reconciliation pass (paginated full scan of the authorized
-  /// OPD datasets, independent of the incremental cursor).
-  Future<void> reconcileNow() async {
-    if (_isReconciling || _disposed) return;
-    _isReconciling = true;
+  /// OPD datasets, independent of the incremental cursor). Overlapping calls
+  /// share the single running pass.
+  Future<void> reconcileNow() {
+    if (_disposed) return Future<void>.value();
+    final existing = _reconcileFuture;
+    if (existing != null) return existing;
+    final future = _performReconcile();
+    _reconcileFuture = future;
+    future.whenComplete(() {
+      if (identical(_reconcileFuture, future)) _reconcileFuture = null;
+    });
+    return future;
+  }
+
+  Future<void> _performReconcile() async {
+    final epoch = _epoch;
     try {
-      final complete = await dbService.reconcileAll();
-      if (_disposed) return;
+      final outcomes = await dbService.reconcileAllDetailed();
+      if (!_isCurrent(epoch)) return;
+
+      final complete = outcomes.values.every(
+        (o) => o == ReconcileOutcome.complete,
+      );
+      final failed = outcomes.values.any((o) => o == ReconcileOutcome.failed);
+      _reconciliationFailed = failed;
+
+      if (failed) {
+        // Never swallow a reconciliation failure: it must be visible.
+        _setStatus(
+          _status.copyWith(
+            reconciliationComplete: complete,
+            health: SyncHealth.syncFailed,
+            failureReason: 'Reconciliation failed',
+          ),
+        );
+        return;
+      }
+
       _status = _status.copyWith(
         reconciliationComplete: complete,
         lastReconciliationAt: complete ? _now() : _status.lastReconciliationAt,
       );
       notifyListeners();
-    } catch (e) {
-      AppLogger.w('Reconciliation pass failed: $e');
-    } finally {
-      _isReconciling = false;
+    } catch (e, stack) {
+      AppLogger.e('Reconciliation pass failed', e, stack);
+      if (!_isCurrent(epoch)) return;
+      _reconciliationFailed = true;
+      _setStatus(
+        _status.copyWith(
+          health: SyncHealth.syncFailed,
+          failureReason: 'Reconciliation failed: $e',
+        ),
+      );
     }
   }
 
@@ -178,14 +247,28 @@ class SyncEngine extends ChangeNotifier {
   }
 
   /// One full sync pass: upload due outbox entries, then pull fresh data.
-  /// Overlapping calls are ignored.
-  Future<void> syncNow() async {
-    if (_isSyncing || _disposed) return;
+  /// Overlapping calls (timer + manual refresh) share the single running pass.
+  Future<void> syncNow() {
+    if (_disposed) return Future<void>.value();
+    final existing = _syncFuture;
+    if (existing != null) return existing;
+    final future = _performSync();
+    _syncFuture = future;
+    future.whenComplete(() {
+      if (identical(_syncFuture, future)) _syncFuture = null;
+    });
+    return future;
+  }
 
-    _isSyncing = true;
-    _setStatus(_status.copyWith(health: SyncHealth.syncing));
+  Future<void> _performSync() async {
+    final epoch = _epoch;
+    _lastSyncReachedServer = false;
+    _setStatus(
+      _status.copyWith(health: SyncHealth.syncing, failureReason: null),
+    );
     try {
       final online = await dbService.probeSupabase();
+      if (!_isCurrent(epoch)) return;
       if (!online) {
         _setStatus(
           _status.copyWith(
@@ -197,62 +280,142 @@ class SyncEngine extends ChangeNotifier {
         return;
       }
 
+      _lastSyncReachedServer = true;
       await _uploadDueOutbox();
+      if (!_isCurrent(epoch)) return;
       final pullOutcome = await _pullChangedData();
+      if (!_isCurrent(epoch)) return;
+      _lastPullOutcome = pullOutcome;
 
-      if (_disposed) return;
-
-      // Recompute pending/conflict counts for an honest status.
-      final pending = await localDb.outboxPendingCount();
-      final conflicts = await localDb.getConflicts();
-      final now = _now();
-
-      SyncHealth health;
-      if (pullOutcome == PullOutcome.setupIncomplete) {
-        // Server-side change-log migration absent: limited mode, not "current".
-        health = SyncHealth.setupRequired;
-      } else if (conflicts.isNotEmpty) {
-        health = SyncHealth.conflict;
-      } else if (pending > 0) {
-        health = SyncHealth.awaitingUpload;
-      } else if (pullOutcome == PullOutcome.complete &&
-          _status.reconciliationComplete) {
-        // Green only after incremental catch-up AND a completed full
-        // reconciliation — never on incremental alone.
-        health = SyncHealth.upToDate;
-      } else if (pullOutcome == PullOutcome.complete) {
-        health = SyncHealth.downloading;
-      } else {
-        health = SyncHealth.awaitingUpload;
-      }
-
-      final pullVerified =
-          pullOutcome == PullOutcome.complete &&
-          pending == 0 &&
-          conflicts.isEmpty;
-
-      _setStatus(
-        _status.copyWith(
-          health: health,
-          lastSyncedAt: now,
-          pendingUploadCount: pending,
-          conflictCount: conflicts.length,
-          pullVerified: pullVerified,
-          deviceId: _status.deviceId,
-        ),
-      );
+      await _finalizeHealth(pullOutcome);
     } catch (e, stack) {
       AppLogger.e('Sync pass failed', e, stack);
+      if (!_isCurrent(epoch)) return;
+      // A pass that threw must not let a manual refresh finalize a success.
+      _lastSyncReachedServer = false;
       _setStatus(
         _status.copyWith(
           health: SyncHealth.syncFailed,
           failureReason: e.toString(),
         ),
       );
-    } finally {
-      _isSyncing = false;
     }
   }
+
+  /// One coordinated manual refresh — the single entry point the UI calls.
+  ///
+  /// Runs one deterministic sequence (never concurrent passes):
+  ///   1. publish an in-progress status immediately;
+  ///   2. connectivity probe + outbox upload + change-log pull (coalesces with
+  ///      any scheduled pass, so no entry is uploaded twice);
+  ///   3. complete the initial/pending full reconciliation when required;
+  ///   4. recompute the final, honest health after reconciliation.
+  ///
+  /// Overlapping manual refreshes share one running pass.
+  Future<void> refreshNow() {
+    if (_disposed) return Future<void>.value();
+    final existing = _refreshFuture;
+    if (existing != null) return existing;
+    final future = _performRefresh();
+    _refreshFuture = future;
+    future.whenComplete(() {
+      if (identical(_refreshFuture, future)) _refreshFuture = null;
+    });
+    return future;
+  }
+
+  Future<void> _performRefresh() async {
+    final epoch = _epoch;
+
+    // 1. Immediate, honest in-progress feedback.
+    _setStatus(
+      _status.copyWith(health: SyncHealth.syncing, failureReason: null),
+    );
+
+    try {
+      // 2. Probe + outbox upload + change-log pull.
+      await syncNow();
+      if (!_isCurrent(epoch)) return;
+
+      // Offline / cloud unreachable / setup incomplete: the sync pass already
+      // published the honest red/attention status. Never reconcile against a
+      // server we could not reach, and never overwrite that status.
+      if (!_lastSyncReachedServer) return;
+
+      // 3. Initial (or still-pending) reconciliation is required before the
+      //    dashboard may claim "up to date".
+      if (!_status.reconciliationComplete) {
+        await reconcileNow();
+        if (!_isCurrent(epoch)) return;
+      }
+
+      // 4. Final health, computed after reconciliation.
+      await _finalizeHealth(_lastPullOutcome ?? PullOutcome.failed);
+    } catch (e, stack) {
+      // refreshNow() must never reject: the UI awaits it, and a thrown error
+      // would otherwise skip the caller's post-sync data refresh.
+      AppLogger.e('Manual refresh failed', e, stack);
+      if (!_isCurrent(epoch)) return;
+      _setStatus(
+        _status.copyWith(
+          health: SyncHealth.syncFailed,
+          failureReason: e.toString(),
+        ),
+      );
+    }
+  }
+
+  /// Recomputes the honest sync health from the last pull outcome, the
+  /// pending/conflict counts and the reconciliation state.
+  Future<void> _finalizeHealth(PullOutcome pullOutcome) async {
+    final epoch = _epoch;
+    final pending = await localDb.outboxPendingCount();
+    final conflicts = await localDb.getConflicts();
+    if (!_isCurrent(epoch)) return;
+    final now = _now();
+
+    SyncHealth health;
+    if (pullOutcome == PullOutcome.setupIncomplete) {
+      // Server-side change-log migration absent: limited mode, not "current".
+      health = SyncHealth.setupRequired;
+    } else if (conflicts.isNotEmpty) {
+      health = SyncHealth.conflict;
+    } else if (pending > 0) {
+      health = SyncHealth.awaitingUpload;
+    } else if (_reconciliationFailed) {
+      // A failed reconciliation keeps us honestly "not up to date".
+      health = SyncHealth.syncFailed;
+    } else if (pullOutcome == PullOutcome.complete &&
+        _status.reconciliationComplete) {
+      // Green only after incremental catch-up AND a completed full
+      // reconciliation — never on incremental alone.
+      health = SyncHealth.upToDate;
+    } else if (pullOutcome == PullOutcome.complete) {
+      health = SyncHealth.downloading;
+    } else {
+      health = SyncHealth.awaitingUpload;
+    }
+
+    final pullVerified =
+        pullOutcome == PullOutcome.complete &&
+        pending == 0 &&
+        conflicts.isEmpty;
+
+    _setStatus(
+      _status.copyWith(
+        health: health,
+        lastSyncedAt: now,
+        pendingUploadCount: pending,
+        conflictCount: conflicts.length,
+        pullVerified: pullVerified,
+        failureReason: _reconciliationFailed
+            ? (_status.failureReason ?? 'Reconciliation failed')
+            : null,
+      ),
+    );
+  }
+
+  bool _isCurrent(int epoch) => !_disposed && epoch == _epoch;
 
   /// Uploads every due outbox entry. One bad entry never blocks the queue.
   Future<int> _uploadDueOutbox() async {
@@ -339,12 +502,14 @@ class SyncEngine extends ChangeNotifier {
 }
 
 extension on SyncStatusInfo {
+  static const Object _unset = Object();
+
   SyncStatusInfo copyWith({
     SyncHealth? health,
     DateTime? lastSyncedAt,
     int? pendingUploadCount,
     int? conflictCount,
-    String? failureReason,
+    Object? failureReason = _unset,
     bool? pullVerified,
     String? deviceId,
     DateTime? lastReconciliationAt,
@@ -355,7 +520,9 @@ extension on SyncStatusInfo {
       lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
       pendingUploadCount: pendingUploadCount ?? this.pendingUploadCount,
       conflictCount: conflictCount ?? this.conflictCount,
-      failureReason: failureReason ?? this.failureReason,
+      failureReason: identical(failureReason, _unset)
+          ? this.failureReason
+          : failureReason as String?,
       pullVerified: pullVerified ?? this.pullVerified,
       deviceId: deviceId ?? this.deviceId,
       lastReconciliationAt: lastReconciliationAt ?? this.lastReconciliationAt,

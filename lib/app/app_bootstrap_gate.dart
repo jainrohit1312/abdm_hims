@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 
+import '../services/sync_engine.dart';
 import 'providers.dart';
+import 'sync_lifecycle.dart';
 
 class AppBootstrapGate extends ConsumerStatefulWidget {
   const AppBootstrapGate({required this.child, super.key});
@@ -19,6 +21,11 @@ class _AppBootstrapGateState extends ConsumerState<AppBootstrapGate> {
   Future<void>? _bootstrapFuture;
   String? _error;
   bool _isLoading = true;
+
+  /// Hospital id the sync engine is currently running for. Used to detect a
+  /// hospital change and to reset on logout.
+  SyncEngine? _syncEngine;
+  SyncLifecycleCoordinator? _syncLifecycle;
 
   @override
   void initState() {
@@ -54,13 +61,6 @@ class _AppBootstrapGateState extends ConsumerState<AppBootstrapGate> {
         throw StateError(
           'Authentication restored, but hospital context was not loaded',
         );
-      }
-
-      // Start the single offline-first sync engine (30-second timer) once we
-      // have a valid session AND hospital context. When logged out there is
-      // nothing to sync, so the timer/connectivity polling stays off.
-      if (session != null && hospitalId != null && hospitalId.isNotEmpty) {
-        ref.read(syncEngineProvider).start();
       }
 
       // Register this device for FCM push notifications and subscribe it to
@@ -112,12 +112,31 @@ class _AppBootstrapGateState extends ConsumerState<AppBootstrapGate> {
     }
   }
 
+  /// Keeps the single [SyncEngine] in lock-step with the authenticated session.
+  ///
+  /// It starts as soon as a session + hospital context exist, restarts on a
+  /// hospital change, and resets on logout — all without a process restart, so
+  /// login after logout starts syncing again instead of staying neutral.
+  void _syncWithAuth(AuthState authState) {
+    final engine = ref.read(syncEngineProvider);
+    if (!identical(_syncEngine, engine)) {
+      // The engine provider was rebuilt — drive the new instance.
+      _syncEngine = engine;
+      _syncLifecycle = SyncLifecycleCoordinator(engine);
+    }
+    _syncLifecycle!.onAuthStateChanged(authState);
+  }
+
   void _retry() {
     _startBootstrap(force: true);
   }
 
   @override
   Widget build(BuildContext context) {
+    // React to session/hospital changes so sync never silently stays off after
+    // a logout → login cycle or a hospital switch.
+    ref.listen<AuthState>(authStateProvider, (_, next) => _syncWithAuth(next));
+
     if (_isLoading) {
       return const Directionality(
         textDirection: TextDirection.ltr,

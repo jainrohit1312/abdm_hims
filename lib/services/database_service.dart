@@ -4475,9 +4475,7 @@ class DatabaseService {
 
   /// Bills that must never contribute a collection: soft-deleted, refunded or
   /// waived. Static + pure for unit testing.
-  static Set<String> excludedCollectionBills(
-    List<Map<String, dynamic>> bills,
-  ) {
+  static Set<String> excludedCollectionBills(List<Map<String, dynamic>> bills) {
     final excluded = <String>{};
     for (final bill in bills) {
       final status = bill['payment_status']?.toString().toLowerCase();
@@ -6439,14 +6437,23 @@ class DatabaseService {
     }
   }
 
+  /// Reconciles every OPD dataset and reports the per-dataset outcome.
+  ///
+  /// The sync engine uses this to distinguish a real failure
+  /// ([ReconcileOutcome.failed]) from a still-in-progress/partial pass
+  /// ([ReconcileOutcome.partial]) so it can surface an honest sync health.
+  Future<Map<String, ReconcileOutcome>> reconcileAllDetailed() async {
+    final outcomes = <String, ReconcileOutcome>{};
+    for (final table in _reconcileTables) {
+      outcomes[table] = await reconcileDataset(table);
+    }
+    return outcomes;
+  }
+
   /// Reconciles every OPD dataset. Returns true when all completed.
   Future<bool> reconcileAll() async {
-    var allComplete = true;
-    for (final table in _reconcileTables) {
-      final outcome = await reconcileDataset(table);
-      if (outcome != ReconcileOutcome.complete) allComplete = false;
-    }
-    return allComplete;
+    final outcomes = await reconcileAllDetailed();
+    return outcomes.values.every((o) => o == ReconcileOutcome.complete);
   }
 
   Future<void> _mergeReconciledRow(
